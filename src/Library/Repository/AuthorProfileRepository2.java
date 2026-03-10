@@ -4,7 +4,7 @@
 package Library.Repository;
 //import the class of AuthorProfile2
 import Library.Model.AuthorProfile2;
-
+//for safe return
 import java.util.Optional;
 
 public interface AuthorProfileRepository2 {
