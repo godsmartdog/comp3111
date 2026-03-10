@@ -1,5 +1,6 @@
 package Library.Model;
 //imported to AuthorProfileRepository2.java for interface
+//Profile for Author
 public class AuthorProfile2 {
     private final String username;
     private final String bio;
