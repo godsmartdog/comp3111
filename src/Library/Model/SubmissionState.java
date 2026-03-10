@@ -1,5 +1,6 @@
 package Library.Model;
-//used for state
+
+// the enum class is more representative than indexes
 public enum SubmissionState {
     PENDING,
     APPROVED,
