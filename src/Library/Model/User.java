@@ -1,6 +1,5 @@
 package Library.Model;
 
-import javax.management.relation.Role;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -26,9 +25,9 @@ public class User {
     public LocalDateTime getCreatedAt() { return createdAt; }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof User user)) return false;
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof User user)) return false;
         return Objects.equals(username, user.username);
     }
 

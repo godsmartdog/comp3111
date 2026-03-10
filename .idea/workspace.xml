@@ -5,28 +5,20 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3de5ffc5-fe5f-42c8-9700-3b3e50ebc2eb" name="Changes" comment="initialize">
-      <change afterPath="$PROJECT_DIR$/src/Library/Exception/AuthenticationException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Exception/BusinessException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Exception/NotFoundException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Exception/ValidationException.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Model/Book.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Model/BorrowRecord.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Model/Role.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Model/User.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/BookRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/BorrowRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryBookRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryBorrowRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryUserRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Repository/UserRepository.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Security/PasswordHasher.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Security/PasswordPolicy.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Service/AuthService.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Service/BookService.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Service/BorrowService.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/Library/Ui/ConsoleUI.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Model/AuthorProfile2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Model/BookSubmission2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Model/LibrarianProfile3.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Model/SubmissionState.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/AuthorProfileRepository2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/BookSubmissionRepository2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/LibrarianProfileRepository3.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryAuthorProfileRepository2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryBookSubmissionRepository2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Repository/MemoryLibrarianProfileRepository3.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Service/AuthorService2.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/Library/Service/LibrarianService3.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Main.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Main.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/Library/Model/User.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Model/User.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -56,6 +48,13 @@
     "accountId": "b0d04f5a-22dc-43a8-bd43-b1d8f33a6697"
   }
 }]]></component>
+  <component name="KubernetesApiPersistence"><![CDATA[{}]]></component>
+  <component name="KubernetesApiProvider"><![CDATA[{
+  "isMigrated": true
+}]]></component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
   <component name="ProjectColorInfo"><![CDATA[{
   "associatedIndex": 8
 }]]></component>
@@ -95,7 +94,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1773110758402</updated>
-      <workItem from="1773110759471" duration="5199000" />
+      <workItem from="1773110759471" duration="13179000" />
     </task>
     <task id="LOCAL-00001" summary="initialize">
       <option name="closed" value="true" />
@@ -121,7 +120,23 @@
       <option name="project" value="LOCAL" />
       <updated>1773111078003</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="initialize">
+      <option name="closed" value="true" />
+      <created>1773116675907</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1773116675907</updated>
+    </task>
+    <task id="LOCAL-00005" summary="initialize">
+      <option name="closed" value="true" />
+      <created>1773116722887</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1773116722887</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
