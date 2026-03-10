@@ -10,6 +10,6 @@ import java.util.Optional;
 public interface AuthorProfileRepository2 {
     //save the profile
     void save(AuthorProfile2 profile);
-    //username is para in profile, AuthorProfile2 object should be returned
+    //username is para in profile, AuthorProfile2 object may be returned
     Optional<AuthorProfile2> findByUsername(String username);
 }
