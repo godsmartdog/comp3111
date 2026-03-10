@@ -3,10 +3,13 @@
 //markReturned() set true mean the book available now
 package Library.Model;
 
-import java.time.LocalDate;
-import java.util.UUID;
+import java.time.LocalDate; // local system date for reference (just the date such as YYYYMMDD)
+import java.util.UUID; // universial unique object identifier
 
+// BorrowRecord indicate flow of books between library and borrowers
 public class BorrowRecord {
+
+    // Member variables
     private final String id;
     private final String username;
     private final String bookId;
@@ -14,15 +17,17 @@ public class BorrowRecord {
     private final LocalDate dueDate;
     private boolean returned;
 
+    // Constructor
     public BorrowRecord(String username, String bookId, LocalDate borrowDate, LocalDate dueDate) {
-        this.id = UUID.randomUUID().toString();
+        this.id = UUID.randomUUID().toString(); // randomly generate a unique ID for future reference and tracking
         this.username = username;
         this.bookId = bookId;
         this.borrowDate = borrowDate;
         this.dueDate = dueDate;
-        this.returned = false;
+        this.returned = false; // when library lend the book - book is held by borrower - library awaiting return
     }
-    
+
+    // Accessor
     public String getId() { return id; }
     public String getUsername() { return username; }
     public String getBookId() { return bookId; }
@@ -30,5 +35,6 @@ public class BorrowRecord {
     public LocalDate getDueDate() { return dueDate; }
     public boolean isReturned() { return returned; }
 
+    // Mutator - library received the book - since borrower returned the book
     public void markReturned() { this.returned = true; }
 }
