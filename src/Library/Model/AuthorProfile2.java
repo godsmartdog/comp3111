@@ -6,7 +6,7 @@ public class AuthorProfile2 { // Profile for Author with parameters: {username, 
     private final String username;
     private final String bio;
 
-    // Initialize the member variables or update data
+    // Constructor
     public AuthorProfile2(String username, String bio) {
         this.username = username;
         this.bio = bio;
