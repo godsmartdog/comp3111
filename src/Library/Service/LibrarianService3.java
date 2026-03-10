@@ -95,4 +95,12 @@ public class LibrarianService3 {
     public void bulkReject(List<String> submissionIds, String comment) {
         for (String id : submissionIds) rejectSubmission(id, comment);
     }
+
+     // [Task 3 nice-to-have] 
+
+    public String getSubmissionFilePath(String submissionId) {
+        Library.Model.BookSubmission2 s = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new Library.Exception.NotFoundException("Submission not found."));
+        return s.getFileName(); // if you store full path, return full path
+    }
 }
