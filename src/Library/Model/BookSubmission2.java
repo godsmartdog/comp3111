@@ -1,14 +1,17 @@
 //this file is for define The status of the submit of Book , function approve(String comment) and reject(String comment) will be used for "submission status"
 //imported in BookSubmissionRepository2
+
 package Library.Model;
 
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.time.LocalDate; // local system date for reference (just the day such as YYYYMMDD)
+import java.util.ArrayList; // generic class (similar to C++ template class "array")
+import java.util.List; // generic class (similar to C++ template class "list")
+import java.util.UUID; // universial unique object identifier
 
+// BookSubmission is a finished draft, but still before publishing a book
 public class BookSubmission2 {
 
+    // Member variables
     private final String id;
     private final String title;
     private final String authorUsername;
@@ -22,32 +25,35 @@ public class BookSubmission2 {
     private String librarianComment;
     private LocalDate approvedDate;
 
+    // Constructor - first function overloading with currrent system date
     public BookSubmission2(String title, String authorUsername, String authorFullName,
                            List<String> genres, String description, String fileName) {
         this.id = UUID.randomUUID().toString();
         this.title = title;
         this.authorUsername = authorUsername;
         this.authorFullName = authorFullName;
-        this.genres = new ArrayList<>(genres);
+        this.genres = new ArrayList<>(genres); // Liskov polymorphic substution principle - init RHS ArrayList<>() prevent null pointer exception
         this.description = description;
         this.fileName = fileName;
         this.submittedDate = LocalDate.now();
         this.status = SubmissionState.PENDING;
     }
 
+    // Constructor - second function overloading with user defined and given system date
     public BookSubmission2(String id, String title, String authorUsername, String authorFullName,
                            List<String> genres, String description, String fileName, LocalDate submittedDate) {
         this.id = id;
         this.title = title;
         this.authorUsername = authorUsername;
         this.authorFullName = authorFullName;
-        this.genres = new ArrayList<>(genres); // 防御性拷贝，避免外部修改
+        this.genres = new ArrayList<>(genres); // Liskov polymorphic substution principle - init RHS ArrayList<>() prevent null pointer exception // Defensive duplication prevent extenral modification on the variable
         this.description = description;
         this.fileName = fileName;
         this.submittedDate = submittedDate;
-        this.status = SubmissionState.PENDING; // 补上初始化，避免 null
+        this.status = SubmissionState.PENDING;// Initialization prevent null exception with use of PENDING
     }
-//get data
+    
+    // Accessor
     public String getId() { return id; }
     public String getTitle() { return title; }
     public String getAuthorUsername() { return authorUsername; }
@@ -60,13 +66,15 @@ public class BookSubmission2 {
     public String getLibrarianComment() { return librarianComment; }
     public LocalDate getApprovedDate() { return approvedDate; }
 
-    public void approve(String comment) {// function to change status
+    // Mutator - change status to APPROVED to list considered books - (still not published - only publish afterwards)
+    public void approve(String comment) {
         this.status = SubmissionState.APPROVED;
         this.librarianComment = comment;
         this.approvedDate = LocalDate.now();
     }
 
-    public void reject(String comment) {// function to change status
+    // Mutator - change status to REJECTED - (did NOT pass consideration stage - still before publish stage)
+    public void reject(String comment) {
         this.status = SubmissionState.REJECTED;
         this.librarianComment = comment;
     }
