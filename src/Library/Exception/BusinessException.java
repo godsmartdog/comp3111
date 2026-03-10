@@ -1,5 +1,4 @@
 // Import the system library used for extension handling
-
 package Library.Exception;
 
 // We use inheritance to perform specialization
