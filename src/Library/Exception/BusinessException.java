@@ -1,4 +1,6 @@
-package Library.Exception;// Import the system library used for extension handling
+// Import the system library used for extension handling
+
+package Library.Exception;
 
 // We use inheritance to perform specialization
 public class BusinessException extends RuntimeException {
@@ -6,7 +8,7 @@ public class BusinessException extends RuntimeException {
     public BusinessException(String message) {
         super(message);
     }
-//// Second instance of function overloading, now with Throwable argument for detailed error message with tracable cause
+// Second instance of function overloading, now with Throwable argument for detailed error message with tracable cause
     public BusinessException(String message, Throwable cause) {
         super(message, cause);
     }
