@@ -21,8 +21,8 @@ public class Book {
         this.title = title;
         this.authorFullName = authorFullName;
         this.summary = summary;
-        this.approved = false; //
-        this.available = false;
+        this.approved = false; // initially not permitted to publish before review
+        this.available = false; // initially not available to borrow (not on the shelves before official approval)
     }
 
     // Accessor
