@@ -1,5 +1,5 @@
-//this file is for define The status of the submit of Book , function approve(String comment) and reject(String comment) will be used for submission status
-
+//this file is for define The status of the submit of Book , function approve(String comment) and reject(String comment) will be used for "submission status"
+//imported in BookSubmissionRepository2
 package Library.Model;
 
 import java.time.LocalDate;
