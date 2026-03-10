@@ -1,3 +1,5 @@
+//this file is for define The Book , function approve(String comment) and reject(String comment) will be used for submission status
+
 package Library.Model;
 
 import java.time.LocalDate;
