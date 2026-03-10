@@ -1,5 +1,5 @@
 //This file will be used in Library.service.AuthorService2 
-//function defined in Memoryxxxx
+//function( save(), findByUsername()) defined in Memoryxxxx -> just go see this
 // Import the system library used for extension handling
 package Library.Repository;
 //import the class of AuthorProfile2
