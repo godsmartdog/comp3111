@@ -47,7 +47,7 @@ public class BookSubmission2 {
         this.submittedDate = submittedDate;
         this.status = SubmissionState.PENDING; // 补上初始化，避免 null
     }
-
+//get data
     public String getId() { return id; }
     public String getTitle() { return title; }
     public String getAuthorUsername() { return authorUsername; }
@@ -60,13 +60,13 @@ public class BookSubmission2 {
     public String getLibrarianComment() { return librarianComment; }
     public LocalDate getApprovedDate() { return approvedDate; }
 
-    public void approve(String comment) {
+    public void approve(String comment) {// function to change status
         this.status = SubmissionState.APPROVED;
         this.librarianComment = comment;
         this.approvedDate = LocalDate.now();
     }
 
-    public void reject(String comment) {
+    public void reject(String comment) {// function to change status
         this.status = SubmissionState.REJECTED;
         this.librarianComment = comment;
     }
