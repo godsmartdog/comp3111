@@ -75,4 +75,12 @@ public class AuthorService2 {
         if (username == null || username.isBlank()) throw new ValidationException("Username cannot be empty.");
         if (fullName == null || fullName.isBlank()) throw new ValidationException("Full Name cannot be empty.");
     }
+
+     public String previewBook(String title, List<String> genres, String description) {
+        return "=== Preview ===\nTitle: " + title + "\nGenres: " + genres + "\nDescription: " + description;
+    }
+
+    public List<String> getSupportedGenres() {
+        return List.of("Fiction", "Non-Fiction", "Education", "Science", "Technology", "History", "Fantasy");
+    }
 }
