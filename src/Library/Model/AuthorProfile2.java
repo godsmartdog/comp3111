@@ -1,6 +1,7 @@
 package Library.Model; //imported to AuthorProfileRepository2.java for interface
 
-public class AuthorProfile2 { // Profile for Author with parameters: {username, bio}
+// Profile for Author with parameters: {username, bio}
+public class AuthorProfile2 {
 
     // Member variables - final keyword for immutability
     private final String username;
