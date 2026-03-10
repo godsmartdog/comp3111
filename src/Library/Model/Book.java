@@ -3,7 +3,7 @@ package Library.Model; // imported in BookRepository for interface
 import java.time.LocalDate; // local system date for reference (just the date such as YYYYMMDD)
 import java.util.UUID; // universial unique object identifier
 
-// Class for book
+// Class for book - already held by librarian - past book submission accepted
 public class Book {
 
     // Member variables
