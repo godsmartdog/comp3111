@@ -1,4 +1,4 @@
-//imported in BookRepository
+//imported in BookRepository for interface
 package Library.Model;
 
 import java.time.LocalDate;
