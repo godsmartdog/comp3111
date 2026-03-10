@@ -1,3 +1,6 @@
+//imported in BorrowRepository
+//dfine the class for Borrow Record
+//markReturned() set true mean the book available now
 package Library.Model;
 
 import java.time.LocalDate;
@@ -19,7 +22,7 @@ public class BorrowRecord {
         this.dueDate = dueDate;
         this.returned = false;
     }
-
+    
     public String getId() { return id; }
     public String getUsername() { return username; }
     public String getBookId() { return bookId; }
