@@ -20,4 +20,12 @@ public class BookService {
                 .sorted(Comparator.comparing(Book::getTitle))
                 .collect(Collectors.toList());
     }
+    
+    public String previewBook(String title, List<String> genres, String description) {
+        return "=== Preview ===\nTitle: " + title + "\nGenres: " + genres + "\nDescription: " + description;
+    }
+
+    public List<String> getSupportedGenres() {
+        return List.of("Fiction", "Non-Fiction", "Education", "Science", "Technology", "History", "Fantasy");
+    }
 }
