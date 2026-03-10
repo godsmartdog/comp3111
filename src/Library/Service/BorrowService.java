@@ -21,30 +21,19 @@ public class BorrowService {
         this.borrowRepository = borrowRepository;
     }
 
-    public BorrowRecord borrowBook(String username, String bookId) {
-        Book book = bookRepository.findById(bookId)
-                .orElseThrow(() -> new NotFoundException("Book not found."));
+    public BorrowRecord borrowBook(String username, String bookId, int durationDays) {
+        if (durationDays <= 0) durationDays = DEFAULT_BORROW_DAYS;
+        Book book = bookRepository.findById(bookId).orElseThrow(() -> new NotFoundException("Book not found."));
+        if (!book.isApproved()) throw new BusinessException("Book is not approved yet.");
+        if (!book.isAvailable()) throw new BusinessException("Book is currently unavailable.");
 
-        if (!book.isApproved()) {
-            throw new BusinessException("Book is not approved yet.");
-        }
-        if (!book.isAvailable()) {
-            throw new BusinessException("Book is currently unavailable.");
-        }
+        long activeBorrows = borrowRepository.findByUsername(username).stream().filter(r -> !r.isReturned()).count();
+        if (activeBorrows >= MAX_BORROW_LIMIT) throw new BusinessException("Borrow limit reached. Max = " + MAX_BORROW_LIMIT + ".");
 
-        long activeBorrows = borrowRepository.findByUsername(username).stream()
-                .filter(r -> !r.isReturned())
-                .count();
-
-        if (activeBorrows >= MAX_BORROW_LIMIT) {
-            throw new BusinessException("Borrow limit reached. Max allowed is " + MAX_BORROW_LIMIT + ".");
-        }
-
-        LocalDate now = LocalDate.now();
-        LocalDate due = now.plusDays(DEFAULT_BORROW_DAYS);
+        java.time.LocalDate now = java.time.LocalDate.now();
+        java.time.LocalDate due = now.plusDays(durationDays);
         BorrowRecord record = new BorrowRecord(username, bookId, now, due);
         borrowRepository.save(record);
-
         book.setAvailable(false);
         return record;
     }
