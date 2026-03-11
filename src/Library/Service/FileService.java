@@ -9,29 +9,6 @@ import java.util.Locale;
 
 // Service class to handle file-related operations such as validating book submission files and providing preview details for submitted files, ensuring that the files meet the defined criteria for format and size before processing them further.
 public class FileService {
-    public String normalizeSubmissionFileName(String filePath) {
-        validateSubmissionFile(filePath);
-
-        Path originalPath = Path.of(filePath);
-        String originalFileName = originalPath.getFileName().toString();
-        String normalizedFileName = normalizeFileName(originalFileName);
-        if (normalizedFileName.equals(originalFileName)) {
-            return originalPath.toString();
-        }
-
-        Path normalizedPath = originalPath.resolveSibling(normalizedFileName);
-        if (Files.exists(normalizedPath)) {
-            throw new ValidationException("Cannot rename file because target already exists: " + normalizedPath);
-        }
-
-        try {
-            return Files.move(originalPath, normalizedPath).toString();
-        } catch (IOException e) {
-            throw new ValidationException("Cannot rename submission file from " + originalPath
-                    + " to " + normalizedPath + ": " + e.getMessage());
-        }
-    }
-
     public void validateSubmissionFile(String filePath) {
         if (filePath == null || filePath.isBlank()) {
             throw new ValidationException("Book file path is required.");
@@ -58,27 +35,6 @@ public class FileService {
         } catch (IOException e) {
             throw new ValidationException("Cannot read file size: " + e.getMessage());
         }
-    }
-
-    private String normalizeFileName(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        String baseName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
-        String extension = dotIndex > 0 ? fileName.substring(dotIndex) : "";
-
-        if (baseName.isBlank()) {
-            return fileName;
-        }
-
-        if (Character.isDigit(baseName.charAt(0))) {
-            return fileName;
-        }
-
-        char lastChar = baseName.charAt(baseName.length() - 1);
-        if (Character.isDigit(lastChar)) {
-            return lastChar + baseName.substring(0, baseName.length() - 1) + extension;
-        }
-
-        return "1" + baseName + extension;
     }
 
     // Method to get preview details of a submitted file, providing information such as file path, size, and a content preview for text files, while also handling potential IO exceptions that may occur during file access.
