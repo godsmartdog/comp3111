@@ -23,6 +23,15 @@ public class MemoryBookRepository implements BookRepository {
     public List<Book> findAll() {
         return new ArrayList<>(books.values());
     }
+
+    @Override
+    public List<Book> searchByTitleOrAuthor(String keyword) {
+        String normalized = keyword == null ? "" : keyword.toLowerCase(Locale.ROOT);
+        return books.values().stream()
+            .filter(b -> b.getTitle().toLowerCase(Locale.ROOT).contains(normalized)
+                    || b.getAuthorFullName().toLowerCase(Locale.ROOT).contains(normalized))
+            .toList();
+    }
 }
 
 
