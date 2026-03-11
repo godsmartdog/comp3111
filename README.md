@@ -7,7 +7,7 @@ Console-based Phase 1 implementation for the COMP3111 e-book library system.
 Compile:
 
 ```bash
-cd /home/runner/work/comp3111/comp3111
+cd path/to/comp3111
 mkdir -p /tmp/comp3111-out
 find src -name '*.java' -print0 | xargs -0 javac -d /tmp/comp3111-out
 ```
@@ -15,7 +15,7 @@ find src -name '*.java' -print0 | xargs -0 javac -d /tmp/comp3111-out
 Run:
 
 ```bash
-cd /home/runner/work/comp3111/comp3111
+cd path/to/comp3111
 java -cp /tmp/comp3111-out Main
 ```
 

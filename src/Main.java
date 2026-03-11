@@ -11,10 +11,10 @@ public class Main {
         UserRepository userRepo = new MemoryUserRepository();
         BookRepository bookRepo = new MemoryBookRepository();
         BorrowRepository borrowRepo = new MemoryBorrowRepository();
-        AuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
+        AuthorProfileRepository2 authorProfileRepo = new MemoryAuthorProfileRepository2();
         BookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
-        LibrarianProfileRepository3 librarianProfileRepository = new MemoryLibrarianProfileRepository3();
-        BookDraftRepository2 bookDraftRepository = new MemoryBookDraftRepository2();
+        LibrarianProfileRepository3 librarianProfileRepo = new MemoryLibrarianProfileRepository3();
+        BookDraftRepository2 draftRepository = new MemoryBookDraftRepository2();
 
         // seed approved books (from teammate author/librarian flow eventually)
         Book b1 = new Book("Clean Code", "Robert C. Martin", "A handbook of agile software craftsmanship.");
@@ -30,15 +30,15 @@ public class Main {
         BorrowService borrowService = new BorrowService(bookRepo, borrowRepo);
         RecommendationService recommendationService = new RecommendationService(bookRepo, borrowRepo);
         FileService fileService = new FileService();
-        AuthorService2 authorService = new AuthorService2(userRepo, authorProfileRepository, submissionRepository);
-        AuthorDraftService authorDraftService = new AuthorDraftService(bookDraftRepository);
+        AuthorService2 authorService = new AuthorService2(userRepo, authorProfileRepo, submissionRepository);
+        AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         LibrarianService3 librarianService = new LibrarianService3(
-                userRepo, librarianProfileRepository, submissionRepository, bookRepo
+                userRepo, librarianProfileRepo, submissionRepository, bookRepo
         );
 
         ConsoleUI consoleUi = new ConsoleUI(authService, bookService, borrowService, recommendationService);
-        AuthorConsoleUI2 authorUi = new AuthorConsoleUI2(authorService, authorDraftService, fileService);
-        LibrarianConsoleUI3 librarianUi = new LibrarianConsoleUI3(librarianService, fileService);
+        AuthorConsoleUI2 authorPortal = new AuthorConsoleUI2(authorService, authorDraftService, fileService);
+        LibrarianConsoleUI3 librarianPortal = new LibrarianConsoleUI3(librarianService, fileService);
 
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
@@ -52,8 +52,8 @@ public class Main {
 
             switch (scanner.nextLine()) {
                 case "1" -> consoleUi.start(scanner);
-                case "2" -> authorUi.start(scanner);
-                case "3" -> librarianUi.start(scanner);
+                case "2" -> authorPortal.start(scanner);
+                case "3" -> librarianPortal.start(scanner);
                 case "0" -> running = false;
                 default -> System.out.println("Invalid choice.");
             }

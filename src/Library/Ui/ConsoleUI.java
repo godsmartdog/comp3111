@@ -97,9 +97,8 @@ public class ConsoleUI {
         System.out.println("=== Available Books ===");
         for (Book b : books) {
             EnhancementHelper.printAvailability(b);
-            String status = b.isAvailable() ? "AVAILABLE" : "BORROWED";
-            System.out.printf("ID=%s | %s | %s | %s | %s%n",
-                    b.getId(), b.getTitle(), b.getAuthorFullName(), b.getPublishDate(), status);
+            System.out.printf("ID=%s | %s | %s | %s%n",
+                    b.getId(), b.getTitle(), b.getAuthorFullName(), b.getPublishDate());
             EnhancementHelper.quickReadSummary(b);
             System.out.println();
         }
