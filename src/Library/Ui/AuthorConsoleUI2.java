@@ -41,7 +41,7 @@ public class AuthorConsoleUI2 {
                 switch (c) {
                     case "1" -> register(sc);
                     case "2" -> login(sc);
-                    case "3" -> loadDraft();
+                    case "3" -> loadDraft(sc);
                     case "4" -> publish(sc);
                     case "0" -> running = false;
                     default -> System.out.println("Invalid choice.");
@@ -78,12 +78,26 @@ public class AuthorConsoleUI2 {
         System.out.println("Author login successful. Welcome " + currentAuthor.getFullName());
     }
 
-    private void loadDraft() {
+    private void loadDraft(Scanner sc) {
         if (currentAuthor == null) {
             System.out.println("Please login first.");
             return;
         }
-        BookDraft2 draft = draftService.loadDraft(currentAuthor.getUsername()).orElse(null);
+        List<BookDraft2> drafts = draftService.loadDrafts(currentAuthor.getUsername());
+        if (drafts.isEmpty()) {
+            System.out.println("No draft found.");
+            return;
+        }
+
+        System.out.println("Available drafts:");
+        for (BookDraft2 item : drafts) {
+            System.out.println("- " + item.getTitle() + " (Last saved: " + item.getLastSavedAt() + ")");
+        }
+
+        System.out.print("Enter draft title to load: ");
+        String title = sc.nextLine();
+
+        BookDraft2 draft = draftService.loadDraft(currentAuthor.getUsername(), title).orElse(null);
         if (draft == null) {
             System.out.println("No draft found.");
         } else {
@@ -131,7 +145,7 @@ public class AuthorConsoleUI2 {
         BookSubmission2 s = authorService.publishBook(
                 currentAuthor.getUsername(), title, genres, description, fileName
         );
-        draftService.clearDraft(currentAuthor.getUsername());
+        draftService.clearDraft(currentAuthor.getUsername(), title);
         System.out.println("Submission sent to librarian. Submission ID: " + s.getId());
     }
 }
