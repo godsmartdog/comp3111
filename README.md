@@ -53,7 +53,7 @@ Typical flow:
 5. Model objects hold the final state.
 6. If something is wrong, an Exception is thrown and UI shows an error message.
 
-##requirement
+## requirement
 ALL task use the code in folder "Exception" to handle the error repsonse to user
 explanation of the use of code is listed under part 3
 ## task 1.1 and task 1.2 Student/Staff Reg and login
