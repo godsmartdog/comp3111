@@ -68,6 +68,8 @@ public class LibrarianConsoleUI3 {
 
         librarianService.registerLibrarian(username, fullName, password, employeeId);
         System.out.println("Librarian registration successful.");
+        System.out.println("Redirecting to login...");
+        login(sc);
     }
 
     private void login(Scanner sc) {

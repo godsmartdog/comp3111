@@ -73,6 +73,8 @@ public class ConsoleUI {
 
         authService.registerStudentOrStaff(username, fullName, password, role);
         System.out.println("Registration successful.");
+        System.out.println("Redirecting to login...");
+        login(sc);
     }
 
     private void login(Scanner sc) {
@@ -85,6 +87,8 @@ public class ConsoleUI {
 
         currentUser = authService.loginStudentOrStaff(username, password, role);
         System.out.println("Login successful. Welcome " + currentUser.getFullName());
+        System.out.println("Redirecting to available books...");
+        listBooks();
     }
 
     private void listBooks() {
