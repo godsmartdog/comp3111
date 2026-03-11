@@ -8,8 +8,8 @@ public class Book {
 
     // Member variables
     private final String id; // immutable 
-    private String title;
-    private String authorFullName;
+    private final String title;  // immutable
+    private final String authorFullName;  // immutable
     private LocalDate publishDate; // approved date by librarian
     private boolean approved;
     private boolean available;
