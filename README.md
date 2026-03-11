@@ -54,8 +54,9 @@ Typical flow:
 6. If something is wrong, an Exception is thrown and UI shows an error message.
 
 ## requirement
-ALL task use the code in folder "Exception" to handle the error repsonse to user.
+ALL task use the code in folder "Exception" to handle the error repsonse to user. 
 explanation of the use of code is listed under part 3.
+Complete workflow in part 9
 ### task 1.1 and task 1.2 Student/Staff Reg and login
 
 - code in Service/AuthService.java.
