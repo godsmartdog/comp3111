@@ -7,6 +7,7 @@ import Library.Model.*;
 import Library.Service.AuthService;
 import Library.Service.BookService;
 import Library.Service.BorrowService;
+import Library.Service.RecommendationService;
 
 import java.util.List;
 import java.util.Scanner;
@@ -15,16 +16,22 @@ public class ConsoleUI {
     private final AuthService authService;
     private final BookService bookService;
     private final BorrowService borrowService;
+    private final RecommendationService recommendationService;
     private User currentUser;
 
-    public ConsoleUI(AuthService authService, BookService bookService, BorrowService borrowService) {
+    public ConsoleUI(AuthService authService, BookService bookService, BorrowService borrowService,
+                     RecommendationService recommendationService) {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
+        this.recommendationService = recommendationService;
     }
 
     public void start() {
-        Scanner sc = new Scanner(System.in);
+        start(new Scanner(System.in));
+    }
+
+    public void start(Scanner sc) {
         boolean running = true;
 
         while (running) {
@@ -89,9 +96,19 @@ public class ConsoleUI {
 
         System.out.println("=== Available Books ===");
         for (Book b : books) {
-            String status = b.isAvailable() ? "AVAILABLE" : "BORROWED";
-            System.out.printf("ID=%s | %s | %s | %s | %s%nSummary: %s%n%n",
-                    b.getId(), b.getTitle(), b.getAuthorFullName(), b.getPublishDate(), status, b.getSummary());
+            EnhancementHelper.printAvailability(b);
+            System.out.printf("ID=%s | %s | %s | %s%n",
+                    b.getId(), b.getTitle(), b.getAuthorFullName(), b.getPublishDate());
+            EnhancementHelper.quickReadSummary(b);
+            System.out.println();
+        }
+
+        List<Book> recommendations = recommendationService.recommendTopPopular(3);
+        if (!recommendations.isEmpty()) {
+            System.out.println("Recommended / Popular Titles:");
+            for (Book recommendation : recommendations) {
+                System.out.printf("- %s by %s%n", recommendation.getTitle(), recommendation.getAuthorFullName());
+            }
         }
     }
 
@@ -102,9 +119,27 @@ public class ConsoleUI {
         }
         System.out.print("Enter Book ID to borrow: ");
         String bookId = sc.nextLine();
+        System.out.print("Borrow duration in days (default 14): ");
+        String durationInput = sc.nextLine().trim();
+        int durationDays;
+        try {
+            durationDays = durationInput.isEmpty() ? 14 : Integer.parseInt(durationInput);
+        } catch (NumberFormatException e) {
+            throw new ValidationException("Borrow duration must be a valid number of days.");
+        }
 
-        BorrowRecord record = borrowService.borrowBook(currentUser.getUsername(), bookId);
-        System.out.printf("Borrow successful. Borrow Date: %s, Due Date: %s%n",
-                record.getBorrowDate(), record.getDueDate());
+        Book selectedBook = bookService.listApprovedBooksWithAvailability().stream()
+                .filter(book -> book.getId().equals(bookId))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException("Book not found in approved catalog."));
+        EnhancementHelper.confirmBorrow(selectedBook.getTitle(), durationDays);
+        System.out.print("Proceed with borrow? (Y/N): ");
+        if (!"Y".equalsIgnoreCase(sc.nextLine().trim())) {
+            System.out.println("Borrow cancelled.");
+            return;
+        }
+
+        BorrowRecord record = borrowService.borrowBook(currentUser.getUsername(), bookId, durationDays);
+        EnhancementHelper.printBorrowResult(record);
     }
 }

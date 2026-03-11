@@ -30,6 +30,14 @@ public class MemoryBorrowRepository implements BorrowRepository {
                 .filter(r -> r.getUsername().equals(username))
                 .collect(Collectors.toList());
     }
+    @Override
+    public Optional<BorrowRecord> findActiveByUsernameAndBookId(String username, String bookId) {
+        return records.stream()
+                .filter(r -> r.getUsername().equals(username))
+                .filter(r -> r.getBookId().equals(bookId))
+                .filter(r -> !r.isReturned())
+                .findFirst();
+    }
     //everything will be shown
     @Override
     public List<BorrowRecord> findAll() {

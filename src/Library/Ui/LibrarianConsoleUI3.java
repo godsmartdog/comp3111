@@ -4,6 +4,7 @@ import Library.Exception.AuthenticationException;
 import Library.Exception.ValidationException;
 import Library.Model.BookSubmission2;
 import Library.Model.User;
+import Library.Service.FileService;
 import Library.Service.LibrarianService3;
 
 import java.util.Arrays;
@@ -12,10 +13,12 @@ import java.util.Scanner;
 
 public class LibrarianConsoleUI3 {
     private final LibrarianService3 librarianService;
+    private final FileService fileService;
     private User currentLibrarian;
 
-    public LibrarianConsoleUI3(LibrarianService3 librarianService) {
+    public LibrarianConsoleUI3(LibrarianService3 librarianService, FileService fileService) {
         this.librarianService = librarianService;
+        this.fileService = fileService;
     }
 
     public void start(Scanner sc) {
@@ -27,8 +30,9 @@ public class LibrarianConsoleUI3 {
             System.out.println("3. View Pending Submissions");
             System.out.println("4. Approve Submission");
             System.out.println("5. Reject Submission");
-            System.out.println("6. Bulk Approve");
-            System.out.println("7. Bulk Reject");
+            System.out.println("6. Preview Submission File");
+            System.out.println("7. Bulk Approve");
+            System.out.println("8. Bulk Reject");
             System.out.println("0. Back");
             System.out.print("Choose: ");
             String c = sc.nextLine();
@@ -40,8 +44,9 @@ public class LibrarianConsoleUI3 {
                     case "3" -> listPending();
                     case "4" -> approve(sc);
                     case "5" -> reject(sc);
-                    case "6" -> bulkApprove(sc);
-                    case "7" -> bulkReject(sc);
+                    case "6" -> previewSubmissionFile(sc);
+                    case "7" -> bulkApprove(sc);
+                    case "8" -> bulkReject(sc);
                     case "0" -> running = false;
                     default -> System.out.println("Invalid choice.");
                 }
@@ -95,6 +100,11 @@ public class LibrarianConsoleUI3 {
         ensureLogin();
         System.out.print("Submission ID: ");
         String id = sc.nextLine();
+        showSubmissionFilePreview(id);
+        if (!confirm(sc, "Approve this submission")) {
+            System.out.println("Approval cancelled.");
+            return;
+        }
         System.out.print("Comment: ");
         String comment = sc.nextLine();
         librarianService.approveSubmission(id, comment);
@@ -105,16 +115,34 @@ public class LibrarianConsoleUI3 {
         ensureLogin();
         System.out.print("Submission ID: ");
         String id = sc.nextLine();
+        showSubmissionFilePreview(id);
+        if (!confirm(sc, "Reject this submission")) {
+            System.out.println("Rejection cancelled.");
+            return;
+        }
         System.out.print("Comment: ");
         String comment = sc.nextLine();
         librarianService.rejectSubmission(id, comment);
         System.out.println("Rejected.");
     }
 
+    private void previewSubmissionFile(Scanner sc) {
+        ensureLogin();
+        System.out.print("Submission ID: ");
+        showSubmissionFilePreview(sc.nextLine());
+    }
+
     private void bulkApprove(Scanner sc) {
         ensureLogin();
         System.out.print("Submission IDs (comma separated): ");
         List<String> ids = Arrays.stream(sc.nextLine().split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
+        for (String id : ids) {
+            showSubmissionFilePreview(id);
+        }
+        if (!confirm(sc, "Approve all listed submissions")) {
+            System.out.println("Bulk approval cancelled.");
+            return;
+        }
         System.out.print("Comment: ");
         String comment = sc.nextLine();
         librarianService.bulkApprove(ids, comment);
@@ -125,10 +153,30 @@ public class LibrarianConsoleUI3 {
         ensureLogin();
         System.out.print("Submission IDs (comma separated): ");
         List<String> ids = Arrays.stream(sc.nextLine().split(",")).map(String::trim).filter(s -> !s.isBlank()).toList();
+        for (String id : ids) {
+            showSubmissionFilePreview(id);
+        }
+        if (!confirm(sc, "Reject all listed submissions")) {
+            System.out.println("Bulk rejection cancelled.");
+            return;
+        }
         System.out.print("Comment: ");
         String comment = sc.nextLine();
         librarianService.bulkReject(ids, comment);
         System.out.println("Bulk reject done.");
+    }
+
+    private void showSubmissionFilePreview(String submissionId) {
+        BookSubmission2 submission = librarianService.getPendingSubmissions().stream()
+                .filter(s -> s.getId().equals(submissionId))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException("Pending submission not found."));
+        System.out.println(fileService.getPreviewDetails(submission.getFileName()));
+    }
+
+    private boolean confirm(Scanner sc, String message) {
+        System.out.print(message + "? (Y/N): ");
+        return "Y".equalsIgnoreCase(sc.nextLine().trim());
     }
 
     private void ensureLogin() {
