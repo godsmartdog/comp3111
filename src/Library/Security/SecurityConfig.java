@@ -8,7 +8,8 @@ public final class SecurityConfig {
     public static final int DEFAULT_BORROW_DAYS = 14;
     public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md");
-// make this class private access, no one can SecurityConfig config = new SecurityConfig(); do this accidently, just see this as avoid waste of memory
+    // make this class private access, no one can SecurityConfig config = new SecurityConfig(); do this accidently,
+    //just see this as avoid waste of memory
     private SecurityConfig() {
     }
 }
