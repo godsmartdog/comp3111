@@ -2,12 +2,27 @@ import Library.Model.*;
 import Library.Repository.*;
 import Library.Service.*;
 import Library.Ui.*;
-
+import javafx.application.Application;
+import javafx.scene.Scene;
+import javafx.stage.Stage;
 import java.time.LocalDate;
-import java.util.Scanner;
 
-public class Main {
+public class Main extends Application {
+    private AuthService authService;
+    private BookService bookService;
+    private BorrowService borrowService;
+    private RecommendationService recommendationService;
+    private FileService fileService;
+    private AuthorService2 authorService;
+    private AuthorDraftService authorDraftService;
+    private LibrarianService3 librarianService;
+
     public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void start(Stage stage) {
         UserRepository userRepo = new MemoryUserRepository();
         BookRepository bookRepo = new MemoryBookRepository();
         BorrowRepository borrowRepo = new MemoryBorrowRepository();
@@ -25,40 +40,30 @@ public class Main {
         b2.approve(LocalDate.now().minusDays(1));
         bookRepo.save(b2);
 
-        AuthService authService = new AuthService(userRepo);
-        BookService bookService = new BookService(bookRepo);
-        BorrowService borrowService = new BorrowService(bookRepo, borrowRepo);
-        RecommendationService recommendationService = new RecommendationService(bookRepo, borrowRepo);
-        FileService fileService = new FileService();
-        AuthorService2 authorService = new AuthorService2(userRepo, authorProfileRepo, submissionRepository);
-        AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
-        LibrarianService3 librarianService = new LibrarianService3(
+        authService = new AuthService(userRepo);
+        bookService = new BookService(bookRepo);
+        borrowService = new BorrowService(bookRepo, borrowRepo);
+        recommendationService = new RecommendationService(bookRepo, borrowRepo);
+        fileService = new FileService();
+        authorService = new AuthorService2(userRepo, authorProfileRepo, submissionRepository);
+        authorDraftService = new AuthorDraftService(draftRepository);
+        librarianService = new LibrarianService3(
                 userRepo, librarianProfileRepo, submissionRepository, bookRepo
         );
 
-        ConsoleUI consoleUi = new ConsoleUI(authService, bookService, borrowService, recommendationService);
-        AuthorConsoleUI2 authorPortal = new AuthorConsoleUI2(authorService, authorDraftService, fileService);
-        LibrarianConsoleUI3 librarianPortal = new LibrarianConsoleUI3(librarianService, fileService);
+        LibraryManagementUI ui = new LibraryManagementUI(
+                authService,
+                bookService,
+                borrowService,
+                recommendationService,
+                authorService,
+                authorDraftService,
+                fileService,
+                librarianService
+        );
 
-        Scanner scanner = new Scanner(System.in);
-        boolean running = true;
-        while (running) {
-            System.out.println("\n=== COMP3111 Library Management System ===");
-            System.out.println("1. Student/Staff Portal");
-            System.out.println("2. Author Portal");
-            System.out.println("3. Librarian Portal");
-            System.out.println("0. Exit");
-            System.out.print("Choose: ");
-
-            switch (scanner.nextLine()) {
-                case "1" -> consoleUi.start(scanner);
-                case "2" -> authorPortal.start(scanner);
-                case "3" -> librarianPortal.start(scanner);
-                case "0" -> running = false;
-                default -> System.out.println("Invalid choice.");
-            }
-        }
-
-        System.out.println("Bye.");
+        stage.setTitle("COMP3111 Library Management System");
+        stage.setScene(new Scene(ui.createContent(), 1220, 820));
+        stage.show();
     }
 }
