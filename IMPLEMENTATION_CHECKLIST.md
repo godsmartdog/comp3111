@@ -3,7 +3,7 @@
 Use this checklist as a todo list against `src/Library/reqirement_detailversion.md`.
 
 ## 任务1：学生/教职工门户
-- [x] 任务1.1 学生/教职工注册
+- [ ] 任务1.1 学生/教职工注册
   - [x] 用户名跨角色唯一
   - [x] 全名不能为空
   - [x] 密码强度校验
