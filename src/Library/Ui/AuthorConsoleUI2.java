@@ -64,6 +64,8 @@ public class AuthorConsoleUI2 {
 
         authorService.registerAuthor(username, fullName, password, bio);
         System.out.println("Author registration successful.");
+        System.out.println("Redirecting to login...");
+        login(sc);
     }
 
     private void login(Scanner sc) {
