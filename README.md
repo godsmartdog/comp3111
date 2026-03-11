@@ -27,6 +27,6 @@ For author submission and librarian file preview, provide a real file path such 
 - Available book listing with publish date, availability status, summary preview, and popular-title recommendations
 - Borrow flow with availability checks, borrow-limit enforcement, duration/due-date confirmation, and borrow record creation
 - Author registration and login
-- Author publish-book flow with multi-genre selection, preview, draft auto-save, and file validation
+- Author publish-book flow with multi-genre selection, preview, multi-draft auto-save, and file validation
 - Librarian registration and login
 - Librarian pending-submission listing, file preview, approve/reject actions, and bulk approve/reject confirmations
