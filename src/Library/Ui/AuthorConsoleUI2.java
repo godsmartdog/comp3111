@@ -138,6 +138,7 @@ public class AuthorConsoleUI2 {
         // Preview
         System.out.println(authorService.previewBook(title, genres, description));
 
+        System.out.println("Submitting will rename the selected file on disk using the numbering rule.");
         System.out.print("Submit now? (Y/N): ");
         String confirm = sc.nextLine();
         if (!"Y".equalsIgnoreCase(confirm)) {

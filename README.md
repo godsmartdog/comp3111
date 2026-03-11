@@ -19,7 +19,7 @@ cd path/to/comp3111
 java -cp /tmp/comp3111-out Main
 ```
 
-For author submission and librarian file preview, provide a real file path such as a `.txt`, `.pdf`, `.doc`, or `.docx` file. On submission, the system normalizes the file name by moving a trailing digit to the front (for example, `book2.pdf` becomes `2book.pdf`) or prefixing `1` when there is no trailing digit (`book.pdf` becomes `1book.pdf`).
+For author submission and librarian file preview, provide a real file path such as a `.txt`, `.pdf`, `.doc`, or `.docx` file. On submission, the system physically renames that file on disk by moving a trailing digit to the front (for example, `book2.pdf` becomes `2book.pdf`) or prefixing `1` when there is no trailing digit (`book.pdf` becomes `1book.pdf`).
 
 ## Implemented Features
 

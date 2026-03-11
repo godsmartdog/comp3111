@@ -27,7 +27,8 @@ public class FileService {
         try {
             return Files.move(originalPath, normalizedPath).toString();
         } catch (IOException e) {
-            throw new ValidationException("Cannot rename submission file: " + e.getMessage());
+            throw new ValidationException("Cannot rename submission file from " + originalPath
+                    + " to " + normalizedPath + ": " + e.getMessage());
         }
     }
 
@@ -64,7 +65,11 @@ public class FileService {
         String baseName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
         String extension = dotIndex > 0 ? fileName.substring(dotIndex) : "";
 
-        if (baseName.isBlank() || Character.isDigit(baseName.charAt(0))) {
+        if (baseName.isBlank()) {
+            return fileName;
+        }
+
+        if (Character.isDigit(baseName.charAt(0))) {
             return fileName;
         }
 
