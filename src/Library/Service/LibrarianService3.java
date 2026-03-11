@@ -10,16 +10,18 @@ import Library.Repository.LibrarianProfileRepository3;
 import Library.Repository.UserRepository;
 import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
-
+import Library.Security.SessionManager;
 import java.time.LocalDate;
 import java.util.List;
 
+// Service class to handle librarian-related operations such as registration, login, and managing book submissions, including approving or rejecting submissions and converting approved submissions into published books.
 public class LibrarianService3 {
     private final UserRepository userRepository;
     private final LibrarianProfileRepository3 librarianProfileRepository;
     private final BookSubmissionRepository2 submissionRepository;
     private final BookRepository bookRepository;
 
+    // Constructor to initialize the LibrarianService with the required repositories for user management, librarian profiles, book submissions, and books, allowing for dependency injection and better separation of concerns.
     public LibrarianService3 (UserRepository userRepository,
                             LibrarianProfileRepository3 librarianProfileRepository,
                             BookSubmissionRepository2 submissionRepository,
@@ -30,6 +32,7 @@ public class LibrarianService3 {
         this.bookRepository = bookRepository;
     }
 
+    // Method to register a new librarian, validating input and ensuring unique usernames, while also creating an associated librarian profile with the provided employee ID.
     public User registerLibrarian(String username, String fullName, String password, String employeeId) {
         if (username == null || username.isBlank()) throw new ValidationException("Username cannot be empty.");
         if (fullName == null || fullName.isBlank()) throw new ValidationException("Full Name cannot be empty.");
@@ -39,12 +42,14 @@ public class LibrarianService3 {
             throw new ValidationException("Username already exists.");
         }
 
-        User user = new User(username, fullName, PasswordHasher.sha256(password), Role.LIBRARIAN);
+        // Create and save the new user with the LIBRARIAN role, and also create an associated librarian profile with the provided employee ID, ensuring that the librarian's credentials and profile information are properly stored in the system.
+        User user = new User(username, fullName, PasswordHasher.hashPassword(password), Role.LIBRARIAN);
         userRepository.save(user);
         librarianProfileRepository.save(new LibrarianProfile3(username, employeeId == null ? "" : employeeId));
         return user;
     }
 
+    // Method to authenticate a librarian, verifying credentials and ensuring the user has the LIBRARIAN role before creating a session for the authenticated user, which allows librarians to access their functionalities within the system.
     public User loginLibrarian(String username, String password) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new AuthenticationException("Invalid username or password."));
@@ -54,13 +59,16 @@ public class LibrarianService3 {
         if (!PasswordHasher.matches(password, user.getPasswordHash())) {
             throw new AuthenticationException("Invalid username or password.");
         }
+        SessionManager.getInstance().createSession(user);
         return user;
     }
 
+    // Method to retrieve a list of pending book submissions, allowing librarians to view and manage submissions that are awaiting approval or rejection, which is essential for maintaining the quality and relevance of the library's collection.
     public List<BookSubmission2> getPendingSubmissions() {
         return submissionRepository.findByStatus(SubmissionState.PENDING);
     }
 
+    // Method to approve a book submission, validating the submission's existence and status before marking it as approved, saving the updated submission, and converting it into a published book in the system, which allows approved submissions to become part of the library's collection.
     public void approveSubmission(String submissionId, String comment) {
         BookSubmission2 s = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found."));
@@ -68,6 +76,7 @@ public class LibrarianService3 {
             throw new ValidationException("Only pending submissions can be approved.");
         }
 
+        // Mark the submission as approved with an optional comment, save the updated submission, and then convert the approved submission into a published book by creating a new Book object with the relevant details from the submission and saving it to the book repository, which allows the approved book to be listed and available for borrowing in the library.
         s.approve(comment == null ? "Approved" : comment);
         submissionRepository.save(s);
 
@@ -77,6 +86,7 @@ public class LibrarianService3 {
         bookRepository.save(book);
     }
 
+    // Method to reject a book submission, validating the submission's existence and status before marking it as rejected and saving the updated submission, which allows librarians to manage submissions that do not meet the library's standards or requirements.
     public void rejectSubmission(String submissionId, String comment) {
         BookSubmission2 s = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found."));
@@ -88,19 +98,13 @@ public class LibrarianService3 {
         submissionRepository.save(s);
     }
 
+    // Method to bulk approve multiple book submissions, iterating through the list of submission IDs and calling the approveSubmission method for each ID, which allows librarians to efficiently manage and approve multiple submissions at once.
     public void bulkApprove(List<String> submissionIds, String comment) {
         for (String id : submissionIds) approveSubmission(id, comment);
     }
 
+    // Method to bulk reject multiple book submissions, iterating through the list of submission IDs and calling the rejectSubmission method for each ID, which allows librarians to efficiently manage and reject multiple submissions at once.
     public void bulkReject(List<String> submissionIds, String comment) {
         for (String id : submissionIds) rejectSubmission(id, comment);
-    }
-
-     // [Task 3 nice-to-have] 
-
-    public String getSubmissionFilePath(String submissionId) {
-        Library.Model.BookSubmission2 s = submissionRepository.findById(submissionId)
-                .orElseThrow(() -> new Library.Exception.NotFoundException("Submission not found."));
-        return s.getFileName(); // if you store full path, return full path
     }
 }
