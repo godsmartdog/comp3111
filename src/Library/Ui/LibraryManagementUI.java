@@ -168,7 +168,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Full Name", "Password", "Role"},
                 registerUsername, registerName, registerPassword, registerRole
         );
-        registerPane.add(registerButton, 1, 4);
+        registerPane.add(registerButton, 1, 5);
 
         TextField loginUsername = new TextField();
         TextField loginPassword = new TextField();
@@ -192,7 +192,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Password", "Role"},
                 loginUsername, loginPassword, loginRole
         );
-        loginPane.add(loginButton, 1, 3);
+        loginPane.add(loginButton, 1, 4);
 
         VBox left = new VBox(12, studentStatusLabel, registerPane, loginPane);
         left.setPadding(new Insets(0, 12, 0, 0));
@@ -326,7 +326,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Full Name", "Password", "Bio"},
                 registerUsername, registerName, registerPassword, registerBio
         );
-        registerPane.add(registerButton, 1, 4);
+        registerPane.add(registerButton, 1, 5);
 
         TextField loginUsername = new TextField();
         TextField loginPassword = new TextField();
@@ -343,7 +343,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Password"},
                 loginUsername, loginPassword
         );
-        loginPane.add(loginButton, 1, 2);
+        loginPane.add(loginButton, 1, 3);
 
         draftListView = new ListView<>(draftItems);
         draftListView.setCellFactory(list -> new javafx.scene.control.ListCell<>() {
@@ -461,7 +461,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Full Name", "Password", "Employee ID"},
                 registerUsername, registerName, registerPassword, registerEmployeeId
         );
-        registerPane.add(registerButton, 1, 4);
+        registerPane.add(registerButton, 1, 5);
 
         TextField loginUsername = new TextField();
         TextField loginPassword = new TextField();
@@ -478,7 +478,7 @@ public class LibraryManagementUI {
                 new String[]{"Username", "Password"},
                 loginUsername, loginPassword
         );
-        loginPane.add(loginButton, 1, 2);
+        loginPane.add(loginButton, 1, 3);
 
         VBox left = new VBox(12, librarianStatusLabel, registerPane, loginPane);
         left.setPadding(new Insets(0, 12, 0, 0));
