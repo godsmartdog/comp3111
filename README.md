@@ -54,21 +54,21 @@ Typical flow:
 6. If something is wrong, an Exception is thrown and UI shows an error message.
 
 ## requirement
-ALL task use the code in folder "Exception" to handle the error repsonse to user
-explanation of the use of code is listed under part 3
+ALL task use the code in folder "Exception" to handle the error repsonse to user.
+explanation of the use of code is listed under part 3.
 ### task 1.1 and task 1.2 Student/Staff Reg and login
 
--code in Service/AuthService.java
--using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version)
--password using code in "Security"
+-code in Service/AuthService.java.
+-using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version).
+-password using code in "Security".
 
 ### task 1.3 List the available book list
--code in Service/BookService.java and Service/RecommendationService.java
--using Model/Book and Model/BorrowRecord as class defination , Repository/BookRepository and Repository/BorrowRecordRepository is used as interface(all interface is defined is their Memoryxxx version)
+-code in Service/BookService.java and Service/RecommendationService.java.
+-using Model/Book and Model/BorrowRecord as class defination , Repository/BookRepository and Repository/BorrowRecordRepository is used as interface(all interface is defined is their Memoryxxx version).
 
 ### task 1.4 Borrow Book
--code in Service/AuthService.java
--using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version)
+-code in Service/AuthService.java.
+-using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version).
 
 
 ## 3. Part One: Model
