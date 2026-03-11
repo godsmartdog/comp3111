@@ -129,7 +129,7 @@ public class AuthorConsoleUI2 {
         System.out.print("Description: ");
         String description = sc.nextLine();
 
-        System.out.print("Book file name/path (e.g. mybook.pdf): ");
+        System.out.print("Book file name/path (e.g. mybook.pdf -> 1mybook.pdf, mybook2.pdf -> 2mybook.pdf): ");
         String fileName = sc.nextLine();
 
         // Auto-save draft
@@ -145,9 +145,12 @@ public class AuthorConsoleUI2 {
             return;
         }
 
-        fileService.validateSubmissionFile(fileName);
+        String normalizedFileName = fileService.normalizeSubmissionFileName(fileName);
+        if (!normalizedFileName.equals(fileName)) {
+            System.out.println("Normalized submission file name to: " + normalizedFileName);
+        }
         BookSubmission2 s = authorService.publishBook(
-                currentAuthor.getUsername(), title, genres, description, fileName
+                currentAuthor.getUsername(), title, genres, description, normalizedFileName
         );
         draftService.clearDraft(currentAuthor.getUsername(), title);
         System.out.println("Submission sent to librarian. Submission ID: " + s.getId());
