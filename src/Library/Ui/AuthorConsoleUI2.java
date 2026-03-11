@@ -90,16 +90,20 @@ public class AuthorConsoleUI2 {
         }
 
         System.out.println("Available drafts:");
-        for (BookDraft2 item : drafts) {
-            System.out.println("- " + item.getTitle() + " (Last saved: " + item.getLastSavedAt() + ")");
+        for (BookDraft2 draft : drafts) {
+            System.out.println("- " + draft.getTitle() + " (Last saved: " + draft.getLastSavedAt() + ")");
         }
 
         System.out.print("Enter draft title to load: ");
-        String title = sc.nextLine();
+        String title = sc.nextLine().trim();
+        if (title.isEmpty()) {
+            System.out.println("Draft title cannot be empty.");
+            return;
+        }
 
         BookDraft2 draft = draftService.loadDraft(currentAuthor.getUsername(), title).orElse(null);
         if (draft == null) {
-            System.out.println("No draft found.");
+            System.out.println("Draft with title \"" + title + "\" not found.");
         } else {
             System.out.println("Draft loaded. Last saved: " + draft.getLastSavedAt());
             System.out.println("Title: " + draft.getTitle());
