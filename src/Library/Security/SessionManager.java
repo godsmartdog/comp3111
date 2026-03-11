@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class SessionManager {
-    // Singleton instance to manage user sessions across the application.
+    // one and only one ,Singleton instance to manage user sessions across the application.
     private static final SessionManager INSTANCE = new SessionManager();
 
     private User currentUser;
