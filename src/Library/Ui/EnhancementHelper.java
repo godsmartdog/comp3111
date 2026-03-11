@@ -16,6 +16,10 @@ public class EnhancementHelper {
 
     public static void quickReadSummary(Book b) {
         String summary = b.getSummary();
+        if (summary == null || summary.isBlank()) {
+            System.out.println("Summary: N/A");
+            return;
+        }
         int threshold = 120;
         if (summary.length() <= threshold) {
             System.out.println("Summary: " + summary);

@@ -13,5 +13,6 @@ public interface BorrowRepository {
     void save(BorrowRecord record);
     Optional<BorrowRecord> findById(String id); // ID should be `String` to match BorrowRecord
     List<BorrowRecord> findByUsername(String username);
+    Optional<BorrowRecord> findActiveByUsernameAndBookId(String username, String bookId);
     List<BorrowRecord> findAll();
 }

@@ -4,12 +4,17 @@ import Library.Service.*;
 import Library.Ui.*;
 
 import java.time.LocalDate;
+import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
         UserRepository userRepo = new MemoryUserRepository();
         BookRepository bookRepo = new MemoryBookRepository();
         BorrowRepository borrowRepo = new MemoryBorrowRepository();
+        AuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
+        BookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
+        LibrarianProfileRepository3 librarianProfileRepository = new MemoryLibrarianProfileRepository3();
+        BookDraftRepository2 bookDraftRepository = new MemoryBookDraftRepository2();
 
         // seed approved books (from teammate author/librarian flow eventually)
         Book b1 = new Book("Clean Code", "Robert C. Martin", "A handbook of agile software craftsmanship.");
@@ -23,8 +28,37 @@ public class Main {
         AuthService authService = new AuthService(userRepo);
         BookService bookService = new BookService(bookRepo);
         BorrowService borrowService = new BorrowService(bookRepo, borrowRepo);
+        RecommendationService recommendationService = new RecommendationService(bookRepo, borrowRepo);
+        FileService fileService = new FileService();
+        AuthorService2 authorService = new AuthorService2(userRepo, authorProfileRepository, submissionRepository);
+        AuthorDraftService authorDraftService = new AuthorDraftService(bookDraftRepository);
+        LibrarianService3 librarianService = new LibrarianService3(
+                userRepo, librarianProfileRepository, submissionRepository, bookRepo
+        );
 
-        ConsoleUI consoleUi = new ConsoleUI(authService, bookService, borrowService);
-        consoleUi.start();
+        ConsoleUI consoleUi = new ConsoleUI(authService, bookService, borrowService, recommendationService);
+        AuthorConsoleUI2 authorUi = new AuthorConsoleUI2(authorService, authorDraftService, fileService);
+        LibrarianConsoleUI3 librarianUi = new LibrarianConsoleUI3(librarianService, fileService);
+
+        Scanner scanner = new Scanner(System.in);
+        boolean running = true;
+        while (running) {
+            System.out.println("\n=== COMP3111 Library Management System ===");
+            System.out.println("1. Student/Staff Portal");
+            System.out.println("2. Author Portal");
+            System.out.println("3. Librarian Portal");
+            System.out.println("0. Exit");
+            System.out.print("Choose: ");
+
+            switch (scanner.nextLine()) {
+                case "1" -> consoleUi.start(scanner);
+                case "2" -> authorUi.start(scanner);
+                case "3" -> librarianUi.start(scanner);
+                case "0" -> running = false;
+                default -> System.out.println("Invalid choice.");
+            }
+        }
+
+        System.out.println("Bye.");
     }
 }

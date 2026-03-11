@@ -110,6 +110,7 @@ public class AuthorService2 {
         }
 
         // Validate genres before generating the preview, ensuring that only supported genres are included in the output.
+        validateGenres(genres);
         String normalizedDescription = description.trim();
         if (normalizedDescription.length() > 300) {
             normalizedDescription = normalizedDescription.substring(0, 300) + "...";

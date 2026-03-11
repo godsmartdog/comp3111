@@ -5,8 +5,9 @@ import Library.Exception.ValidationException;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.User;
-import Library.Service.AuthorDraftService2;
+import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
+import Library.Service.FileService;
 
 import java.util.Arrays;
 import java.util.List;
@@ -14,12 +15,14 @@ import java.util.Scanner;
 
 public class AuthorConsoleUI2 {
     private final AuthorService2 authorService;
-    private final AuthorDraftService2 draftService;
+    private final AuthorDraftService draftService;
+    private final FileService fileService;
     private User currentAuthor;
 
-    public AuthorConsoleUI2(AuthorService2 authorService, AuthorDraftService2 draftService) {
+    public AuthorConsoleUI2(AuthorService2 authorService, AuthorDraftService draftService, FileService fileService) {
         this.authorService = authorService;
         this.draftService = draftService;
+        this.fileService = fileService;
     }
 
     public void start(Scanner sc) {
@@ -122,6 +125,7 @@ public class AuthorConsoleUI2 {
             return;
         }
 
+        fileService.validateSubmissionFile(fileName);
         BookSubmission2 s = authorService.publishBook(
                 currentAuthor.getUsername(), title, genres, description, fileName
         );
