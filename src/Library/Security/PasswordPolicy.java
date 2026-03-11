@@ -4,6 +4,7 @@ import Library.Exception.ValidationException;
 
 public class PasswordPolicy {
     // Common standard: >= 8, includes upper/lower/digit/special, no spaces
+    //just add more if for further more polcy require, rmb add new policy in comment above
     public static void validate(String password) {
         if (password == null || password.isBlank()) {
             throw new ValidationException("Password cannot be empty.");
