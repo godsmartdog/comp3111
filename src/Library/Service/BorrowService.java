@@ -61,7 +61,7 @@ public class BorrowService {
         BorrowRecord record = new BorrowRecord(username, bookId, now, due);
         borrowRepository.save(record);
 
-        book.setAvailable(false);
+        book.setAvailable(false);// avoid double borrow
         return record;
     }
 
