@@ -3,6 +3,7 @@ package Library.Ui;
 
 import Library.Model.Book;
 import Library.Model.BorrowRecord;
+import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 
@@ -39,6 +40,19 @@ public class EnhancementHelper {
         System.out.println("- Due Date: " + due);
         System.out.println("- Warning: Late return may incur penalties.");
         return true; // replace with actual user yes/no in UI
+    }
+
+    public static Color getAvailabilityColor(Book b) {
+        return b.isAvailable() ? Color.BLACK : Color.RED;
+    }
+
+    public static String buildBorrowConfirmation(String bookTitle, int durationDays) {
+        LocalDate now = LocalDate.now();
+        LocalDate due = now.plusDays(durationDays);
+        return "Book: " + bookTitle
+                + "\nDuration: " + durationDays + " days"
+                + "\nDue Date: " + due
+                + "\nWarning: Late return may incur penalties.";
     }
 
     public static void printBorrowResult(BorrowRecord record) {
