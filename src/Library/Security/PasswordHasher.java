@@ -10,16 +10,19 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 public class PasswordHasher {
+    // Parameters chosen to balance security and performance for a library system.
     private static final int SALT_BYTES = 16;
     private static final int KEY_LENGTH_BITS = 256;
     private static final int ITERATIONS = 120_000;
     private static final String PBKDF2_ALGO = "PBKDF2WithHmacSHA256";
     private static final String PREFIX = "pbkdf2$";
 
+    // For backward compatibility with legacy unsalted SHA-256 hashes.
     public static String sha256(String rawPassword) {
         return hashPassword(rawPassword);
     }
 
+    // Hashes the password using PBKDF2 with a random salt and returns a string containing all necessary info.
     public static String hashPassword(String rawPassword) {
         byte[] salt = new byte[SALT_BYTES];
         new SecureRandom().nextBytes(salt);
@@ -31,6 +34,7 @@ public class PasswordHasher {
                 + Base64.getEncoder().encodeToString(hash);
     }
 
+    // Verifies a raw password against the stored hash, supporting both PBKDF2 and legacy SHA-256 formats.
     public static boolean matches(String rawPassword, String storedHash) {
         if (storedHash != null && storedHash.startsWith(PREFIX)) {
             String[] parts = storedHash.split("\\$");
@@ -62,6 +66,7 @@ public class PasswordHasher {
         return legacySha256(rawPassword).equals(storedHash);
     }
 
+    // Internal method to perform PBKDF2 hashing.
     private static byte[] pbkdf2(char[] password, byte[] salt, int iterations, int keyLengthBits) {
         try {
             PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, keyLengthBits);
@@ -72,6 +77,7 @@ public class PasswordHasher {
         }
     }
 
+    // Internal method for legacy SHA-256 hashing (not recommended for new passwords).
     private static String legacySha256(String rawPassword) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
