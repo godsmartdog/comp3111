@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 public class BorrowService {
     private static final int MAX_BORROW_LIMIT = SecurityConfig.MAX_BORROW_LIMIT;
     private static final int DEFAULT_BORROW_DAYS = SecurityConfig.DEFAULT_BORROW_DAYS;
+    private static final int MAX_BORROW_DAYS = SecurityConfig.MAX_BORROW_DAYS;
 
     private final BookRepository bookRepository;
     private final BorrowRepository borrowRepository;
@@ -51,8 +52,8 @@ public class BorrowService {
             throw new BusinessException("Borrow limit reached. Max allowed is " + MAX_BORROW_LIMIT + ".");
         }
 
-        if (borrowDays <= 0 || borrowDays > 60) {
-            throw new BusinessException("Borrow duration must be between 1 and 60 days.");
+        if (borrowDays <= 0 || borrowDays > MAX_BORROW_DAYS) {
+            throw new BusinessException("Borrow duration must be between 1 and " + MAX_BORROW_DAYS + " days.");
         }
 
         // Create a new borrow record with the current date as the borrow date and calculate the due date based on the specified number of borrow days, then save the record and update the book's availability status to false.
@@ -61,7 +62,7 @@ public class BorrowService {
         BorrowRecord record = new BorrowRecord(username, bookId, now, due);
         borrowRepository.save(record);
 
-        book.setAvailable(false);// avoid double borrow
+        book.setAvailable(false);
         return record;
     }
 

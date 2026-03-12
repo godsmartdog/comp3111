@@ -9,6 +9,7 @@ import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
 import Library.Model.Role;
 import Library.Model.User;
+import Library.Security.SecurityConfig;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
@@ -30,6 +31,7 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SplitPane;
@@ -47,11 +49,14 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+// Main UI class that builds the JavaFX interface and connects it to the service layer
 public class LibraryManagementUI {
     private final AuthService authService;
     private final BookService bookService;
@@ -72,6 +77,9 @@ public class LibraryManagementUI {
     private final ObservableList<BookDraft2> draftItems = FXCollections.observableArrayList();
     private final ObservableList<BookSubmission2> pendingSubmissionItems = FXCollections.observableArrayList();
 
+    private BorderPane root;
+    private TabPane portalTabs;
+
     private TableView<Book> bookTable;
     private TextField searchField;
     private Spinner<Integer> borrowDaysSpinner;
@@ -83,7 +91,7 @@ public class LibraryManagementUI {
 
     private Label authorStatusLabel;
     private TextField authorTitleField;
-    private TextField authorGenresField;
+    private ListView<String> authorGenreListView;
     private TextField authorFileField;
     private TextArea authorDescriptionArea;
     private TextArea authorPreviewArea;
@@ -112,41 +120,285 @@ public class LibraryManagementUI {
         this.librarianService = librarianService;
     }
 
+    // Method to create the main content of the UI, called from the `start` method of the application
     public Parent createContent() {
-        BorderPane root = new BorderPane();
+        root = new BorderPane();
         root.setPadding(new Insets(16));
-
-        Label heading = new Label("COMP3111 Library Management System");
-        heading.setStyle("-fx-font-size: 22px; -fx-font-weight: bold;");
-
-        Label subtitle = new Label("All portals are available in JavaFX. Search results mark available titles in black and unavailable titles in red.");
-        subtitle.setWrapText(true);
-
-        VBox top = new VBox(6, heading, subtitle);
-        root.setTop(top);
-
-        TabPane tabs = new TabPane(
-                buildStudentStaffTab(),
-                buildAuthorTab(),
-                buildLibrarianTab()
-        );
-        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        root.setCenter(tabs);
 
         refreshBookResults();
         refreshRecommendations();
         refreshDrafts();
         refreshPendingSubmissions();
         refreshActiveBorrows();
+        showLandingPage();
         return root;
     }
 
+    // Helper method to display the landing page with login and registration options
+    private void showLandingPage() {
+        root.setTop(null);
+        root.setCenter(buildLandingPage());
+    }
+
+    // Helper method to build the landing page UI components
+    private Parent buildLandingPage() {
+        Label heading = new Label("COMP3111 Library Management System");
+        heading.setStyle("-fx-font-size: 26px; -fx-font-weight: bold;");
+
+        Label subtitle = new Label("Start from the home page, then login or register before entering the main library content.");
+        subtitle.setWrapText(true);
+
+        Label demoAccounts = new Label("Demo accounts: student1 / author1 / librarian1, password: Password1!");
+        demoAccounts.setWrapText(true);
+
+        TextField loginUsername = new TextField();
+        PasswordField loginPassword = new PasswordField();
+        ComboBox<Role> loginRole = new ComboBox<>(FXCollections.observableArrayList(Role.values()));
+        loginRole.getSelectionModel().select(Role.STUDENT);
+        Button loginButton = new Button("Login");
+        loginButton.setMaxWidth(Double.MAX_VALUE);
+        loginButton.setOnAction(event -> handleAction(() -> {
+            User loggedInUser = loginFromLandingPage(
+                    loginUsername.getText(),
+                    loginPassword.getText(),
+                    loginRole.getValue()
+            );
+            setActiveUser(loggedInUser);
+            showMainPortal(loggedInUser.getRole());
+            showInfo("Login successful.", "Welcome, " + loggedInUser.getFullName() + ".");
+        }));
+
+        // Build the login form using a helper method to reduce boilerplate
+        GridPane loginPane = createForm(
+                "Login",
+                new String[]{"Username", "Password", "Role"},
+                loginUsername, loginPassword, loginRole
+        );
+        loginPane.add(loginButton, 1, 4);
+
+        // Build the registration form with dynamic extra field based on role selection
+        TextField registerUsername = new TextField();
+        // Note: reusing `registerName` variable name for simplicity, but it serves different purposes based on role (full name for student/staff, bio for author, employee ID for librarian)
+        TextField registerName = new TextField();
+        // Note: reusing `registerPassword` variable name for simplicity, but it serves the same purpose for all roles
+        PasswordField registerPassword = new PasswordField();
+        ComboBox<Role> registerRole = new ComboBox<>(FXCollections.observableArrayList(Role.values()));
+        registerRole.getSelectionModel().select(Role.STUDENT);
+        TextField registerExtraField = new TextField();
+        Label registerExtraHint = new Label();
+        registerExtraHint.setWrapText(true);
+        updateLandingRegisterHint(registerRole.getValue(), registerExtraField, registerExtraHint);
+        registerRole.valueProperty().addListener((obs, oldRole, newRole) ->
+                updateLandingRegisterHint(newRole, registerExtraField, registerExtraHint)
+        );
+
+        // Build the registration form using a helper method to reduce boilerplate
+        Button registerButton = new Button("Register");
+        registerButton.setMaxWidth(Double.MAX_VALUE);
+        registerButton.setOnAction(event -> handleAction(() -> {
+            registerFromLandingPage(
+                    registerUsername.getText(),
+                    registerName.getText(),
+                    registerPassword.getText(),
+                    registerRole.getValue(),
+                    registerExtraField.getText()
+            );
+            showInfo("Registration successful.", "Account created. Please login to enter the main page.");
+            registerUsername.clear();
+            registerName.clear();
+            registerPassword.clear();
+            registerExtraField.clear();
+        }));
+
+        // Note: reusing `registerName` variable name for simplicity, but it serves different purposes based on role (full name for student/staff, bio for author, employee ID for librarian)
+        GridPane registerPane = createForm(
+                "Register",
+                new String[]{"Username", "Full Name", "Password", "Account Type", "Bio / Employee ID"},
+                registerUsername, registerName, registerPassword, registerRole, registerExtraField
+        );
+        registerPane.add(registerExtraHint, 1, 6);
+        registerPane.add(registerButton, 1, 7);
+
+        // Layout the login and registration forms side by side
+        HBox cards = new HBox(18, loginPane, registerPane);
+        cards.setAlignment(Pos.TOP_CENTER);
+
+        // Combine everything into a single VBox for the landing page
+        VBox page = new VBox(14, heading, subtitle, demoAccounts, cards);
+        page.setAlignment(Pos.TOP_CENTER);
+        page.setPadding(new Insets(28));
+        VBox.setVgrow(cards, Priority.ALWAYS);
+        return page;
+    }
+
+    // Helper method to create a form layout given labels and input fields, to reduce repetitive code for login and registration forms
+    private void showMainPortal(Role preferredRole) {
+        if (portalTabs == null) {
+            portalTabs = new TabPane(
+                    buildStudentStaffTab(),
+                    buildAuthorTab(),
+                    buildLibrarianTab()
+            );
+            portalTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        }
+
+        syncPortalStatusLabels();
+        refreshBookResults();
+        refreshRecommendations();
+        refreshDrafts();
+        refreshPendingSubmissions();
+        refreshActiveBorrows();
+        selectPortalTab(preferredRole);
+
+        Label heading = new Label("Library Main Page");
+        heading.setStyle("-fx-font-size: 22px; -fx-font-weight: bold;");
+
+        User activeUser = getActiveUser();
+        String welcomeText = activeUser == null
+                ? "Browse the main portal."
+                : "Welcome, " + activeUser.getFullName() + " (" + activeUser.getRole() + ")";
+        Label subtitle = new Label(welcomeText);
+        subtitle.setWrapText(true);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button logoutButton = new Button("Logout");
+        logoutButton.setOnAction(event -> {
+            authService.logout();
+            clearActiveUsers();
+            syncPortalStatusLabels();
+            refreshActiveBorrows();
+            refreshDrafts();
+            showLandingPage();
+        });
+
+        HBox topBar = new HBox(12, new VBox(4, heading, subtitle), spacer, logoutButton);
+        topBar.setAlignment(Pos.CENTER_LEFT);
+
+        root.setTop(topBar);
+        root.setCenter(portalTabs);
+    }
+
+    // Helper method to select the appropriate portal tab based on the user's role after login
+    private void selectPortalTab(Role role) {
+        if (portalTabs == null || role == null) {
+            return;
+        }
+
+        int tabIndex = switch (role) {
+            case STUDENT, STAFF -> 0;
+            case AUTHOR -> 1;
+            case LIBRARIAN -> 2;
+        };
+        portalTabs.getSelectionModel().select(tabIndex);
+    }
+
+    // Helper method to handle registration logic from the landing page, routing to the appropriate service method based on role
+    private void registerFromLandingPage(String username, String fullName, String password, Role role, String extraDetail) {
+        switch (role) {
+            case STUDENT, STAFF -> authService.registerStudentOrStaff(username, fullName, password, role);
+            case AUTHOR -> authorService.registerAuthor(username, fullName, password, extraDetail);
+            case LIBRARIAN -> librarianService.registerLibrarian(username, fullName, password, extraDetail);
+        }
+    }
+
+    // Helper method to handle login logic from the landing page, routing to the appropriate service method based on role and returning the logged-in user
+    private User loginFromLandingPage(String username, String password, Role role) {
+        return switch (role) {
+            case STUDENT, STAFF -> authService.loginStudentOrStaff(username, password, role);
+            case AUTHOR -> authorService.loginAuthor(username, password);
+            case LIBRARIAN -> librarianService.loginLibrarian(username, password);
+        };
+    }
+
+    // Helper method to update the registration form's extra field and hint label dynamically based on the selected role, improving user experience by providing contextual guidance
+    private void updateLandingRegisterHint(Role role, TextField extraField, Label hintLabel) {
+        if (role == null) {
+            extraField.clear();
+            extraField.setPromptText("");
+            hintLabel.setText("");
+            return;
+        }
+
+        switch (role) {
+            case STUDENT, STAFF -> {
+                extraField.clear();
+                extraField.setPromptText("Optional for this role");
+                hintLabel.setText("No extra detail is required for student or staff registration.");
+            }
+            case AUTHOR -> {
+                extraField.setPromptText("Short author bio");
+                hintLabel.setText("For authors, this field is used as the bio.");
+            }
+            case LIBRARIAN -> {
+                extraField.setPromptText("Employee ID");
+                hintLabel.setText("For librarians, this field is used as the employee ID.");
+            }
+        }
+    }
+
+    // Helper method to clear all active user references upon logout, ensuring that the UI correctly reflects the logged-out state and prevents access to user-specific features
+    private void setActiveUser(User user) {
+        clearActiveUsers();
+        if (user == null) {
+            syncPortalStatusLabels();
+            return;
+        }
+
+        switch (user.getRole()) {
+            case STUDENT, STAFF -> currentStudentStaff = user;
+            case AUTHOR -> currentAuthor = user;
+            case LIBRARIAN -> currentLibrarian = user;
+        }
+        syncPortalStatusLabels();
+    }
+
+    // Helper method to clear all active user references upon logout, ensuring that the UI correctly reflects the logged-out state and prevents access to user-specific features
+    private void clearActiveUsers() {
+        currentStudentStaff = null;
+        currentAuthor = null;
+        currentLibrarian = null;
+    }
+
+    // Helper method to get the currently active user, which can be a student/staff, author, or librarian, used for displaying personalized information and controlling access to features based on the logged-in user
+    private User getActiveUser() {
+        if (currentStudentStaff != null) {
+            return currentStudentStaff;
+        }
+        if (currentAuthor != null) {
+            return currentAuthor;
+        }
+        return currentLibrarian;
+    }
+
+    // Helper method to synchronize the status labels in each portal tab based on the currently active user, ensuring that the UI consistently reflects the logged-in state across all tabs and provides clear feedback to the user about their login status
+    private void syncPortalStatusLabels() {
+        if (studentStatusLabel != null) {
+            studentStatusLabel.setText(currentStudentStaff == null
+                    ? "Not logged in."
+                    : "Logged in as " + currentStudentStaff.getFullName() + " (" + currentStudentStaff.getRole() + ")");
+        }
+        if (authorStatusLabel != null) {
+            authorStatusLabel.setText(currentAuthor == null
+                    ? "Not logged in."
+                    : "Logged in as " + currentAuthor.getFullName());
+        }
+        if (librarianStatusLabel != null) {
+            librarianStatusLabel.setText(currentLibrarian == null
+                    ? "Not logged in."
+                    : "Logged in as " + currentLibrarian.getFullName());
+        }
+    }
+
+    // Helper method to build the student/staff portal tab, which includes login status, book search and results, book summary display, borrowing functionality, recommendations, and active borrows, providing a comprehensive interface for students and staff to interact with the library system
     private Tab buildStudentStaffTab() {
         studentStatusLabel = new Label("Not logged in.");
 
+        // Note: reusing `registerUsername`, `registerName`, and `registerPassword` variable names for simplicity, but they serve different purposes in this context (login form instead of registration form)
         TextField registerUsername = new TextField();
         TextField registerName = new TextField();
-        TextField registerPassword = new TextField();
+        PasswordField registerPassword = new PasswordField();
         ComboBox<Role> registerRole = new ComboBox<>(FXCollections.observableArrayList(Role.STUDENT, Role.STAFF));
         registerRole.getSelectionModel().select(Role.STUDENT);
         Button registerButton = new Button("Register");
@@ -163,6 +415,7 @@ public class LibraryManagementUI {
             registerPassword.clear();
         }));
 
+        // Build the registration form using a helper method to reduce boilerplate
         GridPane registerPane = createForm(
                 "Student/Staff Registration",
                 new String[]{"Username", "Full Name", "Password", "Role"},
@@ -170,8 +423,9 @@ public class LibraryManagementUI {
         );
         registerPane.add(registerButton, 1, 5);
 
+        // Login form is built in the landing page for better user experience, but we can also provide it here for convenience
         TextField loginUsername = new TextField();
-        TextField loginPassword = new TextField();
+        PasswordField loginPassword = new PasswordField();
         ComboBox<Role> loginRole = new ComboBox<>(FXCollections.observableArrayList(Role.STUDENT, Role.STAFF));
         loginRole.getSelectionModel().select(Role.STUDENT);
         Button loginButton = new Button("Login");
@@ -187,6 +441,7 @@ public class LibraryManagementUI {
             showInfo("Login successful.", "Student/Staff portal is ready.");
         }));
 
+        // Build the login form using a helper method to reduce boilerplate
         GridPane loginPane = createForm(
                 "Student/Staff Login",
                 new String[]{"Username", "Password", "Role"},
@@ -194,6 +449,7 @@ public class LibraryManagementUI {
         );
         loginPane.add(loginButton, 1, 4);
 
+        // Layout the login and registration forms side by side
         VBox left = new VBox(12, studentStatusLabel, registerPane, loginPane);
         left.setPadding(new Insets(0, 12, 0, 0));
 
@@ -207,6 +463,7 @@ public class LibraryManagementUI {
             refreshBookResults();
         });
 
+        // Layout the search bar with the search field and buttons, providing an intuitive interface for users to search for books by title or author, and to easily reset the search to show all books
         HBox searchBar = new HBox(8, new Label("Search"), searchField, searchButton, showAllButton);
         searchBar.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(searchField, Priority.ALWAYS);
@@ -261,7 +518,7 @@ public class LibraryManagementUI {
         selectedBookSummary.setPromptText("Select a book to view its summary.");
         selectedBookSummary.setPrefRowCount(5);
 
-        borrowDaysSpinner = new Spinner<>(1, 60, 14);
+        borrowDaysSpinner = new Spinner<>(1, SecurityConfig.MAX_BORROW_DAYS, SecurityConfig.DEFAULT_BORROW_DAYS);
         borrowDaysSpinner.setEditable(true);
         borrowButton = new Button("Borrow Selected Book");
         borrowButton.setOnAction(event -> handleBorrow());
@@ -299,12 +556,13 @@ public class LibraryManagementUI {
         return tab;
     }
 
+    // Helper method to build the author portal tab, which includes login status, author registration and login forms, draft management with auto-saving, book submission form with file upload and genre selection, and a preview area for the submission, providing a comprehensive interface for authors to manage their book submissions and drafts
     private Tab buildAuthorTab() {
         authorStatusLabel = new Label("Not logged in.");
 
         TextField registerUsername = new TextField();
         TextField registerName = new TextField();
-        TextField registerPassword = new TextField();
+    PasswordField registerPassword = new PasswordField();
         TextField registerBio = new TextField();
         Button registerButton = new Button("Register Author");
         registerButton.setOnAction(event -> handleAction(() -> {
@@ -329,11 +587,12 @@ public class LibraryManagementUI {
         registerPane.add(registerButton, 1, 5);
 
         TextField loginUsername = new TextField();
-        TextField loginPassword = new TextField();
+        PasswordField loginPassword = new PasswordField();
         Button loginButton = new Button("Login Author");
         loginButton.setOnAction(event -> handleAction(() -> {
             currentAuthor = authorService.loginAuthor(loginUsername.getText(), loginPassword.getText());
             authorStatusLabel.setText("Logged in as " + currentAuthor.getFullName());
+            clearAuthorForm();
             refreshDrafts();
             showInfo("Login successful.", "Author portal is ready.");
         }));
@@ -362,9 +621,16 @@ public class LibraryManagementUI {
         left.setPadding(new Insets(0, 12, 0, 0));
 
         authorTitleField = new TextField();
-        authorGenresField = new TextField();
-        authorGenresField.setPromptText(String.join(", ", authorService.getSupportedGenres()));
+    authorGenreListView = new ListView<>(FXCollections.observableArrayList(authorService.getSupportedGenres()));
+    authorGenreListView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+    authorGenreListView.setPrefHeight(140);
+    authorGenreListView.setMaxWidth(Double.MAX_VALUE);
+    authorGenreListView.setTooltip(new Tooltip("Hold Ctrl to select multiple genres."));
         authorFileField = new TextField();
+    Button browseAuthorFileButton = new Button("Browse...");
+    browseAuthorFileButton.setOnAction(event -> chooseAuthorFile());
+    HBox authorFileBox = new HBox(8, authorFileField, browseAuthorFileButton);
+    HBox.setHgrow(authorFileField, Priority.ALWAYS);
         authorDescriptionArea = new TextArea();
         authorDescriptionArea.setWrapText(true);
         authorDescriptionArea.setPrefRowCount(8);
@@ -372,13 +638,14 @@ public class LibraryManagementUI {
         authorPreviewArea.setEditable(false);
         authorPreviewArea.setWrapText(true);
 
+        // Helper method to save the current draft automatically
         Button saveDraftButton = new Button("Auto-Save Draft");
         saveDraftButton.setOnAction(event -> handleAction(() -> {
             ensureAuthorLogin();
             authorDraftService.autoSave(
                     currentAuthor.getUsername(),
                     authorTitleField.getText(),
-                    parseGenres(authorGenresField.getText()),
+                selectedAuthorGenres(),
                     authorDescriptionArea.getText(),
                     authorFileField.getText()
             );
@@ -390,11 +657,12 @@ public class LibraryManagementUI {
         previewButton.setOnAction(event -> handleAction(() ->
                 authorPreviewArea.setText(authorService.previewBook(
                         authorTitleField.getText(),
-                        parseGenres(authorGenresField.getText()),
+                selectedAuthorGenres(),
                         authorDescriptionArea.getText()
                 ))
         ));
 
+        // Helper method to get the list of selected genres for the author submission form, which is used when saving drafts and publishing submissions, ensuring that the selected genres are correctly captured and processed by the service layer
         Button publishButton = new Button("Submit for Review");
         publishButton.setOnAction(event -> handleAction(() -> {
             ensureAuthorLogin();
@@ -402,7 +670,7 @@ public class LibraryManagementUI {
             BookSubmission2 submission = authorService.publishBook(
                     currentAuthor.getUsername(),
                     authorTitleField.getText(),
-                    parseGenres(authorGenresField.getText()),
+                    selectedAuthorGenres(),
                     authorDescriptionArea.getText(),
                     authorFileField.getText()
             );
@@ -415,12 +683,14 @@ public class LibraryManagementUI {
 
         GridPane form = createForm(
                 "Author Submission",
-                new String[]{"Title", "Genres", "File Path"},
-                authorTitleField, authorGenresField, authorFileField
+        new String[]{"Title", "File Path"},
+        authorTitleField, authorFileBox
         );
-        form.add(new Label("Description"), 0, 3);
-        form.add(authorDescriptionArea, 1, 3);
-        form.add(new HBox(8, saveDraftButton, previewButton, publishButton), 1, 4);
+        form.add(new Label("Genres"), 0, 3);
+        form.add(authorGenreListView, 1, 3);
+        form.add(new Label("Description"), 0, 4);
+        form.add(authorDescriptionArea, 1, 4);
+        form.add(new HBox(8, saveDraftButton, previewButton, publishButton), 1, 5);
 
         VBox right = new VBox(10, form, new Label("Preview"), authorPreviewArea);
         VBox.setVgrow(authorPreviewArea, Priority.ALWAYS);
@@ -434,12 +704,13 @@ public class LibraryManagementUI {
         return tab;
     }
 
+    // Helper method to get the list of selected genres for the author submission form, which is used when saving drafts and publishing submissions, ensuring that the selected genres are correctly captured and processed by the service layer
     private Tab buildLibrarianTab() {
         librarianStatusLabel = new Label("Not logged in.");
 
         TextField registerUsername = new TextField();
         TextField registerName = new TextField();
-        TextField registerPassword = new TextField();
+        PasswordField registerPassword = new PasswordField();
         TextField registerEmployeeId = new TextField();
         Button registerButton = new Button("Register Librarian");
         registerButton.setOnAction(event -> handleAction(() -> {
@@ -464,11 +735,13 @@ public class LibraryManagementUI {
         registerPane.add(registerButton, 1, 5);
 
         TextField loginUsername = new TextField();
-        TextField loginPassword = new TextField();
+        PasswordField loginPassword = new PasswordField();
         Button loginButton = new Button("Login Librarian");
         loginButton.setOnAction(event -> handleAction(() -> {
             currentLibrarian = librarianService.loginLibrarian(loginUsername.getText(), loginPassword.getText());
             librarianStatusLabel.setText("Logged in as " + currentLibrarian.getFullName());
+            librarianPreviewArea.clear();
+            librarianCommentField.clear();
             refreshPendingSubmissions();
             showInfo("Login successful.", "Librarian portal is ready.");
         }));
@@ -510,6 +783,8 @@ public class LibraryManagementUI {
                 } catch (ValidationException e) {
                     librarianPreviewArea.setText(e.getMessage());
                 }
+            } else {
+                librarianPreviewArea.clear();
             }
         });
 
@@ -594,6 +869,7 @@ public class LibraryManagementUI {
         return tab;
     }
 
+    // Helper method to create a form layout given labels and input fields, to reduce repetitive code for login and registration forms, improving code maintainability and readability by abstracting common UI patterns into a reusable method
     private GridPane createForm(String title, String[] labels, javafx.scene.Node... controls) {
         GridPane pane = new GridPane();
         pane.setHgap(8);
@@ -615,6 +891,7 @@ public class LibraryManagementUI {
         return pane;
     }
 
+    // Helper method to handle the borrow action when the user clicks the "Borrow Selected Book" button, including validation of login status, book selection, and availability, as well as confirmation dialog and updating the UI after a successful borrow
     private void handleBorrow() {
         handleAction(() -> {
             if (currentStudentStaff == null) {
@@ -646,6 +923,7 @@ public class LibraryManagementUI {
         });
     }
 
+    // Helper method to handle actions that may throw exceptions, showing an error dialog if an exception occurs, to centralize error handling logic and provide consistent feedback to the user across different operations
     private void handleAction(Runnable action) {
         try {
             action.run();
@@ -654,6 +932,7 @@ public class LibraryManagementUI {
         }
     }
 
+    // Helper method to refresh the book search results based on the current search keyword, which is called after actions that may affect the book list (such as approving a submission), ensuring that the displayed book list is always up-to-date with the latest data from the service layer
     private void refreshBookResults() {
         String keyword = searchField == null ? "" : searchField.getText().trim();
         List<Book> books = keyword.isEmpty()
@@ -663,6 +942,7 @@ public class LibraryManagementUI {
         updateBorrowButtonState();
     }
 
+    // Helper method to refresh the popular book recommendations for the student/staff portal, which is called after actions that may affect book availability (such as borrowing a book), ensuring that the recommendations reflect the most current popular books based on borrow history
     private void refreshRecommendations() {
         recommendationItems.setAll(
                 recommendationService.recommendTopPopular(3).stream()
@@ -671,6 +951,7 @@ public class LibraryManagementUI {
         );
     }
 
+    // Helper method to refresh the list of active borrows for the currently logged-in student/staff user, which is called after borrowing a book and when the user logs in, ensuring that the displayed list of active borrows is accurate and up-to-date with the latest borrow records from the service layer
     private void refreshActiveBorrows() {
         if (currentStudentStaff == null) {
             activeBorrowItems.clear();
@@ -678,11 +959,15 @@ public class LibraryManagementUI {
         }
         activeBorrowItems.setAll(
                 borrowService.listActiveBorrowsByUser(currentStudentStaff.getUsername()).stream()
-                        .map(record -> record.getBookId() + " (due " + record.getDueDate() + ")")
+                        .map(record -> bookService.findBookById(record.getBookId())
+                                .map(book -> book.getTitle() + " (due " + record.getDueDate() + ")")
+                                .orElse(record.getBookId() + " (due " + record.getDueDate() + ")"))
                         .toList()
         );
+        updateBorrowButtonState();
     }
 
+    // Helper method to refresh the list of drafts for the currently logged-in author, which is called after saving a draft and when the author logs in, ensuring that the displayed list of drafts is accurate and up-to-date with the latest draft data from the service layer
     private void refreshDrafts() {
         if (currentAuthor == null) {
             draftItems.clear();
@@ -691,31 +976,36 @@ public class LibraryManagementUI {
         draftItems.setAll(authorDraftService.loadDrafts(currentAuthor.getUsername()));
     }
 
+    // Helper method to refresh the list of pending submissions for the librarian portal, which is called after approving or rejecting a submission and when the librarian logs in, ensuring that the displayed list of pending submissions is accurate and up-to-date with the latest submission data from the service layer
     private void refreshPendingSubmissions() {
         pendingSubmissionItems.setAll(librarianService.getPendingSubmissions());
         refreshBookResults();
     }
 
+    // Helper method to update the enabled/disabled state of the "Borrow Selected Book" button based on the current login status, book selection, book availability, and borrow limit, ensuring that the user can only attempt to borrow a book when all conditions are met and providing immediate feedback on why the button may be disabled
     private void updateBorrowButtonState() {
         if (borrowButton == null || bookTable == null) {
             return;
         }
         Book selectedBook = bookTable.getSelectionModel().getSelectedItem();
-        borrowButton.setDisable(currentStudentStaff == null || selectedBook == null || !selectedBook.isAvailable());
+        borrowButton.setDisable(currentStudentStaff == null || selectedBook == null || !selectedBook.isAvailable() || hasReachedBorrowLimit());
     }
 
+    // Helper methods to ensure that the user is logged in as the appropriate role before performing certain actions in the author and librarian portals, throwing a validation exception if the user is not logged in, to enforce access control and prevent unauthorized actions
     private void ensureAuthorLogin() {
         if (currentAuthor == null) {
             throw new ValidationException("Please login as author first.");
         }
     }
 
+    // Helper method to ensure that the user is logged in as a librarian before performing certain actions in the librarian portal, throwing a validation exception if the user is not logged in, to enforce access control and prevent unauthorized actions
     private void ensureLibrarianLogin() {
         if (currentLibrarian == null) {
             throw new ValidationException("Please login as librarian first.");
         }
     }
 
+    // Helper method to get the currently selected submission in the librarian portal, throwing a validation exception if no submission is selected, to ensure that actions that require a selected submission (such as previewing, approving, or rejecting) have a valid target submission to operate on
     private BookSubmission2 requireSelectedSubmission() {
         BookSubmission2 submission = pendingSubmissionTable.getSelectionModel().getSelectedItem();
         if (submission == null) {
@@ -724,6 +1014,7 @@ public class LibraryManagementUI {
         return submission;
     }
 
+    // Helper method to perform UI updates after approving or rejecting a submission in the librarian portal, including refreshing the list of pending submissions and book results, clearing the preview and comment fields, and showing an informational dialog with the result of the action, to provide immediate feedback to the librarian and ensure that the UI reflects the latest state after the action
     private void afterSubmissionUpdate(String message) {
         refreshPendingSubmissions();
         refreshBookResults();
@@ -732,31 +1023,82 @@ public class LibraryManagementUI {
         showInfo("Librarian update", message);
     }
 
+    // Helper method to populate the author submission form with the details from a selected draft, which is called when the author selects a draft and clicks the "Load Selected Draft" button, allowing the author to easily continue working on a previously saved draft by loading its details into the form fields
     private void populateDraft(BookDraft2 draft) {
         if (draft == null) {
             return;
         }
         authorTitleField.setText(draft.getTitle());
-        authorGenresField.setText(String.join(", ", draft.getGenres()));
+        selectAuthorGenres(draft.getGenres());
         authorDescriptionArea.setText(draft.getDescription());
         authorFileField.setText(draft.getFilePath());
+        authorPreviewArea.clear();
     }
 
+    // Helper method to clear the author submission form fields, which is called after logging in and after successfully submitting a book for review, to reset the form to a clean state and prevent any leftover data from previous drafts or submissions from being displayed in the form
     private void clearAuthorForm() {
         authorTitleField.clear();
-        authorGenresField.clear();
+        if (authorGenreListView != null) {
+            authorGenreListView.getSelectionModel().clearSelection();
+        }
         authorDescriptionArea.clear();
         authorFileField.clear();
         authorPreviewArea.clear();
     }
 
-    private List<String> parseGenres(String rawGenres) {
-        return Arrays.stream(rawGenres.split(","))
-                .map(String::trim)
-                .filter(text -> !text.isBlank())
-                .toList();
+    // Helper methods to get and set the selected genres in the author submission form, which are used when saving drafts and publishing submissions to capture the selected genres from the ListView and to set the selected genres when loading a draft, ensuring that the genre selection is properly handled in both directions between the UI and the service layer
+    private List<String> selectedAuthorGenres() {
+        if (authorGenreListView == null) {
+            return List.of();
+        }
+        return List.copyOf(authorGenreListView.getSelectionModel().getSelectedItems());
     }
 
+    // Helper method to set the selected genres in the author submission form based on a list of genre strings, which is used when loading a draft to reflect the saved genre selections in the ListView, allowing the author to see which genres were previously selected for the draft and to modify them if needed
+    private void selectAuthorGenres(List<String> genres) {
+        if (authorGenreListView == null) {
+            return;
+        }
+
+        authorGenreListView.getSelectionModel().clearSelection();
+        if (genres == null || genres.isEmpty()) {
+            return;
+        }
+
+        for (String genre : genres) {
+            for (String supportedGenre : authorGenreListView.getItems()) {
+                if (supportedGenre.equalsIgnoreCase(genre)) {
+                    authorGenreListView.getSelectionModel().select(supportedGenre);
+                }
+            }
+        }
+    }
+
+    // Helper method to open a file chooser dialog for the author to select a submission file, which is called when the author clicks the "Browse..." button next to the file path field in the submission form, allowing the author to easily select a file from their system and automatically populate the file path field with the selected file's path
+    private void chooseAuthorFile() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Select Submission File");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Supported files", "*.pdf", "*.txt", "*.doc", "*.docx"),
+                new FileChooser.ExtensionFilter("All files", "*.*")
+        );
+
+        Window window = authorFileField == null || authorFileField.getScene() == null
+                ? null
+                : authorFileField.getScene().getWindow();
+        java.io.File file = chooser.showOpenDialog(window);
+        if (file != null) {
+            authorFileField.setText(file.getAbsolutePath());
+        }
+    }
+
+    // Helper method to check if the currently logged-in student/staff user has reached the maximum borrow limit, which is used to disable the borrow button when the user cannot borrow more books, ensuring that the user is aware of the borrow limit and preventing them from attempting to borrow more books than allowed
+    private boolean hasReachedBorrowLimit() {
+        return currentStudentStaff != null
+                && borrowService.listActiveBorrowsByUser(currentStudentStaff.getUsername()).size() >= SecurityConfig.MAX_BORROW_LIMIT;
+    }
+
+    // Helper method to show an error dialog with a given header and message, which is called whenever an exception occurs in the handleAction method, providing consistent error feedback to the user across different operations
     private void showError(String header, String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle("Error");
@@ -765,6 +1107,7 @@ public class LibraryManagementUI {
         alert.showAndWait();
     }
 
+    // Helper method to show an informational dialog with a given header and message, which is called after successful operations such as borrowing a book or approving a submission, providing positive feedback to the user and confirming that the action was completed successfully
     private void showInfo(String header, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle("COMP3111 Library");

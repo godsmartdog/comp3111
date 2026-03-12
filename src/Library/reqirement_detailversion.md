@@ -172,7 +172,7 @@
 
 ```
 com.library
-├── Main.java                 // 主入口文件
+├── LibraryManagementApp.java // JavaFX 主入口文件
 ├── security/                  // 安全相关包
 ├── exception/                 // 异常处理包  
 ├── model/                     // 实体模型包
@@ -837,7 +837,7 @@ public class SecurityConfig {
 
 ---
 
-### 3.7 Main.java（主入口）
+### 3.7 LibraryManagementApp.java（JavaFX 主入口）
 
 ```java
 public class Main {

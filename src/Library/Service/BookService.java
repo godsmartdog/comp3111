@@ -4,6 +4,7 @@ import Library.Model.Book;
 import Library.Repository.BookRepository;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 // Service class to handle book-related operations such as listing approved books and searching for books by title or author.
@@ -29,5 +30,9 @@ public class BookService {
                 .filter(Book::isApproved)
                 .sorted(Comparator.comparing(Book::getTitle))
                 .collect(Collectors.toList());
+    }
+
+    public Optional<Book> findBookById(String bookId) {
+        return bookRepository.findById(bookId);
     }
 }

@@ -12,8 +12,12 @@ import Library.Repository.UserRepository;
 import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // Service class to handle author-related operations such as registration, login, and book submission.
 public class AuthorService2 {
@@ -22,6 +26,11 @@ public class AuthorService2 {
             "Fiction", "Non-Fiction", "Science", "Technology", "History",
             "Biography", "Fantasy", "Mystery", "Romance", "Education"
     );
+        private static final Map<String, String> GENRE_LOOKUP = SUPPORTED_GENRES.stream()
+            .collect(Collectors.toMap(
+                genre -> genre.toLowerCase(Locale.ROOT),
+                genre -> genre
+            ));
 
     // Repositories for user management, author profiles, and book submissions, injected via constructor for better testability and separation of concerns.
     private final UserRepository userRepository;
@@ -39,17 +48,18 @@ public class AuthorService2 {
 
     // Method to register a new author, validating input and ensuring unique usernames, while also creating an associated author profile.
     public User registerAuthor(String username, String fullName, String password, String bio) {
-        validateBasic(username, fullName);
+        String normalizedUsername = normalizeRequired(username, "Username cannot be empty.");
+        String normalizedFullName = normalizeRequired(fullName, "Full Name cannot be empty.");
         PasswordPolicy.validate(password);
 
-        if (userRepository.existsByUsername(username)) {
+        if (userRepository.existsByUsername(normalizedUsername)) {
             throw new ValidationException("Username already exists.");
         }
 
         // Create and save the new user with the AUTHOR role, and also create an associated author profile with the provided bio.
-        User user = new User(username, fullName, PasswordHasher.hashPassword(password), Role.AUTHOR);
+        User user = new User(normalizedUsername, normalizedFullName, PasswordHasher.hashPassword(password), Role.AUTHOR);
         userRepository.save(user);
-        authorProfileRepository.save(new AuthorProfile2(username, bio == null ? "" : bio));
+        authorProfileRepository.save(new AuthorProfile2(normalizedUsername, bio == null ? "" : bio.trim()));
         return user;
     }
 
@@ -70,23 +80,23 @@ public class AuthorService2 {
     // Method to submit a new book for publication, validating input and ensuring the submitting user is an authenticated author before saving the submission.
     public BookSubmission2 publishBook(String authorUsername, String title, List<String> genres,
                                       String description, String fileName) {
-        if (title == null || title.isBlank()) throw new ValidationException("Title cannot be empty.");
-        if (genres == null || genres.isEmpty()) throw new ValidationException("At least one genre is required.");
-        if (description == null || description.isBlank()) throw new ValidationException("Description cannot be empty.");
-        if (fileName == null || fileName.isBlank()) throw new ValidationException("Book file is required.");
+        String normalizedAuthorUsername = normalizeRequired(authorUsername, "Author username cannot be empty.");
+        String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
+        String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
+        String normalizedFileName = normalizeRequired(fileName, "Book file is required.");
 
         // Validate genres and file format before proceeding with submission creation.
-        validateGenres(genres);
-        validateFileFormat(fileName);
+        List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
+        validateFileFormat(normalizedFileName);
 
         // Ensure the author exists and has the AUTHOR role before allowing book submission, throwing an exception if validation fails.
-        User author = userRepository.findByUsername(authorUsername)
+        User author = userRepository.findByUsername(normalizedAuthorUsername)
                 .orElseThrow(() -> new ValidationException("Author user not found."));
         if (author.getRole() != Role.AUTHOR) throw new ValidationException("User is not an author.");
 
         // Create and save the book submission, associating it with the author's username and full name for future reference and tracking.
         BookSubmission2 submission = new BookSubmission2(
-                title, author.getUsername(), author.getFullName(), genres, description, fileName
+            normalizedTitle, author.getUsername(), author.getFullName(), normalizedGenres, normalizedDescription, normalizedFileName
         );
         submissionRepository.save(submission);
         return submission;
@@ -99,37 +109,51 @@ public class AuthorService2 {
 
     // Method to generate a preview of the book submission, validating input and providing a formatted string that includes the title, genres, and a truncated description for display purposes.
     public String previewBook(String title, List<String> genres, String description) {
-        if (title == null || title.isBlank()) {
-            throw new ValidationException("Title cannot be empty for preview.");
-        }
-        if (genres == null || genres.isEmpty()) {
-            throw new ValidationException("At least one genre is required for preview.");
-        }
-        if (description == null || description.isBlank()) {
-            throw new ValidationException("Description cannot be empty for preview.");
-        }
+        String normalizedTitle = normalizeRequired(title, "Title cannot be empty for preview.");
+        String normalizedDescription = normalizeRequired(description, "Description cannot be empty for preview.");
 
         // Validate genres before generating the preview, ensuring that only supported genres are included in the output.
-        validateGenres(genres);
-        String normalizedDescription = description.trim();
+        List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required for preview.");
         if (normalizedDescription.length() > 300) {
             normalizedDescription = normalizedDescription.substring(0, 300) + "...";
         }
 
         return "=== Book Preview ===\n"
-                + "Title: " + title.trim() + "\n"
-                + "Genres: " + genres + "\n"
+                + "Title: " + normalizedTitle + "\n"
+                + "Genres: " + normalizedGenres + "\n"
                 + "Description: " + normalizedDescription + "\n";
     }
 
     // Private helper method to validate that the provided genres are all supported, throwing a ValidationException if any unsupported genres are found.
-    private void validateGenres(List<String> genres) {
-        List<String> invalid = genres.stream()
-                .filter(g -> !SUPPORTED_GENRES.contains(g))
-                .toList();
+    private List<String> normalizeGenres(List<String> genres, String emptyMessage) {
+        if (genres == null) {
+            throw new ValidationException(emptyMessage);
+        }
+
+        List<String> invalid = new ArrayList<>();
+        List<String> normalized = new ArrayList<>();
+        for (String genre : genres) {
+            if (genre == null || genre.isBlank()) {
+                continue;
+            }
+
+            String canonicalGenre = GENRE_LOOKUP.get(genre.trim().toLowerCase(Locale.ROOT));
+            if (canonicalGenre == null) {
+                invalid.add(genre.trim());
+                continue;
+            }
+            if (!normalized.contains(canonicalGenre)) {
+                normalized.add(canonicalGenre);
+            }
+        }
+
+        if (normalized.isEmpty()) {
+            throw new ValidationException(emptyMessage);
+        }
         if (!invalid.isEmpty()) {
             throw new ValidationException("Unsupported genres: " + invalid + ". Supported: " + getSupportedGenres());
         }
+        return normalized;
     }
 
     // Private helper method to validate the file format of the submitted book, ensuring that only allowed formats are accepted and throwing a ValidationException if the format is unsupported.
@@ -141,8 +165,10 @@ public class AuthorService2 {
     }
 
     // Private helper method to validate basic input fields such as username and full name, ensuring they are not null or blank before proceeding with registration or other operations.
-    private void validateBasic(String username, String fullName) {
-        if (username == null || username.isBlank()) throw new ValidationException("Username cannot be empty.");
-        if (fullName == null || fullName.isBlank()) throw new ValidationException("Full Name cannot be empty.");
+    private String normalizeRequired(String value, String errorMessage) {
+        if (value == null || value.isBlank()) {
+            throw new ValidationException(errorMessage);
+        }
+        return value.trim();
     }
 }

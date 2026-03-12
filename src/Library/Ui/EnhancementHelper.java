@@ -9,12 +9,14 @@ import java.time.LocalDate;
 
 public class EnhancementHelper {
 
+    // [Task 1 nice-to-have]
     public static void printAvailability(Book b) {
         // Console fallback of red/black
         String colorTag = b.isAvailable() ? "[BLACK/AVAILABLE]" : "[RED/UNAVAILABLE]";
         System.out.printf("%s %s%n", colorTag, b.getTitle());
     }
 
+    // [Task 1 nice-to-have]
     public static void quickReadSummary(Book b) {
         String summary = b.getSummary();
         if (summary == null || summary.isBlank()) {
@@ -31,6 +33,7 @@ public class EnhancementHelper {
         }
     }
 
+    // [Task 1 nice-to-have]
     public static boolean confirmBorrow(String bookTitle, int durationDays) {
         LocalDate now = LocalDate.now();
         LocalDate due = now.plusDays(durationDays);
@@ -42,10 +45,12 @@ public class EnhancementHelper {
         return true; // replace with actual user yes/no in UI
     }
 
+    // [Task 1 nice-to-have]
     public static Color getAvailabilityColor(Book b) {
         return b.isAvailable() ? Color.BLACK : Color.RED;
     }
 
+    // [Task 2 nice-to-have]
     public static String buildBorrowConfirmation(String bookTitle, int durationDays) {
         LocalDate now = LocalDate.now();
         LocalDate due = now.plusDays(durationDays);
@@ -55,6 +60,7 @@ public class EnhancementHelper {
                 + "\nWarning: Late return may incur penalties.";
     }
 
+    // [Task 2 nice-to-have]
     public static void printBorrowResult(BorrowRecord record) {
         System.out.printf("Borrowed. Start=%s Due=%s%n", record.getBorrowDate(), record.getDueDate());
     }
