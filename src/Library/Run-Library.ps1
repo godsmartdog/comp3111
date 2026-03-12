@@ -51,19 +51,26 @@ function Write-SourceList {
 $workspaceRoot = Resolve-Path $PSScriptRoot
 $sourceRoot = Resolve-Path (Join-Path $workspaceRoot "..")
 
-$javac = Resolve-ToolPath -ToolName "javac" -Candidates @(
-    "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\javac.exe",
-    "C:\Program Files\Java\jdk-24\bin\javac.exe",
-    "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\javac.exe"
-)
+# $javac = Resolve-ToolPath -ToolName "javac" -Candidates @(
+#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\javac.exe",
+#     "C:\Program Files\Java\jdk-24\bin\javac.exe",
+#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\javac.exe"
+# )
 
-$java = Resolve-ToolPath -ToolName "java" -Candidates @(
-    "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\java.exe",
-    "C:\Program Files\Java\jdk-24\bin\java.exe",
-    "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\java.exe"
-)
+# $java = Resolve-ToolPath -ToolName "java" -Candidates @(
+#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\java.exe",
+#     "C:\Program Files\Java\jdk-24\bin\java.exe",
+#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\java.exe"
+# )
 
-$javaFxLib = "C:\Users\lam09\.javafx\javafx-sdk-17.0.2\lib"
+# $javaFxLib = "C:\Users\lam09\.javafx\javafx-sdk-17.0.2\lib"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$projectRoot = Resolve-Path (Join-Path $scriptDir "..\..")  # Goes up 2 levels to project root
+
+$javac = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\javac.exe"     # Added src\
+$java = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\java.exe"       # Added src\
+$javaFxLib = Join-Path $projectRoot "src\runtime\javafx-sdk-17.0.2\lib"
+
 
 if (!(Test-Path $javaFxLib)) {
     Write-Warning "JavaFX SDK not found at $javaFxLib"
