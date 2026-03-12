@@ -61,16 +61,21 @@ Complete workflow in part 9
 
 - code in Service/AuthService.java.
 - using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version).
-- password using code in "Security".
+- password using code in "Security", nice to have feature in Security/PasswordPolicy
 
 ### task 1.3 List the available book list
-- code in Service/BookService.java and Service/RecommendationService.java.
+- code in Service/BookService.java and Service/RecommendationService.java(nice to have).
 - using Model/Book and Model/BorrowRecord as class defination , Repository/BookRepository and Repository/BorrowRecordRepository is used as interface(all interface is defined is their Memoryxxx version).
+- - the nice to have feature (limit borrow is done by "Security/SecurityConfig")
 
 ### task 1.4 Borrow Book
-- code in Service/AuthService.java.
-- using Model/User and Model/Role as class defination , Repository/UserRepository is used as interface(all interface is defined is their Memoryxxx version).
+- code in Service/BorrowService.java.
+- using Model/Book and Model/BorrowRecord as class defination , Repository/BookRepository and BorrowRepository is used as interface(all interface is defined is their Memoryxxx version).
 
+
+## task 2.1/2.2 Authon Reg and login
+- code in AuthorService2
+- Model/User,Role,AuthonProfile.java is used as class, and 
 
 ## 3. Part One: Model
 
