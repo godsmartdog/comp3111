@@ -1,8 +1,8 @@
-## 5. Phase 1 主要功能
+## 5. Phase 1 Main Features
 
 ## 5.1 Task 1 Student/Staff Portal
 
-Task 1 包含四个主要子任务：
+Task 1 contains four main subtasks:
 
 1. Student/Staff Registration
 2. Student/Staff Login
@@ -11,146 +11,146 @@ Task 1 包含四个主要子任务：
 
 ### 5.1.1 Task 1.1 Student/Staff Registration
 
-需求概要：
+Requirements Overview:
 
-- 用户输入用户名、全名、密码和角色
-- 用户名必须唯一
-- 密码必须满足校验规则
-- 角色只能是 Student 或 Staff
-- 系统必须提供成功或失败反馈
+- Users input username, full name, password, and role
+- Username must be unique
+- Password must meet validation rules
+- Role can only be Student or Staff
+- The system must provide success or failure feedback
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`
-- Repository：`UserRepository`、`MemoryUserRepository`
-- Service：`AuthService.registerStudentOrStaff(...)`
-- Exception：`ValidationException`
-- Security：`PasswordHasher`、`PasswordPolicy`、`SessionManager`
-- UI：`LibraryManagementUI.buildStudentStaffTab()`、`ConsoleUI.register(Scanner sc)`
+- Model: `User`, `Role`
+- Repository: `UserRepository`, `MemoryUserRepository`
+- Service: `AuthService.registerStudentOrStaff(...)`
+- Exception: `ValidationException`
+- Security: `PasswordHasher`, `PasswordPolicy`, `SessionManager`
+- UI: `LibraryManagementUI.buildStudentStaffTab()`, `ConsoleUI.register(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `AuthService.registerStudentOrStaff(...)`
-  检查角色只能是 `STUDENT` 或 `STAFF`
-  检查用户名和全名不能为空
-  检查密码强度
-  检查用户名是否已存在
-  使用哈希保存密码
-  创建并保存新的 `User`
+  Check that the role can only be `STUDENT` or `STAFF`
+  Check that the username and full name cannot be empty
+  Check password strength
+  Check if the username already exists
+  Save password using hash
+  Create and save the new `User`
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 在 `buildStudentStaffTab()` 中提供注册表单，并通过弹窗显示成功或失败信息
-- Console 版本通过 `register(Scanner sc)` 读取输入并在成功后跳转登录
+- JavaFX provides a registration form in `buildStudentStaffTab()` and displays success or failure messages via pop-ups
+- Console version reads input via `register(Scanner sc)` and redirects to login upon success
 
 ### 5.1.2 Task 1.2 Student/Staff Login
 
-需求概要：
+Requirements Overview:
 
-- 用户输入用户名和密码
-- 系统校验凭据是否正确
-- 系统校验账号是否属于所选角色
-- 系统返回成功或失败提示
+- Users input username and password
+- The system verifies if the credentials are correct
+- The system verifies if the account belongs to the selected role
+- The system returns a success or failure prompt
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`
-- Repository：`UserRepository`、`MemoryUserRepository`
-- Service：`AuthService.loginStudentOrStaff(...)`
-- Exception：`AuthenticationException`、`ValidationException`
-- Security：`PasswordHasher`、`SessionManager`
-- UI：`LibraryManagementUI.buildStudentStaffTab()`、`ConsoleUI.login(Scanner sc)`
+- Model: `User`, `Role`
+- Repository: `UserRepository`, `MemoryUserRepository`
+- Service: `AuthService.loginStudentOrStaff(...)`
+- Exception: `AuthenticationException`, `ValidationException`
+- Security: `PasswordHasher`, `SessionManager`
+- UI: `LibraryManagementUI.buildStudentStaffTab()`, `ConsoleUI.login(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `AuthService.loginStudentOrStaff(...)`
-  先按用户名查找用户
-  再检查所选角色是否与账号角色一致
-  验证密码哈希是否匹配
-  登录成功后创建 session
+  First, find the user by username
+  Then check if the selected role matches the account's role
+  Verify if the password hash matches
+  Create a session upon successful login
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 登录成功后更新状态标签，并刷新当前借阅列表
-- Console 登录成功后会打印欢迎信息并跳转到图书列表
+- After a successful login, JavaFX updates the status label and refreshes the current borrow list
+- After a successful login, the Console prints a welcome message and redirects to the book list
 
 ### 5.1.3 Task 1.3 Available Book Screen
 
-需求概要：
+Requirements Overview:
 
-- 显示已批准图书
-- 显示书名、作者、出版日期、可借状态和摘要
+- Display approved books
+- Display title, author, publish date, availability status, and summary
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`Book`
-- Repository：`BookRepository`、`MemoryBookRepository`
-- Service：`BookService.listApprovedBooksWithAvailability()`、`BookService.searchApprovedBooks(...)`、`RecommendationService.recommendTopPopular(...)`
-- Exception：`ValidationException`、`BusinessException`
-- Security：`SecurityConfig` 中的共享规则
-- UI：`LibraryManagementUI.buildStudentStaffTab()`、`ConsoleUI.listBooks()`、`EnhancementHelper`
+- Model: `Book`
+- Repository: `BookRepository`, `MemoryBookRepository`
+- Service: `BookService.listApprovedBooksWithAvailability()`, `BookService.searchApprovedBooks(...)`, `RecommendationService.recommendTopPopular(...)`
+- Exception: `ValidationException`, `BusinessException`
+- Security: Shared rules in `SecurityConfig`
+- UI: `LibraryManagementUI.buildStudentStaffTab()`, `ConsoleUI.listBooks()`, `EnhancementHelper`
 
-函数细节说明：
+Function Details:
 
 - `BookService.listApprovedBooksWithAvailability()`
-  返回所有已批准图书，并按标题排序
+  Returns all approved books, sorted by title
 - `BookService.searchApprovedBooks(...)`
-  按书名或作者搜索，并只保留已批准图书
+  Search by title or author, and only retain approved books
 - `EnhancementHelper.getAvailabilityColor(Book b)`
-  在 JavaFX 中实现红黑颜色显示
+  Implement red/black color display in JavaFX
 - `EnhancementHelper.printAvailability(Book b)`
-  在控制台中输出可借状态
+  Output the availability status in the console
 - `EnhancementHelper.quickReadSummary(Book b)`
-  实现摘要快速阅读功能
+  Implement the quick read summary feature
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 使用 `TableView` 显示书单，并在右侧显示所选图书摘要
-- Console 版本逐行输出图书信息和推荐结果
+- JavaFX uses `TableView` to display the book list and shows the selected book's summary on the right
+- Console version outputs book information and recommendation results line by line
 
 ### 5.1.4 Task 1.4 Borrow Book
 
-需求概要：
+Requirements Overview:
 
-- 只有可借图书才允许借阅
-- 借出后图书状态必须更新
-- 用户应收到借阅确认
+- Only available books are allowed to be borrowed
+- The book's status must be updated after being borrowed
+- Users should receive a borrow confirmation
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`Book`、`BorrowRecord`
-- Repository：`BookRepository`、`BorrowRepository`
-- Service：`BorrowService.borrowBook(...)`、`BorrowService.listActiveBorrowsByUser(...)`
-- Exception：`BusinessException`、`NotFoundException`、`ValidationException`
-- Security：`SecurityConfig.MAX_BORROW_LIMIT`、`SecurityConfig.DEFAULT_BORROW_DAYS`
-- UI：`LibraryManagementUI.handleBorrow()`、`ConsoleUI.borrow(Scanner sc)`、`EnhancementHelper`
+- Model: `Book`, `BorrowRecord`
+- Repository: `BookRepository`, `BorrowRepository`
+- Service: `BorrowService.borrowBook(...)`, `BorrowService.listActiveBorrowsByUser(...)`
+- Exception: `BusinessException`, `NotFoundException`, `ValidationException`
+- Security: `SecurityConfig.MAX_BORROW_LIMIT`, `SecurityConfig.DEFAULT_BORROW_DAYS`
+- UI: `LibraryManagementUI.handleBorrow()`, `ConsoleUI.borrow(Scanner sc)`, `EnhancementHelper`
 
-函数细节说明：
+Function Details:
 
 - `BorrowService.borrowBook(String username, String bookId, int borrowDays)`
-  查找目标图书
-  检查图书是否存在且已批准
-  检查图书是否可借
-  检查用户是否超出借阅上限
-  检查借阅天数是否合法
-  创建 `BorrowRecord`
-  保存借阅记录
-  将图书标记为不可借
+  Find the target book
+  Check if the book exists and is approved
+  Check if the book is available for borrowing
+  Check if the user has exceeded the borrow limit
+  Check if the number of borrow days is valid
+  Create `BorrowRecord`
+  Save the borrow record
+  Mark the book as unavailable
 - `EnhancementHelper.buildBorrowConfirmation(...)`
-  构建 JavaFX 的确认弹窗内容
+  Build the content for the JavaFX confirmation pop-up
 - `EnhancementHelper.confirmBorrow(...)`
-  在控制台中输出借阅确认信息
+  Output the borrow confirmation message in the console
 - `EnhancementHelper.printBorrowResult(...)`
-  输出借阅成功结果
+  Output the successful borrow result
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 在真正借书前会弹出确认框
-- Console 版本通过 `Y/N` 确认是否继续借阅
+- JavaFX will pop up a confirmation box before actually borrowing the book
+- Console version confirms whether to continue borrowing via `Y/N`
 
 ## 5.2 Task 2 Author Portal
 
-Task 2 包含三个主要子任务：
+Task 2 contains three main subtasks:
 
 1. Author Registration
 2. Author Login
@@ -158,103 +158,103 @@ Task 2 包含三个主要子任务：
 
 ### 5.2.1 Task 2.1 Author Registration
 
-需求概要：
+Requirements Overview:
 
-- 用户输入用户名、全名、密码和可选 bio
-- 用户名必须唯一
-- 密码必须符合校验规则
-- 系统提供注册反馈
+- Users input username, full name, password, and optional bio
+- Username must be unique
+- Password must meet validation rules
+- The system provides registration feedback
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`、`AuthorProfile2`
-- Repository：`UserRepository`、`AuthorProfileRepository2`
-- Service：`AuthorService2.registerAuthor(...)`
-- Exception：`ValidationException`
-- Security：`PasswordHasher`、`PasswordPolicy`、`SessionManager`
-- UI：`LibraryManagementUI.buildAuthorTab()`、`AuthorConsoleUI2.register(Scanner sc)`
+- Model: `User`, `Role`, `AuthorProfile2`
+- Repository: `UserRepository`, `AuthorProfileRepository2`
+- Service: `AuthorService2.registerAuthor(...)`
+- Exception: `ValidationException`
+- Security: `PasswordHasher`, `PasswordPolicy`, `SessionManager`
+- UI: `LibraryManagementUI.buildAuthorTab()`, `AuthorConsoleUI2.register(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `AuthorService2.registerAuthor(...)`
-  校验用户名与全名
-  校验密码强度
-  检查用户名是否重复
-  对密码做哈希
-  创建 AUTHOR 用户
-  创建并保存 `AuthorProfile2`
+  Validate username and full name
+  Validate password strength
+  Check if the username is duplicated
+  Hash the password
+  Create an AUTHOR user
+  Create and save `AuthorProfile2`
 
 ### 5.2.2 Task 2.2 Author Login
 
-需求概要：
+Requirements Overview:
 
-- 作者输入用户名和密码
-- 系统验证账号信息
-- 系统确认该账号角色为 AUTHOR
+- Author inputs username and password
+- The system verifies the account information
+- The system confirms that the account role is AUTHOR
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`
-- Repository：`UserRepository`
-- Service：`AuthorService2.loginAuthor(...)`
-- Exception：`AuthenticationException`
-- Security：`PasswordHasher`、`SessionManager`
-- UI：`LibraryManagementUI.buildAuthorTab()`、`AuthorConsoleUI2.login(Scanner sc)`
+- Model: `User`, `Role`
+- Repository: `UserRepository`
+- Service: `AuthorService2.loginAuthor(...)`
+- Exception: `AuthenticationException`
+- Security: `PasswordHasher`, `SessionManager`
+- UI: `LibraryManagementUI.buildAuthorTab()`, `AuthorConsoleUI2.login(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `AuthorService2.loginAuthor(...)`
-  按用户名查找用户
-  确认角色必须是 AUTHOR
-  验证密码哈希
-  创建登录会话
+  Find the user by username
+  Confirm the role must be AUTHOR
+  Verify the password hash
+  Create a login session
 
 ### 5.2.3 Task 2.3 Publish New Book
 
-需求概要：
+Requirements Overview:
 
-- 作者提交书名、作者名、类型、描述和文件
-- 投稿会发送给馆员审核
-- 提交成功后需要反馈给作者
+- Author submits book title, author name, genre, description, and file
+- The submission will be sent to the librarian for review
+- Feedback needs to be provided to the author upon successful submission
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`BookSubmission2`、`BookDraft2`、`User`
-- Repository：`BookSubmissionRepository2`、`BookDraftRepository2`、`UserRepository`
-- Service：`AuthorService2.publishBook(...)`、`AuthorService2.previewBook(...)`、`AuthorService2.getSupportedGenres()`、`AuthorDraftService.autoSave(...)`、`AuthorDraftService.loadDraft(...)`、`AuthorDraftService.loadDrafts(...)`、`AuthorDraftService.clearDraft(...)`、`FileService.validateSubmissionFile(...)`
-- Exception：`ValidationException`、`AuthenticationException`
-- Security：`SecurityConfig.ALLOWED_EXTENSIONS`、`SecurityConfig.MAX_FILE_SIZE_BYTES`
-- UI：`LibraryManagementUI.buildAuthorTab()`、`AuthorConsoleUI2.publish(Scanner sc)`、`AuthorConsoleUI2.loadDraft(Scanner sc)`
+- Model: `BookSubmission2`, `BookDraft2`, `User`
+- Repository: `BookSubmissionRepository2`, `BookDraftRepository2`, `UserRepository`
+- Service: `AuthorService2.publishBook(...)`, `AuthorService2.previewBook(...)`, `AuthorService2.getSupportedGenres()`, `AuthorDraftService.autoSave(...)`, `AuthorDraftService.loadDraft(...)`, `[...]`
+- Exception: `ValidationException`, `AuthenticationException`
+- Security: `SecurityConfig.ALLOWED_EXTENSIONS`, `SecurityConfig.MAX_FILE_SIZE_BYTES`
+- UI: `LibraryManagementUI.buildAuthorTab()`, `AuthorConsoleUI2.publish(Scanner sc)`, `AuthorConsoleUI2.loadDraft(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `AuthorService2.publishBook(...)`
-  校验标题、类型、描述和文件名
-  校验类型是否在支持列表中
-  校验文件格式是否合法
-  验证提交者必须是 AUTHOR
-  创建并保存状态为 `PENDING` 的 `BookSubmission2`
+  Validate title, genre, description, and filename
+  Validate if the genre is in the supported list
+  Validate if the file format is legal
+  Verify that the submitter must be an AUTHOR
+  Create and save a `BookSubmission2` with the status `PENDING`
 - `AuthorService2.previewBook(...)`
-  在正式提交前生成预览文本
+  Generate a preview text before formal submission
 - `AuthorService2.getSupportedGenres()`
-  提供预定义类型列表
+  Provide a predefined list of genres
 - `AuthorDraftService.autoSave(...)`
-  自动保存未完成表单内容
-- `AuthorDraftService.loadDraft(...)` 与 `loadDrafts(...)`
-  支持恢复未完成投稿
+  Auto-save incomplete form content
+- `AuthorDraftService.loadDraft(...)` and `loadDrafts(...)`
+  Support restoring incomplete submissions
 - `AuthorDraftService.clearDraft(...)`
-  成功提交后清除草稿
+  Clear the draft after successful submission
 - `FileService.validateSubmissionFile(...)`
-  校验文件存在、格式和大小是否合法
+  Validate if the file exists, and if its format and size are legal
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 将保存草稿、预览、最终提交整合在同一界面中
-- Console 版本也支持草稿、预览和最终提交
+- JavaFX integrates saving drafts, previewing, and final submission into the same interface
+- Console version also supports drafts, previews, and final submissions
 
 ## 5.3 Task 3 Librarian Portal
 
-Task 3 包含三个主要子任务：
+Task 3 contains three main subtasks:
 
 1. Librarian Registration
 2. Librarian Login
@@ -262,115 +262,115 @@ Task 3 包含三个主要子任务：
 
 ### 5.3.1 Task 3.1 Librarian Registration
 
-需求概要：
+Requirements Overview:
 
-- 用户输入用户名、全名、密码和可选 employee id
-- 用户名必须唯一
-- 密码必须满足校验规则
-- 系统提供反馈
+- Users input username, full name, password, and optional employee id
+- Username must be unique
+- Password must meet validation rules
+- The system provides feedback
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`、`LibrarianProfile3`
-- Repository：`UserRepository`、`LibrarianProfileRepository3`
-- Service：`LibrarianService3.registerLibrarian(...)`
-- Exception：`ValidationException`
-- Security：`PasswordHasher`、`PasswordPolicy`
-- UI：`LibraryManagementUI.buildLibrarianTab()`、`LibrarianConsoleUI3.register(Scanner sc)`
+- Model: `User`, `Role`, `LibrarianProfile3`
+- Repository: `UserRepository`, `LibrarianProfileRepository3`
+- Service: `LibrarianService3.registerLibrarian(...)`
+- Exception: `ValidationException`
+- Security: `PasswordHasher`, `PasswordPolicy`
+- UI: `LibraryManagementUI.buildLibrarianTab()`, `LibrarianConsoleUI3.register(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `LibrarianService3.registerLibrarian(...)`
-  校验字段
-  校验密码强度
-  检查用户名是否重复
-  对密码做哈希
-  创建 LIBRARIAN 用户
-  创建并保存 `LibrarianProfile3`
+  Validate fields
+  Validate password strength
+  Check if the username is duplicated
+  Hash the password
+  Create a LIBRARIAN user
+  Create and save `LibrarianProfile3`
 
 ### 5.3.2 Task 3.2 Librarian Login
 
-需求概要：
+Requirements Overview:
 
-- 用户输入用户名和密码
-- 系统验证凭据
-- 系统检查账号角色必须是 LIBRARIAN
+- Users input username and password
+- The system verifies the credentials
+- The system checks that the account role must be LIBRARIAN
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`User`、`Role`
-- Repository：`UserRepository`
-- Service：`LibrarianService3.loginLibrarian(...)`
-- Exception：`AuthenticationException`
-- Security：`PasswordHasher`、`SessionManager`
-- UI：`LibraryManagementUI.buildLibrarianTab()`、`LibrarianConsoleUI3.login(Scanner sc)`
+- Model: `User`, `Role`
+- Repository: `UserRepository`
+- Service: `LibrarianService3.loginLibrarian(...)`
+- Exception: `AuthenticationException`
+- Security: `PasswordHasher`, `SessionManager`
+- UI: `LibraryManagementUI.buildLibrarianTab()`, `LibrarianConsoleUI3.login(Scanner sc)`
 
-函数细节说明：
+Function Details:
 
 - `LibrarianService3.loginLibrarian(...)`
-  按用户名查找用户
-  检查角色必须是 LIBRARIAN
-  验证密码哈希
-  创建会话
+  Find the user by username
+  Check that the role must be LIBRARIAN
+  Verify the password hash
+  Create a session
 
 ### 5.3.3 Task 3.3 Librarian New Books Approval Screen and Functionalities
 
-需求概要：
+Requirements Overview:
 
-- 显示待审核投稿列表
-- 显示标题、作者用户名、作者全名、类型、提交日期和状态
-- 支持批准或拒绝，并在最终执行前确认
-- 更新状态并给馆员反馈
+- Display a list of pending submissions
+- Display title, author username, author full name, genre, submission date, and status
+- Support approving or rejecting, and confirm before final execution
+- Update status and provide feedback to the librarian
 
-涉及文件按六层对应如下：
+Involved files mapped to the six layers are as follows:
 
-- Model：`BookSubmission2`、`SubmissionState`、`Book`
-- Repository：`BookSubmissionRepository2`、`BookRepository`
-- Service：`LibrarianService3.getPendingSubmissions()`、`LibrarianService3.approveSubmission(...)`、`LibrarianService3.rejectSubmission(...)`、`LibrarianService3.bulkApprove(...)`、`LibrarianService3.bulkReject(...)`、`FileService.getPreviewDetails(...)`
-- Exception：`ValidationException`、`NotFoundException`
-- Security：`SecurityConfig` 中的文件限制与格式限制
-- UI：`LibraryManagementUI.buildLibrarianTab()`、`LibrarianConsoleUI3.listPending()`、`approve(Scanner sc)`、`reject(Scanner sc)`、`previewSubmissionFile(Scanner sc)`、`bulkApprove(Scanner sc)`、`bulkReject(Scanner sc)`
+- Model: `BookSubmission2`, `SubmissionState`, `Book`
+- Repository: `BookSubmissionRepository2`, `BookRepository`
+- Service: `LibrarianService3.getPendingSubmissions()`, `LibrarianService3.approveSubmission(...)`, `LibrarianService3.rejectSubmission(...)`, `LibrarianService3.bulkApprove(...)`, `LibrarianServ[...]`
+- Exception: `ValidationException`, `NotFoundException`
+- Security: File restrictions and format restrictions in `SecurityConfig`
+- UI: `LibraryManagementUI.buildLibrarianTab()`, `LibrarianConsoleUI3.listPending()`, `approve(Scanner sc)`, `reject(Scanner sc)`, `previewSubmissionFile(Scanner sc)`, `bulkApprove(Scanner sc)[...]`
 
-函数细节说明：
+Function Details:
 
 - `LibrarianService3.getPendingSubmissions()`
-  返回所有状态为 `PENDING` 的投稿
+  Returns all submissions with the `PENDING` status
 - `LibrarianService3.approveSubmission(...)`
-  查找目标投稿
-  检查是否仍然是待审核状态
-  将其标记为批准
-  保存更新后的投稿
-  根据投稿内容创建新的 `Book`
-  将图书标记为已批准且可借
-  保存到馆藏目录中
+  Find the target submission
+  Check if it is still in the pending status
+  Mark it as approved
+  Save the updated submission
+  Create a new `Book` based on the submission content
+  Mark the book as approved and available for borrowing
+  Save it to the library catalog
 - `LibrarianService3.rejectSubmission(...)`
-  查找投稿
-  检查其是否仍是待审核状态
-  将其标记为拒绝并保存评论
+  Find the submission
+  Check if it is still in the pending status
+  Mark it as rejected and save comments
 - `LibrarianService3.bulkApprove(...)`
-  对多个投稿批量执行批准
+  Perform bulk approval on multiple submissions
 - `LibrarianService3.bulkReject(...)`
-  对多个投稿批量执行拒绝
+  Perform bulk rejection on multiple submissions
 - `FileService.getPreviewDetails(...)`
-  支持馆员查看文本内容与文件元数据
+  Support librarians in viewing text content and file metadata
 
-UI 如何体现：
+UI Implementation:
 
-- JavaFX 使用表格、选择模型、预览区域、评论输入框和操作按钮
-- Console 版本通过列表和确认提示完成相同流程
+- JavaFX uses tables, selection models, preview areas, comment input boxes, and action buttons
+- Console version completes the same process through lists and confirmation prompts
 
-## 6. Phase 1 增强功能
+## 6. Phase 1 Enhancements
 
-## 6.1 Task 1.1、2.1、3.1 的注册检查
+## 6.1 Task 1.1, 2.1, 3.1 Registration Checks
 
-已实现内容：
+Implemented Content:
 
-- 所有用户类型共用唯一用户名检查
-- Full Name 非空检查
-- 强密码校验，包括大写、小写、数字、特殊字符、不能有空格、长度限制
-- 密码哈希存储而不是明文存储
+- All user types share a unique username check
+- Full Name non-empty check
+- Strong password validation, including uppercase, lowercase, numbers, special characters, no spaces allowed, and length limits
+- Password hash storage instead of plain text storage
 
-主要函数：
+Main Functions:
 
 - `AuthService.registerStudentOrStaff(...)`
 - `AuthorService2.registerAuthor(...)`
@@ -378,122 +378,123 @@ UI 如何体现：
 - `PasswordPolicy.validate(...)`
 - `PasswordHasher.hashPassword(...)`
 
-## 6.2 Task 1.2、2.2、3.2 的登录类型检查
+## 6.2 Task 1.2, 2.2, 3.2 Login Type Checks
 
-已实现内容：
+Implemented Content:
 
-- 不同门户会检查账号角色，避免用户从错误入口登录
+- Different portals will check the account role to prevent users from logging in through the wrong entrance
 
-主要函数：
+Main Functions:
 
 - `AuthService.loginStudentOrStaff(...)`
 - `AuthorService2.loginAuthor(...)`
 - `LibrarianService3.loginLibrarian(...)`
 
-## 6.3 Task 1.3 的增强功能
+## 6.3 Task 1.3 Enhancements
 
-### 阅读摘要
+### Read Summary
 
-已实现内容：
+Implemented Content:
 
-- JavaFX 中选中图书后可以直接查看摘要
-- 控制台支持快速阅读摘要
+- In JavaFX, users can directly view the summary after selecting a book
+- The console supports quick reading of summaries
 
-主要函数：
+Main Functions:
 
 - `EnhancementHelper.quickReadSummary(Book b)`
 - `LibraryManagementUI.buildStudentStaffTab()`
 
-### 借阅数量限制
+### Borrow Quantity Limit
 
-已实现内容：
+Implemented Content:
 
-- 系统限制单个用户同时借阅的图书数量
+- The system limits the number of books a single user can borrow simultaneously
 
-主要函数：
+Main Functions:
 
 - `BorrowService.borrowBook(...)`
 - `SecurityConfig.MAX_BORROW_LIMIT`
 
-### 图书推荐
+### Book Recommendations
 
-已实现内容：
+Implemented Content:
 
-- 根据借阅次数统计热门图书并给出推荐
+- Recommend top popular books based on borrow count statistics
 
-主要函数：
+Main Functions:
 
 - `RecommendationService.recommendTopPopular(int limit)`
 
-## 6.4 Task 1.4 的增强功能
+## 6.4 Task 1.4 Enhancements
 
-### 带详细信息的借阅确认
+### Borrow Confirmation with Detailed Information
 
-已实现内容：
+Implemented Content:
 
-- JavaFX 弹窗会显示书名、借阅时长、到期日和提醒信息
-- Console 版本也会显示确认信息
+- The JavaFX pop-up displays the book title, borrow duration, due date, and reminder information
+- The console version also displays confirmation information
 
-主要函数：
+Main Functions:
 
 - `LibraryManagementUI.handleBorrow()`
 - `EnhancementHelper.buildBorrowConfirmation(...)`
 - `EnhancementHelper.confirmBorrow(...)`
 
-### 红黑颜色区分图书可借状态
+### Red and Black Colors to Distinguish Book Availability
 
-已实现内容：
+Implemented Content:
 
-- 可借图书显示黑色
-- 不可借图书显示红色
+- Available books are displayed in black
+- Unavailable books are displayed in red
 
-主要函数：
+Main Functions:
 
 - `EnhancementHelper.getAvailabilityColor(Book b)`
 - `LibraryManagementUI.buildStudentStaffTab()`
 
-## 6.5 Task 2.3 的增强功能
+## 6.5 Task 2.3 Enhancements
 
-### 投稿预览
+### Submission Preview
 
-主要函数：
+Main Functions:
 
 - `AuthorService2.previewBook(...)`
 - `LibraryManagementUI.buildAuthorTab()`
 - `AuthorConsoleUI2.publish(Scanner sc)`
 
-### 多类型选择
+### Multiple Genre Selection
 
-主要函数：
+Main Functions:
 
 - `AuthorService2.getSupportedGenres()`
 - `LibraryManagementUI.parseGenres(String rawGenres)`
 
-### 自动保存草稿
+### Auto-Save Drafts
 
-主要函数：
+Main Functions:
 
 - `AuthorDraftService.autoSave(...)`
 - `AuthorDraftService.loadDraft(...)`
 - `AuthorDraftService.loadDrafts(...)`
 - `AuthorDraftService.clearDraft(...)`
 
-## 6.6 Task 3.3 的增强功能
+## 6.6 Task 3.3 Enhancements
 
-### 图书内容预览
+### Book Content Preview
 
-主要函数：
+Main Functions:
 
 - `FileService.getPreviewDetails(...)`
 - `LibraryManagementUI.buildLibrarianTab()`
 - `LibrarianConsoleUI3.showSubmissionFilePreview(String submissionId)`
 
-### 批量操作
+### Bulk Operations
 
-主要函数：
+Main Functions:
 
 - `LibrarianService3.bulkApprove(...)`
 - `LibrarianService3.bulkReject(...)`
 - `LibraryManagementUI.buildLibrarianTab()`
 - `LibrarianConsoleUI3.bulkApprove(Scanner sc)`
 - `LibrarianConsoleUI3.bulkReject(Scanner sc)`
+
