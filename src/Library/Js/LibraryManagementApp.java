@@ -16,26 +16,24 @@ import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
 import Library.Service.RecommendationService;
-import javafx.animation.PauseTransition;
-import javafx.application.Application;
-import javafx.application.Platform;
-import javafx.scene.Scene;
-import javafx.stage.Stage;
-import javafx.util.Duration;
+import com.sun.net.httpserver.HttpServer;
 
+import java.awt.Desktop;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 
-public class LibraryManagementApp extends Application {
-    // `start` method is the JavaFX entry point, where we set up the UI and show the stage
-    @Override
-    public void start(Stage stage) throws Exception {
+// Entry point for the JavaScript-based web UI.
+// Starts a local HTTP server and opens the browser at the app URL.
+public class LibraryManagementApp {
+
+    // Main method — starts the HTTP server and opens the browser
+    public static void main(String[] args) throws Exception {
         AppContext context = createContext();
 
-        // Create the main UI component, passing in all necessary services from the context
-        LibraryManagementUI ui = new LibraryManagementUI(
+        LibraryApiServer apiServer = new LibraryApiServer(
                 context.authService,
                 context.bookService,
                 context.borrowService,
@@ -46,24 +44,24 @@ public class LibraryManagementApp extends Application {
                 context.librarianService
         );
 
-        stage.setTitle("COMP3111 Library Management System");
-        stage.setScene(new Scene(ui.createContent(), 1280, 860));
-        stage.show();
-
-        if (getParameters().getRaw().contains("--smoke-test")) {
-            PauseTransition delay = new PauseTransition(Duration.seconds(2));
-            delay.setOnFinished(event -> {
-                System.out.println("JavaFX smoke test passed.");
-                Platform.exit();
-            });
-            delay.play();
-        }
-    }
-
-    // Main method to launch the JavaFX application
-    public static void main(String[] args) {
+        int port = 8080;
+        HttpServer server = apiServer.start(port);
+        String url = "http://localhost:" + port;
+        System.out.println("Library Management System running at " + url);
         System.out.println("Demo accounts: student1 / author1 / librarian1, password: Password1!");
-        launch(args);
+
+        // Open the browser automatically if Desktop is supported
+        try {
+            Desktop desktop = Desktop.getDesktop();
+            if (Desktop.isDesktopSupported() && desktop.isSupported(Desktop.Action.BROWSE)) {
+                desktop.browse(new URI(url));
+            }
+        } catch (Exception ignored) {
+            // Not critical — user can open the URL manually
+        }
+
+        // Keep the server running until the process is terminated
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> server.stop(0)));
     }
 
     // Helper method to set up in-memory repositories and seed demo data

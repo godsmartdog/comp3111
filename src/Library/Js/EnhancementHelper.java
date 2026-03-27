@@ -3,7 +3,6 @@ package Library.Js;
 
 import Library.Model.Book;
 import Library.Model.BorrowRecord;
-import javafx.scene.paint.Color;
 
 import java.time.LocalDate;
 
@@ -46,8 +45,9 @@ public class EnhancementHelper {
     }
 
     // [Task 1 nice-to-have]
-    public static Color getAvailabilityColor(Book b) {
-        return b.isAvailable() ? Color.BLACK : Color.RED;
+    // Returns a CSS color string for the book's availability status
+    public static String getAvailabilityColor(Book b) {
+        return b.isAvailable() ? "black" : "red";
     }
 
     // [Task 2 nice-to-have]

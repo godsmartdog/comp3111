@@ -1,7 +1,6 @@
 param(
     [switch]$Tests,
-    [switch]$JavaFX,
-    [switch]$SmokeTest,
+    [switch]$Web,
     [switch]$CompileOnly
 )
 
@@ -51,40 +50,19 @@ function Write-SourceList {
 $workspaceRoot = Resolve-Path $PSScriptRoot
 $sourceRoot = Resolve-Path (Join-Path $workspaceRoot "..")
 
-# $javac = Resolve-ToolPath -ToolName "javac" -Candidates @(
-#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\javac.exe",
-#     "C:\Program Files\Java\jdk-24\bin\javac.exe",
-#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\javac.exe"
-# )
-
-# $java = Resolve-ToolPath -ToolName "java" -Candidates @(
-#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\java.exe",
-#     "C:\Program Files\Java\jdk-24\bin\java.exe",
-#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\java.exe"
-# )
-
-# $javaFxLib = "C:\Users\lam09\.javafx\javafx-sdk-17.0.2\lib"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$projectRoot = Resolve-Path (Join-Path $scriptDir "..\..")  # Goes up 2 levels to project root
+$projectRoot = Resolve-Path (Join-Path $scriptDir "..\..")
 
-$javac = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\javac.exe"     # Added src\
-$java = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\java.exe"       # Added src\
-$javaFxLib = Join-Path $projectRoot "src\runtime\javafx-sdk-17.0.2\lib"
-
-
-if (!(Test-Path $javaFxLib)) {
-    Write-Warning "JavaFX SDK not found at $javaFxLib"
-    Write-Warning "JavaFX compile/run options will fail until that folder exists."
-}
+$javac = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\javac.exe"
+$java = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\java.exe"
 
 Push-Location $sourceRoot
 try {
-    if (!$Tests -and !$JavaFX -and !$SmokeTest) {
+    if (!$Tests -and !$Web) {
         Write-Host "Usage examples:"
         Write-Host "  .\Run-Library.ps1 -Tests"
-        Write-Host "  .\Run-Library.ps1 -JavaFX"
-        Write-Host "  .\Run-Library.ps1 -SmokeTest"
-        Write-Host "  .\Run-Library.ps1 -Tests -JavaFX"
+        Write-Host "  .\Run-Library.ps1 -Web"
+        Write-Host "  .\Run-Library.ps1 -Tests -Web"
         exit 0
     }
 
@@ -119,39 +97,26 @@ try {
         }
     }
 
-    if ($JavaFX -or $SmokeTest) {
-        $fxOutput = Join-Path $sourceRoot "out-fx"
-        $fxSources = Join-Path $sourceRoot "sources-all.txt"
+    if ($Web) {
+        $webOutput = Join-Path $sourceRoot "out-web"
+        $webSources = Join-Path $sourceRoot "sources-all.txt"
 
         Write-Host "Preparing full source list..."
-        Write-SourceList -Folders @("Library") -OutputFile $fxSources
+        Write-SourceList -Folders @("Library") -OutputFile $webSources
 
-        Ensure-Directory -Path $fxOutput
+        Ensure-Directory -Path $webOutput
 
-        Write-Host "Compiling JavaFX application..."
-        & $javac --module-path $javaFxLib --add-modules javafx.controls -encoding UTF-8 -d $fxOutput "@$fxSources"
+        Write-Host "Compiling web application..."
+        & $javac -encoding UTF-8 -d $webOutput "@$webSources"
         if ($LASTEXITCODE -ne 0) {
-            throw "JavaFX compilation failed."
+            throw "Web application compilation failed."
         }
 
         if (!$CompileOnly) {
-            $appArgs = @(
-                "--module-path", $javaFxLib,
-                "--add-modules", "javafx.controls",
-                "-cp", $fxOutput,
-                "Library.Ui.LibraryManagementApp"
-            )
-
-            if ($SmokeTest) {
-                $appArgs += "--smoke-test"
-                Write-Host "Running JavaFX smoke test..."
-            } else {
-                Write-Host "Starting JavaFX application..."
-            }
-
-            & $java @appArgs
+            Write-Host "Starting web application at http://localhost:8080 ..."
+            & $java -cp $webOutput Library.Js.LibraryManagementApp
             if ($LASTEXITCODE -ne 0) {
-                throw "JavaFX run failed."
+                throw "Web application run failed."
             }
         }
     }

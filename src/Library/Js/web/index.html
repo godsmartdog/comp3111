@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>COMP3111 Library Management System</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 14px; background: #f4f4f4; color: #222; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 17px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-bottom: 6px; }
+
+    /* Layout */
+    #app { max-width: 1300px; margin: 0 auto; padding: 16px; }
+
+    /* Top bar */
+    #topbar { display: flex; align-items: center; justify-content: space-between; background: #1a56a4; color: #fff; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; }
+    #topbar h1 { font-size: 18px; }
+    #topbar button { background: #fff; color: #1a56a4; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+
+    /* Cards and panels */
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px; margin-bottom: 14px; }
+    .card h2 { border-bottom: 1px solid #eee; padding-bottom: 6px; margin-bottom: 10px; }
+
+    /* Forms */
+    .form-row { display: flex; flex-direction: column; margin-bottom: 8px; }
+    .form-row label { font-weight: bold; margin-bottom: 3px; font-size: 13px; }
+    .form-row input, .form-row select, .form-row textarea {
+      padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+    }
+    .form-row textarea { resize: vertical; min-height: 60px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .btn { padding: 7px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #1a56a4; color: #fff; }
+    .btn-success { background: #1a7a42; color: #fff; }
+    .btn-danger  { background: #c0392b; color: #fff; }
+    .btn-secondary { background: #666; color: #fff; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn + .btn { margin-left: 6px; }
+
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 2px solid #1a56a4; margin-bottom: 14px; }
+    .tab-btn { padding: 8px 18px; border: none; background: none; cursor: pointer; font-size: 14px; color: #555; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab-btn.active { color: #1a56a4; border-bottom-color: #1a56a4; font-weight: bold; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #1a56a4; color: #fff; padding: 7px 10px; text-align: left; }
+    td { padding: 6px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:hover td { background: #f0f5ff; }
+    tr.unavailable td { color: #c0392b; }
+    tr.selected td { background: #d6e8ff; }
+
+    /* Status labels */
+    .status-bar { padding: 6px 10px; border-radius: 4px; font-size: 13px; margin-bottom: 10px; }
+    .status-logged-in  { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .status-logged-out { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+
+    /* List */
+    ul.simple-list { list-style: none; padding: 0; margin: 0; }
+    ul.simple-list li { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+
+    /* Genre checkboxes */
+    .genre-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+    .genre-grid label { display: flex; align-items: center; gap: 4px; font-size: 13px; background: #eef; border: 1px solid #bbd; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+
+    /* Messages */
+    .msg { padding: 8px 12px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; }
+    .msg-ok  { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .msg-err { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+
+    /* Two-column split */
+    .split { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; }
+
+    /* Landing page */
+    #landing { max-width: 900px; margin: 0 auto; }
+    #landing .hero { text-align: center; padding: 24px 0 14px; }
+    #landing .hero h1 { font-size: 26px; }
+    #landing .hero p  { color: #555; margin-top: 6px; }
+    #landing .demo-hint { background: #e8f0fe; border: 1px solid #b8d0f8; border-radius: 4px; padding: 8px 12px; font-size: 13px; margin-bottom: 14px; }
+
+    /* Submission table checkbox column */
+    td input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <!-- Top bar (shown when logged in) -->
+  <div id="topbar" style="display:none">
+    <h1>COMP3111 Library Management System</h1>
+    <div>
+      <span id="topbar-user" style="margin-right:14px;font-size:13px;"></span>
+      <button id="btn-logout">Logout</button>
+    </div>
+  </div>
+
+  <!-- Landing page (login + register) -->
+  <div id="landing">
+    <div class="hero">
+      <h1>COMP3111 Library Management System</h1>
+      <p>Login or register to access the library portal.</p>
+    </div>
+    <div class="demo-hint">
+      Demo accounts: <strong>student1</strong> / <strong>author1</strong> / <strong>librarian1</strong>, password: <strong>Password1!</strong>
+    </div>
+    <div class="form-grid">
+      <!-- Login -->
+      <div class="card">
+        <h2>Login</h2>
+        <div id="login-msg"></div>
+        <div class="form-row"><label>Username</label><input id="login-username" type="text" /></div>
+        <div class="form-row"><label>Password</label><input id="login-password" type="password" /></div>
+        <div class="form-row">
+          <label>Role</label>
+          <select id="login-role">
+            <option value="STUDENT">Student</option>
+            <option value="STAFF">Staff</option>
+            <option value="AUTHOR">Author</option>
+            <option value="LIBRARIAN">Librarian</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-login" style="width:100%;margin-top:4px;">Login</button>
+      </div>
+
+      <!-- Register -->
+      <div class="card">
+        <h2>Register</h2>
+        <div id="register-msg"></div>
+        <div class="form-row"><label>Username</label><input id="reg-username" type="text" /></div>
+        <div class="form-row"><label>Full Name</label><input id="reg-fullname" type="text" /></div>
+        <div class="form-row"><label>Password</label><input id="reg-password" type="password" /></div>
+        <div class="form-row">
+          <label>Role</label>
+          <select id="reg-role">
+            <option value="STUDENT">Student</option>
+            <option value="STAFF">Staff</option>
+            <option value="AUTHOR">Author</option>
+            <option value="LIBRARIAN">Librarian</option>
+          </select>
+        </div>
+        <div class="form-row" id="reg-extra-row">
+          <label id="reg-extra-label">Extra Detail</label>
+          <input id="reg-extra" type="text" />
+          <span id="reg-extra-hint" style="font-size:12px;color:#555;margin-top:3px;"></span>
+        </div>
+        <button class="btn btn-primary" id="btn-register" style="width:100%;margin-top:4px;">Register</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main portal (shown after login) -->
+  <div id="portal" style="display:none">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="student">Student / Staff Portal</button>
+      <button class="tab-btn" data-tab="author">Author Portal</button>
+      <button class="tab-btn" data-tab="librarian">Librarian Portal</button>
+    </div>
+
+    <!-- Student/Staff Tab -->
+    <div id="tab-student" class="tab-content active">
+      <div id="student-status" class="status-bar status-logged-out">Not logged in as student/staff.</div>
+
+      <!-- Login for student tab -->
+      <div id="student-login-section" class="card">
+        <h2>Student / Staff Login</h2>
+        <div id="student-login-msg"></div>
+        <div class="form-grid">
+          <div>
+            <div class="form-row"><label>Username</label><input id="s-username" type="text" /></div>
+            <div class="form-row"><label>Password</label><input id="s-password" type="password" /></div>
+            <div class="form-row">
+              <label>Role</label>
+              <select id="s-role"><option value="STUDENT">Student</option><option value="STAFF">Staff</option></select>
+            </div>
+            <button class="btn btn-primary" id="btn-student-login">Login</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Book search -->
+      <div class="card">
+        <h2>Book Search</h2>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input id="search-keyword" type="text" placeholder="Search by title or author…" style="flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:4px;" />
+          <button class="btn btn-primary" id="btn-search">Search</button>
+          <button class="btn btn-secondary" id="btn-list-all">List All</button>
+        </div>
+        <div class="split">
+          <div>
+            <table id="book-table">
+              <thead><tr><th>Title</th><th>Author</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:0">
+              <h3>Book Summary</h3>
+              <div id="selected-book-summary" style="font-size:13px;color:#555;min-height:60px;">Select a book to see its summary.</div>
+            </div>
+            <div class="card" style="margin-top:10px;margin-bottom:0">
+              <h3>Borrow</h3>
+              <div class="form-row">
+                <label>Duration (days)</label>
+                <input id="borrow-days" type="number" min="1" max="365" value="14" style="width:100px;" />
+              </div>
+              <button class="btn btn-success" id="btn-borrow" disabled>Borrow Selected Book</button>
+              <div id="borrow-msg" style="margin-top:8px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recommendations & Active Borrows -->
+      <div class="form-grid">
+        <div class="card">
+          <h2>Popular Recommendations</h2>
+          <ul id="recommendation-list" class="simple-list"></ul>
+        </div>
+        <div class="card">
+          <h2>My Active Borrows</h2>
+          <ul id="active-borrows-list" class="simple-list"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Author Tab -->
+    <div id="tab-author" class="tab-content">
+      <div id="author-status" class="status-bar status-logged-out">Not logged in as author.</div>
+
+      <!-- Author login section -->
+      <div id="author-login-section" class="card">
+        <h2>Author Login</h2>
+        <div id="author-login-msg"></div>
+        <div class="form-grid">
+          <div>
+            <div class="form-row"><label>Username</label><input id="a-username" type="text" /></div>
+            <div class="form-row"><label>Password</label><input id="a-password" type="password" /></div>
+            <button class="btn btn-primary" id="btn-author-login">Login</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Author workspace -->
+      <div id="author-workspace" style="display:none">
+        <div class="form-grid">
+          <!-- Submit new book -->
+          <div class="card">
+            <h2>Submit a Book</h2>
+            <div id="publish-msg"></div>
+            <div class="form-row"><label>Title</label><input id="pub-title" type="text" /></div>
+            <div class="form-row">
+              <label>Genres</label>
+              <div id="genre-grid" class="genre-grid">Loading genres…</div>
+            </div>
+            <div class="form-row"><label>Description</label><textarea id="pub-description"></textarea></div>
+            <div class="form-row"><label>File Path (server path to .txt, .md, .pdf, .doc, .docx)</label><input id="pub-filepath" type="text" /></div>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
+              <button class="btn btn-secondary" id="btn-save-draft">Auto-Save Draft</button>
+              <button class="btn btn-secondary" id="btn-preview">Preview</button>
+              <button class="btn btn-success" id="btn-publish">Publish</button>
+            </div>
+          </div>
+          <!-- Preview -->
+          <div class="card">
+            <h2>Preview</h2>
+            <pre id="preview-area" style="font-size:12px;white-space:pre-wrap;background:#f8f8f8;padding:8px;border-radius:4px;min-height:100px;border:1px solid #eee;">No preview yet.</pre>
+          </div>
+        </div>
+
+        <!-- Saved drafts -->
+        <div class="card">
+          <h2>Saved Drafts</h2>
+          <div id="drafts-msg"></div>
+          <table id="drafts-table">
+            <thead><tr><th>Title</th><th>Genres</th><th>Last Saved</th><th>Action</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Librarian Tab -->
+    <div id="tab-librarian" class="tab-content">
+      <div id="librarian-status" class="status-bar status-logged-out">Not logged in as librarian.</div>
+
+      <!-- Librarian login section -->
+      <div id="librarian-login-section" class="card">
+        <h2>Librarian Login</h2>
+        <div id="librarian-login-msg"></div>
+        <div class="form-grid">
+          <div>
+            <div class="form-row"><label>Username</label><input id="l-username" type="text" /></div>
+            <div class="form-row"><label>Password</label><input id="l-password" type="password" /></div>
+            <button class="btn btn-primary" id="btn-librarian-login">Login</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Librarian workspace -->
+      <div id="librarian-workspace" style="display:none">
+        <div class="split">
+          <!-- Submissions table -->
+          <div class="card">
+            <h2>Pending Submissions</h2>
+            <div id="submissions-msg"></div>
+            <div style="margin-bottom:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-secondary" id="btn-refresh-submissions">Refresh</button>
+              <button class="btn btn-success" id="btn-bulk-approve">Bulk Approve Selected</button>
+              <button class="btn btn-danger" id="btn-bulk-reject">Bulk Reject Selected</button>
+            </div>
+            <table id="submissions-table">
+              <thead><tr><th><input type="checkbox" id="select-all-submissions" /></th><th>Title</th><th>Author</th><th>Genres</th><th>Date</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <!-- Detail / action panel -->
+          <div>
+            <div class="card">
+              <h2>Submission Detail</h2>
+              <pre id="submission-detail" style="font-size:12px;white-space:pre-wrap;background:#f8f8f8;padding:8px;border-radius:4px;min-height:100px;border:1px solid #eee;">Select a submission to view details.</pre>
+            </div>
+            <div class="card">
+              <h2>Approve / Reject</h2>
+              <div id="librarian-action-msg"></div>
+              <div class="form-row"><label>Comment</label><textarea id="librarian-comment" style="min-height:50px;"></textarea></div>
+              <div style="display:flex;gap:6px;margin-top:6px;">
+                <button class="btn btn-success" id="btn-approve" disabled>Approve</button>
+                <button class="btn btn-danger" id="btn-reject" disabled>Reject</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  COMP3111 Library Management System — JavaScript UI
+// ============================================================
+
+const API = '';   // same origin
+let session = null;  // { username, fullName, role, token }
+
+// Tab sessions per role (a user can be logged in per-tab independently)
+const tabSessions = { student: null, author: null, librarian: null };
+
+// Currently selected book id in the student tab
+let selectedBookId = null;
+let selectedSubmissionId = null;
+
+// ---- API helpers ----
+
+async function apiFetch(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (session) headers['X-Session-Token'] = session.token;
+  const res = await fetch(API + path, { ...options, headers });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function apiPost(path, body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Session-Token'] = token;
+  const res = await fetch(API + path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function apiGet(path, token) {
+  const headers = {};
+  if (token) headers['X-Session-Token'] = token;
+  const res = await fetch(API + path, { headers });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { error: text }; }
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+// ---- Message helpers ----
+
+function showMsg(id, text, isError) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'msg ' + (isError ? 'msg-err' : 'msg-ok');
+  el.textContent = text;
+  el.style.display = 'block';
+  if (!isError) setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function clearMsg(id) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = ''; el.style.display = 'none'; }
+}
+
+// ---- Landing page auth ----
+
+document.getElementById('btn-login').addEventListener('click', async () => {
+  clearMsg('login-msg');
+  try {
+    const data = await apiPost('/api/auth/login', {
+      username: document.getElementById('login-username').value.trim(),
+      password: document.getElementById('login-password').value,
+      role: document.getElementById('login-role').value
+    });
+    session = data;
+    // Pre-populate the role-specific session
+    const role = data.role.toLowerCase();
+    if (role === 'student' || role === 'staff') {
+      tabSessions.student = data;
+    } else if (role === 'author') {
+      tabSessions.author = data;
+    } else if (role === 'librarian') {
+      tabSessions.librarian = data;
+    }
+    showPortal(data);
+  } catch (e) {
+    showMsg('login-msg', e.message, true);
+  }
+});
+
+document.getElementById('btn-register').addEventListener('click', async () => {
+  clearMsg('register-msg');
+  try {
+    const data = await apiPost('/api/auth/register', {
+      username: document.getElementById('reg-username').value.trim(),
+      fullName: document.getElementById('reg-fullname').value.trim(),
+      password: document.getElementById('reg-password').value,
+      role: document.getElementById('reg-role').value,
+      extraDetail: document.getElementById('reg-extra').value.trim()
+    });
+    session = data;
+    showPortal(data);
+  } catch (e) {
+    showMsg('register-msg', e.message, true);
+  }
+});
+
+// Update hint text for registration extra field based on selected role
+document.getElementById('reg-role').addEventListener('change', updateRegHint);
+updateRegHint();
+
+function updateRegHint() {
+  const role = document.getElementById('reg-role').value;
+  const label = document.getElementById('reg-extra-label');
+  const hint  = document.getElementById('reg-extra-hint');
+  const row   = document.getElementById('reg-extra-row');
+  if (role === 'STUDENT' || role === 'STAFF') {
+    row.style.display = 'none';
+    hint.textContent = '';
+  } else if (role === 'AUTHOR') {
+    row.style.display = '';
+    label.textContent = 'Bio';
+    hint.textContent = 'Short bio displayed on your author profile.';
+  } else if (role === 'LIBRARIAN') {
+    row.style.display = '';
+    label.textContent = 'Employee ID';
+    hint.textContent = 'Your employee ID (e.g. EMP-001).';
+  }
+}
+
+// ---- Portal ----
+
+function showPortal(user) {
+  document.getElementById('landing').style.display = 'none';
+  document.getElementById('portal').style.display = 'block';
+  document.getElementById('topbar').style.display = 'flex';
+  document.getElementById('topbar-user').textContent = user.fullName + ' (' + user.role + ')';
+  syncStatusLabels();
+  refreshBooks();
+  refreshRecommendations();
+
+  // Auto-activate the tab for this user's role
+  const role = user.role.toLowerCase();
+  let tabId = 'student';
+  if (role === 'author') tabId = 'author';
+  else if (role === 'librarian') tabId = 'librarian';
+  switchTab(tabId);
+
+  if (role === 'author') {
+    showAuthorWorkspace();
+  } else if (role === 'librarian') {
+    showLibrarianWorkspace();
+  } else {
+    syncStudentStatus();
+    refreshActiveBorrows();
+  }
+}
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  if (session) {
+    await apiPost('/api/auth/logout', {}, session.token).catch(() => {});
+  }
+  session = null;
+  tabSessions.student = null;
+  tabSessions.author = null;
+  tabSessions.librarian = null;
+  document.getElementById('portal').style.display = 'none';
+  document.getElementById('topbar').style.display = 'none';
+  document.getElementById('landing').style.display = 'block';
+  syncStatusLabels();
+  hideAuthorWorkspace();
+  hideLibrarianWorkspace();
+});
+
+// ---- Tabs ----
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + name));
+}
+
+// ---- Status labels ----
+
+function syncStatusLabels() {
+  syncStudentStatus();
+  syncAuthorStatus();
+  syncLibrarianStatus();
+}
+
+function syncStudentStatus() {
+  const s = tabSessions.student;
+  const el = document.getElementById('student-status');
+  if (s) {
+    el.className = 'status-bar status-logged-in';
+    el.textContent = 'Logged in as: ' + s.fullName + ' (' + s.role + ')';
+    document.getElementById('student-login-section').style.display = 'none';
+  } else {
+    el.className = 'status-bar status-logged-out';
+    el.textContent = 'Not logged in as student/staff.';
+    document.getElementById('student-login-section').style.display = '';
+  }
+}
+
+function syncAuthorStatus() {
+  const s = tabSessions.author;
+  const el = document.getElementById('author-status');
+  if (s) {
+    el.className = 'status-bar status-logged-in';
+    el.textContent = 'Logged in as: ' + s.fullName + ' (AUTHOR)';
+    document.getElementById('author-login-section').style.display = 'none';
+  } else {
+    el.className = 'status-bar status-logged-out';
+    el.textContent = 'Not logged in as author.';
+    document.getElementById('author-login-section').style.display = '';
+  }
+}
+
+function syncLibrarianStatus() {
+  const s = tabSessions.librarian;
+  const el = document.getElementById('librarian-status');
+  if (s) {
+    el.className = 'status-bar status-logged-in';
+    el.textContent = 'Logged in as: ' + s.fullName + ' (LIBRARIAN)';
+    document.getElementById('librarian-login-section').style.display = 'none';
+  } else {
+    el.className = 'status-bar status-logged-out';
+    el.textContent = 'Not logged in as librarian.';
+    document.getElementById('librarian-login-section').style.display = '';
+  }
+}
+
+// ---- Student / Staff portal ----
+
+document.getElementById('btn-student-login').addEventListener('click', async () => {
+  clearMsg('student-login-msg');
+  try {
+    const data = await apiPost('/api/auth/login', {
+      username: document.getElementById('s-username').value.trim(),
+      password: document.getElementById('s-password').value,
+      role: document.getElementById('s-role').value
+    });
+    tabSessions.student = data;
+    session = data;
+    syncStudentStatus();
+    refreshActiveBorrows();
+    showMsg('student-login-msg', 'Welcome, ' + data.fullName + '.', false);
+  } catch (e) {
+    showMsg('student-login-msg', e.message, true);
+  }
+});
+
+async function refreshBooks(keyword = '') {
+  const path = keyword ? '/api/books?keyword=' + encodeURIComponent(keyword) : '/api/books';
+  try {
+    const books = await apiGet(path);
+    renderBookTable(books);
+  } catch (e) {
+    console.error('refreshBooks', e);
+  }
+}
+
+function renderBookTable(books) {
+  const tbody = document.querySelector('#book-table tbody');
+  tbody.innerHTML = '';
+  books.forEach(b => {
+    const tr = document.createElement('tr');
+    if (!b.available) tr.classList.add('unavailable');
+    if (b.id === selectedBookId) tr.classList.add('selected');
+    tr.innerHTML = '<td>' + esc(b.title) + '</td><td>' + esc(b.authorFullName) + '</td><td>' + (b.available ? 'Available' : 'Borrowed') + '</td>';
+    tr.addEventListener('click', () => selectBook(b, tr));
+    tbody.appendChild(tr);
+  });
+}
+
+function selectBook(book, tr) {
+  selectedBookId = book.id;
+  document.querySelectorAll('#book-table tbody tr').forEach(r => r.classList.remove('selected'));
+  tr.classList.add('selected');
+  document.getElementById('selected-book-summary').textContent = book.summary || '(No summary available)';
+  const btn = document.getElementById('btn-borrow');
+  btn.disabled = !book.available;
+}
+
+document.getElementById('btn-search').addEventListener('click', () => {
+  refreshBooks(document.getElementById('search-keyword').value.trim());
+});
+document.getElementById('search-keyword').addEventListener('keydown', e => {
+  if (e.key === 'Enter') refreshBooks(document.getElementById('search-keyword').value.trim());
+});
+document.getElementById('btn-list-all').addEventListener('click', () => {
+  document.getElementById('search-keyword').value = '';
+  refreshBooks();
+});
+
+document.getElementById('btn-borrow').addEventListener('click', async () => {
+  clearMsg('borrow-msg');
+  if (!tabSessions.student) { showMsg('borrow-msg', 'Please log in as student/staff first.', true); return; }
+  if (!selectedBookId) { showMsg('borrow-msg', 'Please select a book.', true); return; }
+  const days = parseInt(document.getElementById('borrow-days').value) || 14;
+  try {
+    const record = await apiPost('/api/borrow', { bookId: selectedBookId, days }, tabSessions.student.token);
+    showMsg('borrow-msg', 'Borrowed! Due date: ' + record.dueDate, false);
+    selectedBookId = null;
+    document.getElementById('btn-borrow').disabled = true;
+    await refreshBooks();
+    await refreshActiveBorrows();
+    await refreshRecommendations();
+  } catch (e) {
+    showMsg('borrow-msg', e.message, true);
+  }
+});
+
+async function refreshRecommendations() {
+  try {
+    const books = await apiGet('/api/recommendations');
+    const ul = document.getElementById('recommendation-list');
+    ul.innerHTML = '';
+    if (!books.length) { ul.innerHTML = '<li style="color:#888">No recommendations yet.</li>'; return; }
+    books.forEach(b => {
+      const li = document.createElement('li');
+      li.style.color = b.available ? 'black' : '#c0392b';
+      li.textContent = b.title + ' — ' + b.authorFullName + (b.available ? '' : ' (Borrowed)');
+      ul.appendChild(li);
+    });
+  } catch (e) { console.error('refreshRecommendations', e); }
+}
+
+async function refreshActiveBorrows() {
+  const s = tabSessions.student;
+  const ul = document.getElementById('active-borrows-list');
+  if (!s) { ul.innerHTML = '<li style="color:#888">Login to see your borrows.</li>'; return; }
+  try {
+    const records = await apiGet('/api/active-borrows', s.token);
+    ul.innerHTML = '';
+    if (!records.length) { ul.innerHTML = '<li style="color:#888">No active borrows.</li>'; return; }
+    records.forEach(r => {
+      const li = document.createElement('li');
+      li.textContent = 'Book ID: ' + r.bookId + ' | Borrowed: ' + r.borrowDate + ' | Due: ' + r.dueDate;
+      ul.appendChild(li);
+    });
+  } catch (e) { console.error('refreshActiveBorrows', e); }
+}
+
+// ---- Author portal ----
+
+document.getElementById('btn-author-login').addEventListener('click', async () => {
+  clearMsg('author-login-msg');
+  try {
+    const data = await apiPost('/api/auth/login', {
+      username: document.getElementById('a-username').value.trim(),
+      password: document.getElementById('a-password').value,
+      role: 'AUTHOR'
+    });
+    tabSessions.author = data;
+    session = data;
+    syncAuthorStatus();
+    showAuthorWorkspace();
+    showMsg('author-login-msg', 'Welcome, ' + data.fullName + '.', false);
+  } catch (e) {
+    showMsg('author-login-msg', e.message, true);
+  }
+});
+
+async function showAuthorWorkspace() {
+  document.getElementById('author-workspace').style.display = 'block';
+  await loadGenres();
+  await refreshDrafts();
+}
+
+function hideAuthorWorkspace() {
+  document.getElementById('author-workspace').style.display = 'none';
+}
+
+let genresLoaded = false;
+async function loadGenres() {
+  if (genresLoaded) return;
+  try {
+    const genres = await apiGet('/api/genres');
+    const grid = document.getElementById('genre-grid');
+    grid.innerHTML = '';
+    genres.forEach(g => {
+      const lbl = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = g;
+      cb.name = 'genre';
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(g));
+      grid.appendChild(lbl);
+    });
+    genresLoaded = true;
+  } catch (e) { console.error('loadGenres', e); }
+}
+
+function getSelectedGenres() {
+  return Array.from(document.querySelectorAll('#genre-grid input[name=genre]:checked')).map(cb => cb.value);
+}
+
+function getPubBody() {
+  return {
+    title: document.getElementById('pub-title').value.trim(),
+    genres: getSelectedGenres(),
+    description: document.getElementById('pub-description').value.trim(),
+    filePath: document.getElementById('pub-filepath').value.trim()
+  };
+}
+
+document.getElementById('btn-save-draft').addEventListener('click', async () => {
+  clearMsg('publish-msg');
+  const s = tabSessions.author;
+  if (!s) { showMsg('publish-msg', 'Please log in as author first.', true); return; }
+  try {
+    await apiPost('/api/drafts/save', getPubBody(), s.token);
+    showMsg('publish-msg', 'Draft saved.', false);
+    await refreshDrafts();
+  } catch (e) { showMsg('publish-msg', e.message, true); }
+});
+
+document.getElementById('btn-preview').addEventListener('click', async () => {
+  clearMsg('publish-msg');
+  const s = tabSessions.author;
+  if (!s) { showMsg('publish-msg', 'Please log in as author first.', true); return; }
+  try {
+    const body = getPubBody();
+    const data = await apiPost('/api/submissions/preview', body, s.token);
+    document.getElementById('preview-area').textContent = data.preview || '(empty)';
+  } catch (e) { showMsg('publish-msg', e.message, true); }
+});
+
+document.getElementById('btn-publish').addEventListener('click', async () => {
+  clearMsg('publish-msg');
+  const s = tabSessions.author;
+  if (!s) { showMsg('publish-msg', 'Please log in as author first.', true); return; }
+  try {
+    const sub = await apiPost('/api/submissions/publish', getPubBody(), s.token);
+    showMsg('publish-msg', 'Book "' + sub.title + '" submitted for review.', false);
+    // Clear form
+    document.getElementById('pub-title').value = '';
+    document.getElementById('pub-description').value = '';
+    document.getElementById('pub-filepath').value = '';
+    document.querySelectorAll('#genre-grid input[name=genre]').forEach(cb => { cb.checked = false; });
+    document.getElementById('preview-area').textContent = 'No preview yet.';
+    await refreshDrafts();
+  } catch (e) { showMsg('publish-msg', e.message, true); }
+});
+
+async function refreshDrafts() {
+  const s = tabSessions.author;
+  if (!s) return;
+  try {
+    const drafts = await apiGet('/api/drafts', s.token);
+    const tbody = document.querySelector('#drafts-table tbody');
+    tbody.innerHTML = '';
+    if (!drafts.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#888;font-style:italic">No saved drafts.</td></tr>';
+      return;
+    }
+    drafts.forEach((d, idx) => {
+      const tr = document.createElement('tr');
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'btn btn-danger';
+      clearBtn.style.cssText = 'padding:3px 8px;font-size:12px;';
+      clearBtn.textContent = 'Clear';
+      clearBtn.dataset.idx = idx;
+      clearBtn.addEventListener('click', () => clearDraft(d.title));
+
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'btn btn-secondary';
+      loadBtn.style.cssText = 'padding:3px 8px;font-size:12px;margin-right:4px;';
+      loadBtn.textContent = 'Load';
+      loadBtn.dataset.idx = idx;
+      loadBtn.addEventListener('click', () => loadDraft(d));
+
+      const actionCell = document.createElement('td');
+      actionCell.appendChild(loadBtn);
+      actionCell.appendChild(clearBtn);
+
+      tr.innerHTML = '<td>' + esc(d.title || '(untitled)') + '</td><td>' + esc((d.genres || []).join(', ')) + '</td><td>' + esc(d.lastSavedAt || '') + '</td>';
+      tr.appendChild(actionCell);
+      tbody.appendChild(tr);
+    });
+  } catch (e) { showMsg('drafts-msg', e.message, true); }
+}
+
+async function clearDraft(title) {
+  const s = tabSessions.author;
+  if (!s) return;
+  try {
+    await apiPost('/api/drafts/clear?title=' + encodeURIComponent(title), {}, s.token);
+    await refreshDrafts();
+  } catch (e) { showMsg('drafts-msg', e.message, true); }
+}
+
+function loadDraft(draft) {
+  document.getElementById('pub-title').value = draft.title || '';
+  document.getElementById('pub-description').value = draft.description || '';
+  document.getElementById('pub-filepath').value = draft.filePath || '';
+  document.querySelectorAll('#genre-grid input[name=genre]').forEach(cb => {
+    cb.checked = (draft.genres || []).includes(cb.value);
+  });
+}
+
+// ---- Librarian portal ----
+
+document.getElementById('btn-librarian-login').addEventListener('click', async () => {
+  clearMsg('librarian-login-msg');
+  try {
+    const data = await apiPost('/api/auth/login', {
+      username: document.getElementById('l-username').value.trim(),
+      password: document.getElementById('l-password').value,
+      role: 'LIBRARIAN'
+    });
+    tabSessions.librarian = data;
+    session = data;
+    syncLibrarianStatus();
+    showLibrarianWorkspace();
+    showMsg('librarian-login-msg', 'Welcome, ' + data.fullName + '.', false);
+  } catch (e) {
+    showMsg('librarian-login-msg', e.message, true);
+  }
+});
+
+async function showLibrarianWorkspace() {
+  document.getElementById('librarian-workspace').style.display = 'block';
+  await refreshSubmissions();
+}
+
+function hideLibrarianWorkspace() {
+  document.getElementById('librarian-workspace').style.display = 'none';
+}
+
+document.getElementById('btn-refresh-submissions').addEventListener('click', refreshSubmissions);
+
+async function refreshSubmissions() {
+  const s = tabSessions.librarian;
+  if (!s) return;
+  try {
+    const subs = await apiGet('/api/submissions/pending', s.token);
+    renderSubmissionsTable(subs);
+  } catch (e) { showMsg('submissions-msg', e.message, true); }
+}
+
+function renderSubmissionsTable(subs) {
+  const tbody = document.querySelector('#submissions-table tbody');
+  tbody.innerHTML = '';
+  if (!subs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#888;font-style:italic">No pending submissions.</td></tr>';
+    return;
+  }
+  subs.forEach(sub => {
+    const tr = document.createElement('tr');
+    if (sub.id === selectedSubmissionId) tr.classList.add('selected');
+    tr.innerHTML = '<td><input type="checkbox" class="sub-cb" data-id="' + esc(sub.id) + '" /></td>'
+      + '<td>' + esc(sub.title) + '</td>'
+      + '<td>' + esc(sub.authorFullName) + '</td>'
+      + '<td>' + esc((sub.genres || []).join(', ')) + '</td>'
+      + '<td>' + esc(sub.submittedDate) + '</td>'
+      + '<td>' + esc(sub.status) + '</td>';
+    tr.addEventListener('click', (e) => {
+      if (e.target.type === 'checkbox') return;
+      selectSubmission(sub, tr);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function selectSubmission(sub, tr) {
+  selectedSubmissionId = sub.id;
+  document.querySelectorAll('#submissions-table tbody tr').forEach(r => r.classList.remove('selected'));
+  tr.classList.add('selected');
+  document.getElementById('submission-detail').textContent =
+    'Title: ' + sub.title + '\nAuthor: ' + sub.authorFullName + ' (' + sub.authorUsername + ')'
+    + '\nGenres: ' + (sub.genres || []).join(', ')
+    + '\nDescription:\n' + (sub.description || '')
+    + '\nFile: ' + (sub.fileName || '')
+    + '\nSubmitted: ' + sub.submittedDate
+    + '\nStatus: ' + sub.status
+    + (sub.librarianComment ? '\nComment: ' + sub.librarianComment : '');
+  document.getElementById('btn-approve').disabled = false;
+  document.getElementById('btn-reject').disabled = false;
+}
+
+// Select all checkbox
+document.getElementById('select-all-submissions').addEventListener('change', function() {
+  document.querySelectorAll('.sub-cb').forEach(cb => { cb.checked = this.checked; });
+});
+
+document.getElementById('btn-approve').addEventListener('click', async () => {
+  clearMsg('librarian-action-msg');
+  const s = tabSessions.librarian;
+  if (!s || !selectedSubmissionId) return;
+  try {
+    await apiPost('/api/submissions/approve', {
+      submissionId: selectedSubmissionId,
+      comment: document.getElementById('librarian-comment').value.trim()
+    }, s.token);
+    showMsg('librarian-action-msg', 'Submission approved.', false);
+    selectedSubmissionId = null;
+    document.getElementById('btn-approve').disabled = true;
+    document.getElementById('btn-reject').disabled = true;
+    document.getElementById('submission-detail').textContent = 'Select a submission to view details.';
+    document.getElementById('librarian-comment').value = '';
+    await refreshSubmissions();
+    await refreshBooks();
+  } catch (e) { showMsg('librarian-action-msg', e.message, true); }
+});
+
+document.getElementById('btn-reject').addEventListener('click', async () => {
+  clearMsg('librarian-action-msg');
+  const s = tabSessions.librarian;
+  if (!s || !selectedSubmissionId) return;
+  try {
+    await apiPost('/api/submissions/reject', {
+      submissionId: selectedSubmissionId,
+      comment: document.getElementById('librarian-comment').value.trim()
+    }, s.token);
+    showMsg('librarian-action-msg', 'Submission rejected.', false);
+    selectedSubmissionId = null;
+    document.getElementById('btn-approve').disabled = true;
+    document.getElementById('btn-reject').disabled = true;
+    document.getElementById('submission-detail').textContent = 'Select a submission to view details.';
+    document.getElementById('librarian-comment').value = '';
+    await refreshSubmissions();
+  } catch (e) { showMsg('librarian-action-msg', e.message, true); }
+});
+
+document.getElementById('btn-bulk-approve').addEventListener('click', async () => {
+  clearMsg('submissions-msg');
+  const s = tabSessions.librarian;
+  if (!s) return;
+  const ids = Array.from(document.querySelectorAll('.sub-cb:checked')).map(cb => cb.dataset.id);
+  if (!ids.length) { showMsg('submissions-msg', 'No submissions selected.', true); return; }
+  try {
+    await apiPost('/api/submissions/bulk-approve', { ids, comment: document.getElementById('librarian-comment').value.trim() }, s.token);
+    showMsg('submissions-msg', ids.length + ' submission(s) approved.', false);
+    await refreshSubmissions();
+    await refreshBooks();
+  } catch (e) { showMsg('submissions-msg', e.message, true); }
+});
+
+document.getElementById('btn-bulk-reject').addEventListener('click', async () => {
+  clearMsg('submissions-msg');
+  const s = tabSessions.librarian;
+  if (!s) return;
+  const ids = Array.from(document.querySelectorAll('.sub-cb:checked')).map(cb => cb.dataset.id);
+  if (!ids.length) { showMsg('submissions-msg', 'No submissions selected.', true); return; }
+  try {
+    await apiPost('/api/submissions/bulk-reject', { ids, comment: document.getElementById('librarian-comment').value.trim() }, s.token);
+    showMsg('submissions-msg', ids.length + ' submission(s) rejected.', false);
+    await refreshSubmissions();
+  } catch (e) { showMsg('submissions-msg', e.message, true); }
+});
+
+// ---- Utility ----
+
+function esc(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Initial book load
+refreshBooks();
+refreshRecommendations();
+</script>
+</body>
+</html>
