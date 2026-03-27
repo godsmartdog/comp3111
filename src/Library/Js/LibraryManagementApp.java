@@ -1,4 +1,4 @@
-package Library.Ui;
+package Library.Js;
 
 import Library.Model.Book;
 import Library.Repository.MemoryAuthorProfileRepository2;

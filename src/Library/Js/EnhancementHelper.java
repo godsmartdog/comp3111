@@ -1,5 +1,5 @@
 // [Task 1 nice-to-have]
-package Library.Ui;
+package Library.Js;
 
 import Library.Model.Book;
 import Library.Model.BorrowRecord;

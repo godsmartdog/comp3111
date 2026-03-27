@@ -1,4 +1,4 @@
-package Library.Ui;
+package Library.Js;
 
 import Library.Exception.AuthenticationException;
 import Library.Exception.BusinessException;

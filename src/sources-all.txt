@@ -38,6 +38,6 @@ C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Service\FileSer
 C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Service\LibrarianService3.java
 C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Service\RecommendationService.java
 C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Test\LibraryIntegrationTest.java
-C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Ui\EnhancementHelper.java
-C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Ui\LibraryManagementApp.java
-C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Ui\LibraryManagementUI.java
+C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Js\EnhancementHelper.java
+C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Js\LibraryManagementApp.java
+C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library\Js\LibraryManagementUI.java
