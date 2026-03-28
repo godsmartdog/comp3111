@@ -38,8 +38,3 @@ Library/Service/FileService.java
 Library/Service/LibrarianService3.java
 Library/Service/RecommendationService.java
 Library/Test/LibraryIntegrationTest.java
-Library/Ui/JsonUtil.java
-Library/Ui/LibraryApiHandlers.java
-Library/Ui/LibraryManagementApp.java
-Library/Ui/LibraryWebServer.java
-Library/Ui/StaticFileHandler.java
