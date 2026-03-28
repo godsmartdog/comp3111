@@ -159,8 +159,9 @@ public class AuthorService2 {
     // Private helper method to validate the file format of the submitted book, ensuring that only allowed formats are accepted and throwing a ValidationException if the format is unsupported.
     private void validateFileFormat(String fileName) {
         String lower = fileName.toLowerCase();
-        if (!(lower.endsWith(".pdf") || lower.endsWith(".txt") || lower.endsWith(".doc") || lower.endsWith(".docx"))) {
-            throw new ValidationException("Unsupported file format. Allowed: pdf, txt, doc, docx.");
+        if (!(lower.endsWith(".pdf") || lower.endsWith(".txt") || lower.endsWith(".doc") || lower.endsWith(".docx")
+                || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png"))) {
+            throw new ValidationException("Unsupported file format. Allowed: pdf, txt, doc, docx, jpg, jpeg, png.");
         }
     }
 

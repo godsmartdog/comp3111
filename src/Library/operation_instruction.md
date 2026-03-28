@@ -1,7 +1,7 @@
 # 图书馆管理系统操作说明
 
 ## 1. 文档说明
-本说明面向当前项目的 JavaFX 图形界面版本，内容基于现有实现编写，适用于本地运行后的实际操作。
+本说明面向当前项目的 Web UI 版本（HTML/CSS/JavaScript），内容基于现有实现编写，适用于本地运行后的实际操作。
 
 系统目前提供三个主要界面标签页：
 - Student / Staff：学生与教职员借书入口
@@ -28,13 +28,13 @@ Set-Location "C:\Users\lam09\Downloads\comp3111-main\comp3111-main\src\Library"
 Set-ExecutionPolicy -Scope Process Bypass
 ```
 
-启动 JavaFX 图形界面：
+启动 Web UI：
 
 ```powershell
-.\Run-Library.ps1 -JavaFX
+.\Run-Library.ps1 -Web
 ```
 
-如果只想快速测试界面能否启动：
+如果只想快速测试服务能否启动：
 
 ```powershell
 .\Run-Library.ps1 -SmokeTest
@@ -42,7 +42,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 注意：
 - `-SmokeTest` 只用于启动检查，程序会自动关闭
-- 要正常长期使用界面，请使用 `-JavaFX`
+- 要正常长期使用界面，请使用 `-Web`
+- 为兼容旧脚本，`-JavaFX` 仍可用，但会启动同一个 Web UI
 
 ## 3. 系统启动后的默认演示数据
 通过 JavaFX 启动器进入系统后，系统会自动创建以下演示账号：

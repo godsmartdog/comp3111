@@ -2,6 +2,9 @@
 
 # COMP3111 Project
 
+To Ta: Part 5 and 6 descripte task requirement, and to use this system , window is fully supported, open powershell, and cd in src/Library, run the commend ./Run-Library, u may need bypass to run.
+For Mac os, you need to download jdk environment and javafx. change the path in Src/Library/Run-Library.ps1 file, change the line 56,57,58 to your own environment, and download powershell and run the commend mention in window.
+
 ## Library Management System (E-Book Library System)
 
 ## 1. Project Summary

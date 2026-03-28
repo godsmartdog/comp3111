@@ -16,54 +16,52 @@ import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
 import Library.Service.RecommendationService;
-import javafx.animation.PauseTransition;
-import javafx.application.Application;
-import javafx.application.Platform;
-import javafx.scene.Scene;
-import javafx.stage.Stage;
-import javafx.util.Duration;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 
-public class LibraryManagementApp extends Application {
-    // `start` method is the JavaFX entry point, where we set up the UI and show the stage
-    @Override
-    public void start(Stage stage) throws Exception {
-        AppContext context = createContext();
+public class LibraryManagementApp {
+    private static final int WEB_PORT = 8080;
 
-        // Create the main UI component, passing in all necessary services from the context
-        LibraryManagementUI ui = new LibraryManagementUI(
-                context.authService,
-                context.bookService,
-                context.borrowService,
-                context.recommendationService,
-                context.authorService,
-                context.authorDraftService,
-                context.fileService,
-                context.librarianService
-        );
+    public static void main(String[] args) {
+        System.out.println("Demo accounts: student1 / author1 / librarian1, password: Password1!");
+        try {
+            AppContext context = createContext();
+            LibraryWebServer webServer = new LibraryWebServer(
+                    context.authService,
+                    context.bookService,
+                    context.borrowService,
+                    context.recommendationService,
+                    context.authorService,
+                    context.authorDraftService,
+                    context.fileService,
+                    context.librarianService,
+                    WEB_PORT
+            );
+            webServer.start();
 
-        stage.setTitle("COMP3111 Library Management System");
-        stage.setScene(new Scene(ui.createContent(), 1280, 860));
-        stage.show();
-
-        if (getParameters().getRaw().contains("--smoke-test")) {
-            PauseTransition delay = new PauseTransition(Duration.seconds(2));
-            delay.setOnFinished(event -> {
-                System.out.println("JavaFX smoke test passed.");
-                Platform.exit();
-            });
-            delay.play();
+            if (containsArg(args, "--smoke-test")) {
+                Thread.sleep(1500);
+                webServer.stop();
+                System.out.println("Web UI smoke test passed.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
         }
     }
 
-    // Main method to launch the JavaFX application
-    public static void main(String[] args) {
-        System.out.println("Demo accounts: student1 / author1 / librarian1, password: Password1!");
-        launch(args);
+    private static boolean containsArg(String[] args, String target) {
+        if (args == null) {
+            return false;
+        }
+        for (String arg : args) {
+            if (target.equals(arg)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Helper method to set up in-memory repositories and seed demo data
@@ -91,14 +89,22 @@ public class LibraryManagementApp extends Application {
         authorService.registerAuthor("author1", "Author Demo", "Password1!", "Writes demo content.");
         librarianService.registerLibrarian("librarian1", "Librarian Demo", "Password1!", "EMP-DEMO");
 
-        Book available = new Book("Distributed Systems in Practice", "Author Demo", "A published sample title for the student portal.");
-        available.approve(LocalDate.now());
-        bookRepository.save(available);
+        Book book1 = new Book("How to become a Leetcode Master", "Dickson Lam", "Available");
+        book1.approve(LocalDate.now());
+        bookRepository.save(book1);
 
-        Book borrowed = new Book("Testing Java Applications", "Author Demo", "A borrowed sample title to show unavailable styling.");
-        borrowed.approve(LocalDate.now());
-        bookRepository.save(borrowed);
-        borrowService.borrowBook("student1", borrowed.getId(), 10);
+        Book book2 = new Book("How to become a board game Master", "Dickson Lam", "Available");
+        book2.approve(LocalDate.now());
+        bookRepository.save(book2);
+
+        Book book3 = new Book("Why R18 is very useful for New-Generation", "FelixMau", "Borrowed");
+        book3.approve(LocalDate.now());
+        bookRepository.save(book3);
+        borrowService.borrowBook("student1", book3.getId(), 10);
+
+        Book book4 = new Book("How to become GrandMaster of CodeForce", "GodSmartDog", "Available");
+        book4.approve(LocalDate.now());
+        bookRepository.save(book4);
 
         Path pendingSubmissionFile = Files.createTempFile("library-demo-submission", ".txt");
         Files.write(pendingSubmissionFile, List.of("Pending submission preview", "This file is used by the JavaFX demo."));

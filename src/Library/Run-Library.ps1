@@ -1,5 +1,6 @@
 param(
     [switch]$Tests,
+    [switch]$Web,
     [switch]$JavaFX,
     [switch]$SmokeTest,
     [switch]$CompileOnly
@@ -50,42 +51,28 @@ function Write-SourceList {
 
 $workspaceRoot = Resolve-Path $PSScriptRoot
 $sourceRoot = Resolve-Path (Join-Path $workspaceRoot "..")
-
-# $javac = Resolve-ToolPath -ToolName "javac" -Candidates @(
-#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\javac.exe",
-#     "C:\Program Files\Java\jdk-24\bin\javac.exe",
-#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\javac.exe"
-# )
-
-# $java = Resolve-ToolPath -ToolName "java" -Candidates @(
-#     "C:\Users\lam09\AppData\Roaming\Code\User\globalStorage\pleiades.java-extension-pack-jdk\java\17\bin\java.exe",
-#     "C:\Program Files\Java\jdk-24\bin\java.exe",
-#     "C:\Users\lam09\.jdks\openjdk-24.0.1\bin\java.exe"
-# )
-
-# $javaFxLib = "C:\Users\lam09\.javafx\javafx-sdk-17.0.2\lib"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $projectRoot = Resolve-Path (Join-Path $scriptDir "..\..")  # Goes up 2 levels to project root
 
-$javac = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\javac.exe"     # Added src\
-$java = Join-Path $projectRoot "src\runtime\jdk-25.0.2\bin\java.exe"       # Added src\
-$javaFxLib = Join-Path $projectRoot "src\runtime\javafx-sdk-17.0.2\lib"
+$javaCandidates = @(
+    (Join-Path $env:JAVA_HOME "bin\java.exe"),
+    (Join-Path $env:JAVA_HOME "bin\java")
+)
+$javacCandidates = @(
+    (Join-Path $env:JAVA_HOME "bin\javac.exe"),
+    (Join-Path $env:JAVA_HOME "bin\javac")
+)
 
+$java = Resolve-ToolPath -Candidates $javaCandidates -ToolName "java"
+$javac = Resolve-ToolPath -Candidates $javacCandidates -ToolName "javac"
 
-if (!(Test-Path $javaFxLib)) {
-    Write-Warning "JavaFX SDK not found at $javaFxLib"
-    Write-Warning "JavaFX compile/run options will fail until that folder exists."
-}
-
+Write-Host "Using java: $java"
+Write-Host "Using javac: $javac"
 Push-Location $sourceRoot
 try {
-    if (!$Tests -and !$JavaFX -and !$SmokeTest) {
-        Write-Host "Usage examples:"
-        Write-Host "  .\Run-Library.ps1 -Tests"
-        Write-Host "  .\Run-Library.ps1 -JavaFX"
-        Write-Host "  .\Run-Library.ps1 -SmokeTest"
-        Write-Host "  .\Run-Library.ps1 -Tests -JavaFX"
-        exit 0
+    if (!$Tests -and !$Web -and !$JavaFX -and !$SmokeTest) {
+        Write-Host "No mode provided. Defaulting to -Web."
+        $Web = $true
     }
 
     if ($Tests) {
@@ -119,7 +106,7 @@ try {
         }
     }
 
-    if ($JavaFX -or $SmokeTest) {
+    if ($Web -or $JavaFX -or $SmokeTest) {
         $fxOutput = Join-Path $sourceRoot "out-fx"
         $fxSources = Join-Path $sourceRoot "sources-all.txt"
 
@@ -128,30 +115,28 @@ try {
 
         Ensure-Directory -Path $fxOutput
 
-        Write-Host "Compiling JavaFX application..."
-        & $javac --module-path $javaFxLib --add-modules javafx.controls -encoding UTF-8 -d $fxOutput "@$fxSources"
+        Write-Host "Compiling application (web UI + services)..."
+        & $javac -encoding UTF-8 -d $fxOutput "@$fxSources"
         if ($LASTEXITCODE -ne 0) {
-            throw "JavaFX compilation failed."
+            throw "Application compilation failed."
         }
 
         if (!$CompileOnly) {
             $appArgs = @(
-                "--module-path", $javaFxLib,
-                "--add-modules", "javafx.controls",
                 "-cp", $fxOutput,
                 "Library.Ui.LibraryManagementApp"
             )
 
             if ($SmokeTest) {
                 $appArgs += "--smoke-test"
-                Write-Host "Running JavaFX smoke test..."
+                Write-Host "Running web UI smoke test..."
             } else {
-                Write-Host "Starting JavaFX application..."
+                Write-Host "Starting web UI on http://localhost:8080 ..."
             }
 
             & $java @appArgs
             if ($LASTEXITCODE -ne 0) {
-                throw "JavaFX run failed."
+                throw "Application run failed."
             }
         }
     }
