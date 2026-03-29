@@ -17,6 +17,19 @@ import java.util.stream.Collectors;
 
 // Service class to handle borrowing-related operations such as borrowing and returning books, as well as listing active borrows for a user.
 public class BorrowService {
+    public enum BorrowReminderLevel {
+        DUE_SOON,
+        OVERDUE
+    }
+
+    public record BorrowReminderCandidate(String borrowRecordId,
+                                          String bookId,
+                                          String bookTitle,
+                                          LocalDate dueDate,
+                                          BorrowReminderLevel level,
+                                          int daysUntilDue) {
+    }
+
     private static final int MAX_BORROW_LIMIT = SecurityConfig.MAX_BORROW_LIMIT;
     private static final int DEFAULT_BORROW_DAYS = SecurityConfig.DEFAULT_BORROW_DAYS;
     private static final int MAX_BORROW_DAYS = SecurityConfig.MAX_BORROW_DAYS;
@@ -190,6 +203,50 @@ public class BorrowService {
                 .collect(Collectors.toList());
     }
 
+    public List<BorrowReminderCandidate> findReturnReminderCandidates(String username) {
+        return findReturnReminderCandidates(
+                username,
+                LocalDate.now(),
+                SecurityConfig.returnReminderDueSoonDays()
+        );
+    }
+
+    public List<BorrowReminderCandidate> findReturnReminderCandidates(String username,
+                                                                      LocalDate today,
+                                                                      int dueSoonThresholdDays) {
+        int effectiveThreshold = Math.max(0, dueSoonThresholdDays);
+        List<BorrowReminderCandidate> reminders = new ArrayList<>();
+        for (BorrowRecord record : borrowRepository.findByUsername(username)) {
+            if (record.isReturned()) {
+                continue;
+            }
+
+            BorrowReminderLevel level = determineReminderLevel(record, today, effectiveThreshold);
+            if (level == null) {
+                continue;
+            }
+
+            String bookTitle = bookRepository.findById(record.getBookId())
+                    .map(Book::getTitle)
+                    .orElse(record.getBookId());
+            int daysUntilDue = (int) (record.getDueDate().toEpochDay() - today.toEpochDay());
+            reminders.add(new BorrowReminderCandidate(
+                    record.getId(),
+                    record.getBookId(),
+                    bookTitle,
+                    record.getDueDate(),
+                    level,
+                    daysUntilDue
+            ));
+        }
+
+        reminders.sort(
+                Comparator.comparing(BorrowReminderCandidate::dueDate)
+                        .thenComparing(BorrowReminderCandidate::borrowRecordId)
+        );
+        return reminders;
+    }
+
     private Book requireBorrowableBook(String bookId) {
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new NotFoundException("Book not found."));
@@ -241,5 +298,24 @@ public class BorrowService {
             case "active", "" -> !record.isReturned();
             default -> false;
         };
+    }
+
+    private static BorrowReminderLevel determineReminderLevel(BorrowRecord record,
+                                                              LocalDate today,
+                                                              int dueSoonThresholdDays) {
+        if (record.isOverdue(today)) {
+            return BorrowReminderLevel.OVERDUE;
+        }
+
+        if (record.getDueDate().isBefore(today)) {
+            return null;
+        }
+
+        LocalDate thresholdDate = today.plusDays(dueSoonThresholdDays);
+        if (!record.getDueDate().isAfter(thresholdDate)) {
+            return BorrowReminderLevel.DUE_SOON;
+        }
+
+        return null;
     }
 }

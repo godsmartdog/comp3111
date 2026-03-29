@@ -5,9 +5,11 @@ import Library.Model.NotificationAction;
 import Library.Model.NotificationItem;
 import Library.Model.NotificationPriority;
 import Library.Repository.NotificationRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -195,6 +197,38 @@ public class NotificationService {
         item.unarchive();
         notificationRepository.save(item);
         return item;
+    }
+
+    public boolean addBorrowReminderIfAbsent(String username,
+                                             String borrowRecordId,
+                                             String category,
+                                             LocalDate reminderDate,
+                                             LocalDate dueDate,
+                                             String title,
+                                             String message,
+                                             NotificationPriority priority) {
+        String normalizedCategory = category == null ? "" : category.trim().toLowerCase();
+        String normalizedBorrowRecordId = borrowRecordId == null ? "" : borrowRecordId.trim();
+        String normalizedReminderDate = reminderDate == null ? "" : reminderDate.toString();
+
+        for (NotificationItem item : notificationRepository.findByUsername(username)) {
+            Map<String, String> metadata = item.getMetadata();
+            if (normalizedBorrowRecordId.equals(metadata.getOrDefault("borrowRecordId", ""))
+                    && normalizedCategory.equals(metadata.getOrDefault("category", "").toLowerCase())
+                    && normalizedReminderDate.equals(metadata.getOrDefault("reminderDate", ""))) {
+                return false;
+            }
+        }
+
+        Map<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("type", "borrow-reminder");
+        metadata.put("category", normalizedCategory);
+        metadata.put("borrowRecordId", normalizedBorrowRecordId);
+        metadata.put("reminderDate", normalizedReminderDate);
+        metadata.put("dueDate", dueDate == null ? "" : dueDate.toString());
+
+        addNotification(username, title, message, priority, null, metadata);
+        return true;
     }
 
     private static boolean matchesScope(NotificationItem item, NotificationScope scope) {

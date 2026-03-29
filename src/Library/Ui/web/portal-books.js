@@ -261,8 +261,20 @@ async function refreshBorrows() {
     list.innerHTML = "";
     items.forEach((item) => {
         const li = document.createElement("li");
+        const warningLabel = item.overdue
+            ? "OVERDUE"
+            : item.dueSoon
+                ? `DUE SOON: ${item.daysUntilDue} day(s)`
+                : "";
+        if (item.overdue) {
+            li.style.background = "rgba(139, 47, 39, 0.12)";
+            li.style.border = "1px solid rgba(139, 47, 39, 0.45)";
+        } else if (item.dueSoon) {
+            li.style.background = "rgba(176, 116, 29, 0.12)";
+            li.style.border = "1px solid rgba(176, 116, 29, 0.4)";
+        }
         li.innerHTML = `
-            <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${item.overdue ? " [OVERDUE]" : ""}</span>
+            <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
             <button class="secondary" type="button">Read</button>
             <button class="secondary" type="button">Return</button>
         `;
@@ -716,6 +728,19 @@ document.getElementById("resetBorrowFiltersBtn")?.addEventListener("click", () =
     }
 
     refreshBorrows().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("checkBorrowRemindersBtn")?.addEventListener("click", async () => {
+    try {
+        const payload = await api("/api/borrow/reminders/check", {
+            method: "POST"
+        });
+        showToast(`Reminder check complete. Generated ${payload.generated || 0} reminder(s).`, false);
+        await refreshBorrows();
+        await refreshNotifications();
+    } catch (error) {
+        showToast(error.message, true);
+    }
 });
 
 if (currentUser) {

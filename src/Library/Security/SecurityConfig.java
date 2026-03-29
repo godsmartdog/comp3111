@@ -7,6 +7,7 @@ public final class SecurityConfig {
     public static final int MAX_BORROW_LIMIT = 5;
     public static final int MAX_BORROW_DAYS = 14;
     public static final int DEFAULT_BORROW_DAYS = MAX_BORROW_DAYS;
+    public static final int DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS = 3;
     public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 15L * 60L * 1000L;
     public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md", ".jpg", ".jpeg", ".png");
@@ -26,6 +27,20 @@ public final class SecurityConfig {
             return parsed > 0 ? parsed : DEFAULT_SESSION_IDLE_TIMEOUT_MS;
         } catch (NumberFormatException ignored) {
             return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+        }
+    }
+
+    public static int returnReminderDueSoonDays() {
+        String raw = System.getProperty("library.returnReminderDueSoonDays");
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS;
+        }
+
+        try {
+            int parsed = Integer.parseInt(raw.trim());
+            return parsed >= 0 ? parsed : DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS;
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS;
         }
     }
 }

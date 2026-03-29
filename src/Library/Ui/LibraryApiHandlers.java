@@ -631,6 +631,26 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/borrow/reminders/check", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                int generated = generateBorrowReminderNotifications(user.getUsername());
+                sendJson(exchange, 200, "{" +
+                        "\"status\":\"checked\"," +
+                        "\"generated\":" + generated +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/recommendations", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -682,6 +702,7 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                generateBorrowReminderNotifications(user.getUsername());
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String status = parseBorrowStatus(query);
                 String sortBy = parseBorrowSortBy(query);
@@ -1564,6 +1585,46 @@ public class LibraryApiHandlers {
         return restored;
     }
 
+        private int generateBorrowReminderNotifications(String username) {
+        LocalDate today = LocalDate.now();
+        List<BorrowService.BorrowReminderCandidate> candidates = borrowService.findReturnReminderCandidates(
+            username,
+            today,
+            SecurityConfig.returnReminderDueSoonDays()
+        );
+
+        int generated = 0;
+        for (BorrowService.BorrowReminderCandidate candidate : candidates) {
+            String category = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "overdue"
+                : "due-soon";
+            NotificationPriority priority = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? NotificationPriority.HIGH
+                : NotificationPriority.NORMAL;
+            String title = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "Overdue Return Reminder"
+                : "Due Soon Return Reminder";
+            String message = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "Your borrowed book \"" + candidate.bookTitle() + "\" is overdue. It was due on " + candidate.dueDate() + "."
+                : "Your borrowed book \"" + candidate.bookTitle() + "\" is due in " + candidate.daysUntilDue() + " day(s) on " + candidate.dueDate() + ".";
+
+            boolean created = notificationService.addBorrowReminderIfAbsent(
+                username,
+                candidate.borrowRecordId(),
+                category,
+                today,
+                candidate.dueDate(),
+                title,
+                message,
+                priority
+            );
+            if (created) {
+            generated++;
+            }
+        }
+        return generated;
+        }
+
     private String booksToJson(List<Book> books) {
         List<String> items = new ArrayList<>();
         for (Book book : books) {
@@ -1744,12 +1805,16 @@ public class LibraryApiHandlers {
 
     private String borrowsToJson(List<BorrowRecord> records) {
         LocalDate today = LocalDate.now();
+        int dueSoonThresholdDays = SecurityConfig.returnReminderDueSoonDays();
         List<String> jsonItems = new ArrayList<>();
         for (BorrowRecord record : records) {
             String title = bookService.findBookById(record.getBookId())
                     .map(Book::getTitle)
                     .orElse(record.getBookId());
             boolean overdue = record.isOverdue(today);
+            int daysUntilDue = (int) (record.getDueDate().toEpochDay() - today.toEpochDay());
+            boolean dueSoon = !record.isReturned() && !overdue && daysUntilDue >= 0 && daysUntilDue <= dueSoonThresholdDays;
+            String reminderLevel = overdue ? "overdue" : (dueSoon ? "due-soon" : "");
             String status = record.isReturned() ? "Returned" : "Borrowed";
 
             jsonItems.add("{" +
@@ -1760,7 +1825,10 @@ public class LibraryApiHandlers {
                     "\"dueDate\":\"" + record.getDueDate() + "\"," +
                     "\"returned\":" + record.isReturned() + "," +
                     "\"status\":\"" + status + "\"," +
-                    "\"overdue\":" + overdue +
+                    "\"overdue\":" + overdue + "," +
+                    "\"dueSoon\":" + dueSoon + "," +
+                    "\"daysUntilDue\":" + daysUntilDue + "," +
+                    "\"reminderLevel\":\"" + reminderLevel + "\"" +
                     "}");
         }
         return "[" + String.join(",", jsonItems) + "]";
