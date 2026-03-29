@@ -149,6 +149,47 @@ public class BorrowService {
                 .collect(Collectors.toList());
     }
 
+    public List<BorrowRecord> listBorrowRecordsByUser(String username,
+                                                      String status,
+                                                      LocalDate borrowDateFrom,
+                                                      LocalDate borrowDateTo,
+                                                      LocalDate dueDateFrom,
+                                                      LocalDate dueDateTo,
+                                                      String sortBy,
+                                                      String sortDir) {
+        LocalDate today = LocalDate.now();
+        String normalizedStatus = status == null ? "active" : status.trim().toLowerCase();
+        String normalizedSortBy = sortBy == null ? "" : sortBy.trim().toLowerCase();
+        String normalizedSortDir = sortDir == null ? "asc" : sortDir.trim().toLowerCase();
+
+        List<BorrowRecord> filtered = borrowRepository.findByUsername(username).stream()
+                .filter(record -> matchesStatus(record, normalizedStatus, today))
+                .filter(record -> borrowDateFrom == null || !record.getBorrowDate().isBefore(borrowDateFrom))
+                .filter(record -> borrowDateTo == null || !record.getBorrowDate().isAfter(borrowDateTo))
+                .filter(record -> dueDateFrom == null || !record.getDueDate().isBefore(dueDateFrom))
+                .filter(record -> dueDateTo == null || !record.getDueDate().isAfter(dueDateTo))
+                .collect(Collectors.toList());
+
+        Comparator<BorrowRecord> comparator = null;
+        if ("borrowdate".equals(normalizedSortBy)) {
+            comparator = Comparator.comparing(BorrowRecord::getBorrowDate).thenComparing(BorrowRecord::getId);
+        } else if ("duedate".equals(normalizedSortBy)) {
+            comparator = Comparator.comparing(BorrowRecord::getDueDate).thenComparing(BorrowRecord::getId);
+        }
+
+        if (comparator == null) {
+            return filtered;
+        }
+
+        if ("desc".equals(normalizedSortDir)) {
+            comparator = comparator.reversed();
+        }
+
+        return filtered.stream()
+                .sorted(comparator)
+                .collect(Collectors.toList());
+    }
+
     private Book requireBorrowableBook(String bookId) {
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new NotFoundException("Book not found."));
@@ -190,5 +231,15 @@ public class BorrowService {
             }
         }
         return normalized;
+    }
+
+    private static boolean matchesStatus(BorrowRecord record, String status, LocalDate today) {
+        return switch (status) {
+            case "all" -> true;
+            case "returned" -> record.isReturned();
+            case "overdue" -> record.isOverdue(today);
+            case "active", "" -> !record.isReturned();
+            default -> false;
+        };
     }
 }

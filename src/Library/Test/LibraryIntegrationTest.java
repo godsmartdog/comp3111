@@ -56,6 +56,10 @@ public final class LibraryIntegrationTest {
         runner.run("bulk borrow endpoint validates duration bounds", LibraryIntegrationTest::testBulkBorrowEndpointValidatesDurationBounds);
         runner.run("non student/staff cannot use bulk borrow endpoint", LibraryIntegrationTest::testNonStudentStaffCannotUseBulkBorrowEndpoint);
         runner.run("single borrow endpoint remains compatible", LibraryIntegrationTest::testSingleBorrowEndpointRemainsCompatible);
+        runner.run("borrow records sort by due date desc", LibraryIntegrationTest::testBorrowRecordsSortByDueDateDesc);
+        runner.run("borrow records filter returned only", LibraryIntegrationTest::testBorrowRecordsFilterReturnedOnly);
+        runner.run("borrow records filter overdue only", LibraryIntegrationTest::testBorrowRecordsFilterOverdueOnly);
+        runner.run("borrow records no-filter baseline remains active only", LibraryIntegrationTest::testBorrowRecordsNoFilterCompatibilityBaseline);
         runner.run("borrow limit and recommendation ranking", LibraryIntegrationTest::testBorrowLimitAndRecommendations);
         runner.run("author draft publish and librarian approval", LibraryIntegrationTest::testAuthorDraftPublishAndApproval);
         runner.run("author publish accepts normalized genres", LibraryIntegrationTest::testAuthorPublishAcceptsNormalizedGenres);
@@ -281,6 +285,141 @@ public final class LibraryIntegrationTest {
             HttpResponse<String> borrowsResponse = client.send(borrowsRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(200, borrowsResponse.statusCode(), "borrows endpoint should still work after single borrow");
             assertTrue(borrowsResponse.body().contains("\"bookId\":\"" + book.getId() + "\""), "single-borrowed book should appear in active borrows");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRecordsSortByDueDateDesc() throws Exception {
+        TestContext context = new TestContext();
+        Book shortDue = context.addApprovedBook("Sort Short Due", "Sorter", "Short due book.");
+        Book longDue = context.addApprovedBook("Sort Long Due", "Sorter", "Long due book.");
+        context.authService.registerStudentOrStaff("sort-user", "Sort User", "Password1!", Role.STUDENT);
+
+        BorrowRecord shortRecord = context.borrowService.borrowBook("sort-user", shortDue.getId(), 3);
+        BorrowRecord longRecord = context.borrowService.borrowBook("sort-user", longDue.getId(), 10);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "sort-user", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows?status=all&sortBy=dueDate&sortDir=desc"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "sorted borrows request should return HTTP 200");
+
+            String firstRecordId = extractJsonField(response.body(), "recordId");
+            assertEquals(longRecord.getId(), firstRecordId, "due date desc should return later due date first");
+            assertTrue(response.body().contains("\"recordId\":\"" + shortRecord.getId() + "\""), "response should include second borrow record");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRecordsFilterReturnedOnly() throws Exception {
+        TestContext context = new TestContext();
+        Book returnedBook = context.addApprovedBook("Returned Filter Book", "Filterer", "Should appear in returned filter.");
+        Book activeBook = context.addApprovedBook("Active Filter Book", "Filterer", "Should not appear in returned filter.");
+        context.authService.registerStudentOrStaff("returned-filter-user", "Returned Filter User", "Password1!", Role.STUDENT);
+
+        BorrowRecord returnedRecord = context.borrowService.borrowBook("returned-filter-user", returnedBook.getId(), 7);
+        context.borrowService.borrowBook("returned-filter-user", activeBook.getId(), 7);
+        context.borrowService.returnBook("returned-filter-user", returnedBook.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "returned-filter-user", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows?status=returned"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "returned filter request should return HTTP 200");
+
+            String body = response.body();
+            assertTrue(body.contains("\"recordId\":\"" + returnedRecord.getId() + "\""), "returned filter should include returned record");
+            assertTrue(body.contains("\"returned\":true"), "returned filter payload should expose returned=true");
+            assertFalse(body.contains("\"bookTitle\":\"Active Filter Book\""), "returned filter should exclude active borrows");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRecordsFilterOverdueOnly() throws Exception {
+        TestContext context = new TestContext();
+        Book overdueBook = context.addApprovedBook("Overdue Filter Book", "Filterer", "Should appear in overdue filter.");
+        Book activeBook = context.addApprovedBook("Non Overdue Filter Book", "Filterer", "Should not appear in overdue filter.");
+        context.authService.registerStudentOrStaff("overdue-filter-user", "Overdue Filter User", "Password1!", Role.STUDENT);
+
+        context.borrowService.borrowBook("overdue-filter-user", activeBook.getId(), 7);
+
+        BorrowRecord overdueRecord = new BorrowRecord(
+                "overdue-filter-user",
+                overdueBook.getId(),
+                LocalDate.now().minusDays(10),
+                LocalDate.now().minusDays(2)
+        );
+        context.borrowRepository.save(overdueRecord);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "overdue-filter-user", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows?status=overdue"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "overdue filter request should return HTTP 200");
+
+            String body = response.body();
+            assertTrue(body.contains("\"recordId\":\"" + overdueRecord.getId() + "\""), "overdue filter should include overdue record");
+            assertTrue(body.contains("\"overdue\":true"), "overdue filter payload should expose overdue=true");
+            assertFalse(body.contains("\"bookTitle\":\"Non Overdue Filter Book\""), "overdue filter should exclude non-overdue borrows");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRecordsNoFilterCompatibilityBaseline() throws Exception {
+        TestContext context = new TestContext();
+        Book returnedBook = context.addApprovedBook("Baseline Returned Book", "Baseline", "Returned record for baseline check.");
+        Book activeBook = context.addApprovedBook("Baseline Active Book", "Baseline", "Active record for baseline check.");
+        context.authService.registerStudentOrStaff("baseline-user", "Baseline User", "Password1!", Role.STUDENT);
+
+        BorrowRecord activeRecord = context.borrowService.borrowBook("baseline-user", activeBook.getId(), 7);
+        BorrowRecord returnedRecord = context.borrowService.borrowBook("baseline-user", returnedBook.getId(), 7);
+        context.borrowService.returnBook("baseline-user", returnedBook.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "baseline-user", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "no-filter borrows request should return HTTP 200");
+
+            String body = response.body();
+            assertTrue(body.contains("\"recordId\":\"" + activeRecord.getId() + "\""), "default borrows listing should include active record");
+            assertFalse(body.contains("\"recordId\":\"" + returnedRecord.getId() + "\""), "default borrows listing should keep returned records hidden");
         } finally {
             server.stop(0);
         }

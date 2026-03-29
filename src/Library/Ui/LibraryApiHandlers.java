@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -428,22 +429,27 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                List<BorrowRecord> records = borrowService.listActiveBorrowsByUser(user.getUsername());
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String status = parseBorrowStatus(query);
+                String sortBy = parseBorrowSortBy(query);
+                String sortDir = parseBorrowSortDir(query);
+                LocalDate borrowDateFrom = parseDateFilter(query, "borrowDateFrom");
+                LocalDate borrowDateTo = parseDateFilter(query, "borrowDateTo");
+                LocalDate dueDateFrom = parseDateFilter(query, "dueDateFrom");
+                LocalDate dueDateTo = parseDateFilter(query, "dueDateTo");
 
-                List<String> jsonItems = new ArrayList<>();
-                for (BorrowRecord record : records) {
-                    String title = bookService.findBookById(record.getBookId())
-                            .map(Book::getTitle)
-                            .orElse(record.getBookId());
-                    jsonItems.add("{" +
-                            "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
-                            "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
-                            "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
-                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
-                            "\"overdue\":" + record.isOverdue(java.time.LocalDate.now()) +
-                            "}");
-                }
-                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+                List<BorrowRecord> records = borrowService.listBorrowRecordsByUser(
+                        user.getUsername(),
+                        status,
+                        borrowDateFrom,
+                        borrowDateTo,
+                        dueDateFrom,
+                        dueDateTo,
+                        sortBy,
+                        sortDir
+                );
+
+                sendJson(exchange, 200, borrowsToJson(records));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1151,8 +1157,72 @@ public class LibraryApiHandlers {
         throw new IllegalArgumentException("availability must be one of: all, available, unavailable.");
     }
 
+    private static String parseBorrowStatus(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "status", "active");
+        if ("all".equalsIgnoreCase(raw)
+                || "returned".equalsIgnoreCase(raw)
+                || "active".equalsIgnoreCase(raw)
+                || "overdue".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("status must be one of: all, returned, active, overdue.");
+    }
+
+    private static String parseBorrowSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "");
+        if (raw.isEmpty() || "borrowDate".equalsIgnoreCase(raw) || "dueDate".equalsIgnoreCase(raw)) {
+            return raw;
+        }
+        throw new IllegalArgumentException("sortBy must be one of: borrowDate, dueDate.");
+    }
+
+    private static String parseBorrowSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "asc");
+        if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
+    private static LocalDate parseDateFilter(Map<String, String> values, String key) {
+        String raw = RequestFilters.getTrimmed(values, key, "");
+        if (raw.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return LocalDate.parse(raw);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid date value for " + key + ". Expected YYYY-MM-DD.");
+        }
+    }
+
     private static String urlDecode(String input) {
         return URLDecoder.decode(input, StandardCharsets.UTF_8);
+    }
+
+    private String borrowsToJson(List<BorrowRecord> records) {
+        LocalDate today = LocalDate.now();
+        List<String> jsonItems = new ArrayList<>();
+        for (BorrowRecord record : records) {
+            String title = bookService.findBookById(record.getBookId())
+                    .map(Book::getTitle)
+                    .orElse(record.getBookId());
+            boolean overdue = record.isOverdue(today);
+            String status = record.isReturned() ? "Returned" : "Borrowed";
+
+            jsonItems.add("{" +
+                    "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
+                    "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
+                    "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
+                    "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
+                    "\"dueDate\":\"" + record.getDueDate() + "\"," +
+                    "\"returned\":" + record.isReturned() + "," +
+                    "\"status\":\"" + status + "\"," +
+                    "\"overdue\":" + overdue +
+                    "}");
+        }
+        return "[" + String.join(",", jsonItems) + "]";
     }
 
     private static String readingProgressToJson(ReadingProgress progress) {
