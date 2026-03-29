@@ -76,6 +76,9 @@ public final class LibraryIntegrationTest {
         runner.run("librarian notifications list and mark read success", LibraryIntegrationTest::testLibrarianNotificationsListAndReadSuccess);
         runner.run("librarian notification ownership boundary", LibraryIntegrationTest::testLibrarianNotificationOwnershipBoundary);
         runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
+        runner.run("student/staff notifications list and mark read success", LibraryIntegrationTest::testStudentStaffNotificationApisListAndReadSuccess);
+        runner.run("student/staff notification ownership boundary endpoint", LibraryIntegrationTest::testStudentStaffNotificationOwnershipBoundaryEndpoint);
+        runner.run("author and librarian forbidden from student/staff notification APIs", LibraryIntegrationTest::testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis);
         runner.run("librarian can view borrowed-books records", LibraryIntegrationTest::testLibrarianCanViewBorrowedBooksRecords);
         runner.run("non-librarian cannot access borrowed-books records endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint);
         runner.finish();
@@ -526,6 +529,157 @@ public final class LibraryIntegrationTest {
 
             assertEquals(401, response.statusCode(), "non-librarian should receive HTTP 401");
             assertTrue(response.body().contains("Permission denied"), "response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffNotificationApisListAndReadSuccess() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("staff-notify", "Staff Notify", "Password1!", Role.STAFF);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "staff-notify", "Password1!", "STAFF");
+
+            HttpRequest profileUpdateRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/profile"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", sessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("fullName=Staff+Notify+Updated&password="))
+                .build();
+            HttpResponse<String> profileUpdateResponse = client.send(profileUpdateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, profileUpdateResponse.statusCode(), "profile update should generate a notification");
+
+            HttpRequest listRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> listResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, listResponse.statusCode(), "student/staff notifications list should return HTTP 200");
+            String notificationId = extractJsonField(listResponse.body(), "id");
+            assertTrue(listResponse.body().contains("\"title\":\"Profile Updated\""), "response should include notification title");
+            assertTrue(listResponse.body().contains("\"message\":\"Your profile details were updated successfully.\""), "response should include notification message");
+            assertTrue(listResponse.body().contains("\"createdAt\":"), "response should include createdAt");
+            assertTrue(listResponse.body().contains("\"read\":false"), "notification should initially be unread");
+
+            HttpRequest markReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + notificationId))
+                    .build();
+            HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, markReadResponse.statusCode(), "mark read should return HTTP 200");
+            assertTrue(markReadResponse.body().contains("\"status\":\"read\""), "mark read response should return read status");
+
+            HttpResponse<String> afterReadListResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, afterReadListResponse.statusCode(), "notifications list after read should return HTTP 200");
+            assertTrue(afterReadListResponse.body().contains("\"id\":\"" + notificationId + "\""), "same notification should still exist");
+            assertTrue(afterReadListResponse.body().contains("\"read\":true"), "notification should become read");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffNotificationOwnershipBoundaryEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("student-owner-a", "Owner A", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("student-owner-b", "Owner B", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String ownerASession = loginAndGetSessionId(client, baseUrl, "student-owner-a", "Password1!", "STUDENT");
+
+            HttpRequest ownerAProfileUpdateRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/profile"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", ownerASession)
+                .POST(HttpRequest.BodyPublishers.ofString("fullName=Owner+A+Updated&password="))
+                .build();
+            HttpResponse<String> ownerAProfileUpdateResponse = client.send(ownerAProfileUpdateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, ownerAProfileUpdateResponse.statusCode(), "owner A profile update should generate notification");
+
+            HttpRequest ownerAListRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/notifications"))
+                .header("X-Session-Id", ownerASession)
+                .GET()
+                .build();
+            HttpResponse<String> ownerAListResponse = client.send(ownerAListRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, ownerAListResponse.statusCode(), "owner A notifications should list successfully");
+            String foreignNotificationId = extractJsonField(ownerAListResponse.body(), "id");
+
+            String ownerBSession = loginAndGetSessionId(client, baseUrl, "student-owner-b", "Password1!", "STUDENT");
+
+            HttpRequest markReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerBSession)
+                .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + foreignNotificationId))
+                    .build();
+            HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, markReadResponse.statusCode(), "student/staff cannot mark another user's notification");
+            assertTrue(markReadResponse.body().contains("does not belong to this user"), "response should explain ownership boundary");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis() throws Exception {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-notify-no", "Author Notify", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-notify-no", "Lib Notify", "Password1!", "EMP-NO");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-notify-no", "Password1!", "AUTHOR");
+            HttpRequest authorListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications"))
+                    .header("X-Session-Id", authorSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> authorListResponse = client.send(authorListRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, authorListResponse.statusCode(), "author should be forbidden from student/staff notifications list");
+            assertTrue(authorListResponse.body().contains("Permission denied"), "author list response should explain permission denied");
+
+            HttpRequest authorReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=fake-id"))
+                    .build();
+            HttpResponse<String> authorReadResponse = client.send(authorReadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, authorReadResponse.statusCode(), "author should be forbidden from student/staff mark-read endpoint");
+            assertTrue(authorReadResponse.body().contains("Permission denied"), "author mark-read response should explain permission denied");
+
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "lib-notify-no", "Password1!", "LIBRARIAN");
+            HttpRequest librarianListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> librarianListResponse = client.send(librarianListRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, librarianListResponse.statusCode(), "librarian should be forbidden from student/staff notifications list");
+            assertTrue(librarianListResponse.body().contains("Permission denied"), "librarian list response should explain permission denied");
+
+            HttpRequest librarianReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", librarianSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=fake-id"))
+                    .build();
+            HttpResponse<String> librarianReadResponse = client.send(librarianReadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, librarianReadResponse.statusCode(), "librarian should be forbidden from student/staff mark-read endpoint");
+            assertTrue(librarianReadResponse.body().contains("Permission denied"), "librarian mark-read response should explain permission denied");
         } finally {
             server.stop(0);
         }
