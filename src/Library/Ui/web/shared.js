@@ -10,6 +10,31 @@ function showToast(message, isError) {
     setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
+function parseSnapshotPayload(raw) {
+    if (!raw) {
+        return {};
+    }
+    try {
+        return JSON.parse(raw);
+    } catch (e) {
+        return {};
+    }
+}
+
+function stringifySnapshotPayload(payload) {
+    if (payload === undefined || payload === null || payload === "") {
+        return "";
+    }
+    if (typeof payload === "string") {
+        return payload;
+    }
+    try {
+        return JSON.stringify(payload);
+    } catch (e) {
+        return "";
+    }
+}
+
 async function api(path, options = {}, expectJson = true) {
     const merged = { ...options };
     const headers = { ...(options.headers || {}) };
@@ -98,13 +123,198 @@ function attachLogout(buttonId) {
     }
     button.addEventListener("click", async () => {
         try {
+            await clearSessionSnapshot(true);
             await api("/api/logout", { method: "POST" }, false);
         } catch (e) {
             // Ignore network/logout errors and continue clearing local session.
         }
+        removeSessionRestoreBanner();
         localStorage.removeItem("currentUser");
         window.location.href = "index.html";
     });
+}
+
+function removeSessionRestoreBanner() {
+    document.getElementById("sessionRestoreBanner")?.remove();
+}
+
+async function saveSessionSnapshot(snapshot, options = {}) {
+    const current = getCurrentUser();
+    if (!current?.sessionId) {
+        return null;
+    }
+
+    const body = formBody({
+        portalKey: snapshot?.portalKey || "",
+        lastViewKey: snapshot?.lastViewKey || "",
+        lastAction: snapshot?.lastAction || "",
+        statePayload: stringifySnapshotPayload(snapshot?.statePayload)
+    });
+
+    try {
+        if (options.keepalive) {
+            await fetch("/api/session-snapshot/save", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Session-Id": current.sessionId
+                },
+                body,
+                keepalive: true
+            });
+            return null;
+        }
+
+        return await api("/api/session-snapshot/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body
+        });
+    } catch (error) {
+        if (!options.silent) {
+            throw error;
+        }
+        return null;
+    }
+}
+
+async function getSessionSnapshot(options = {}) {
+    try {
+        return await api("/api/session-snapshot");
+    } catch (error) {
+        if (!options.silent) {
+            throw error;
+        }
+        return { exists: false };
+    }
+}
+
+async function clearSessionSnapshot(silent = false) {
+    try {
+        removeSessionRestoreBanner();
+        return await api("/api/session-snapshot/clear", { method: "POST" });
+    } catch (error) {
+        if (!silent) {
+            throw error;
+        }
+        return null;
+    }
+}
+
+function showSessionRestoreBanner(message, onRestore, onDismiss) {
+    removeSessionRestoreBanner();
+
+    const banner = document.createElement("div");
+    banner.id = "sessionRestoreBanner";
+    banner.style.position = "sticky";
+    banner.style.top = "0";
+    banner.style.zIndex = "50";
+    banner.style.margin = "12px auto";
+    banner.style.maxWidth = "1100px";
+    banner.style.padding = "12px 16px";
+    banner.style.borderRadius = "12px";
+    banner.style.background = "rgba(32, 53, 79, 0.92)";
+    banner.style.color = "#fff";
+    banner.style.display = "flex";
+    banner.style.alignItems = "center";
+    banner.style.justifyContent = "space-between";
+    banner.style.gap = "12px";
+
+    const text = document.createElement("div");
+    text.textContent = message;
+
+    const actionBox = document.createElement("div");
+    actionBox.style.display = "flex";
+    actionBox.style.gap = "8px";
+
+    const restoreButton = document.createElement("button");
+    restoreButton.type = "button";
+    restoreButton.textContent = "Restore";
+    restoreButton.addEventListener("click", async () => {
+        removeSessionRestoreBanner();
+        await onRestore();
+    });
+
+    const dismissButton = document.createElement("button");
+    dismissButton.type = "button";
+    dismissButton.className = "secondary";
+    dismissButton.textContent = "Dismiss";
+    dismissButton.addEventListener("click", async () => {
+        removeSessionRestoreBanner();
+        await onDismiss();
+    });
+
+    actionBox.appendChild(restoreButton);
+    actionBox.appendChild(dismissButton);
+    banner.appendChild(text);
+    banner.appendChild(actionBox);
+
+    const anchor = document.querySelector("main") || document.body;
+    anchor.parentNode.insertBefore(banner, anchor);
+}
+
+function initSessionSnapshotPortal(options) {
+    const current = getCurrentUser();
+    if (!current?.sessionId) {
+        return {
+            checkForRestore: async () => {},
+            persistSnapshot: async () => {}
+        };
+    }
+
+    const portalKey = options?.portalKey || window.location.pathname;
+    const getViewKey = typeof options?.getViewKey === "function"
+        ? options.getViewKey
+        : () => options?.defaultViewKey || "default";
+    const getState = typeof options?.getState === "function"
+        ? options.getState
+        : () => ({});
+    const restoreState = typeof options?.restoreState === "function"
+        ? options.restoreState
+        : async () => {};
+    const bannerMessage = options?.bannerMessage || "Previous portal state is available.";
+
+    const persistSnapshot = async (lastAction = "view-update", stateOverride) => {
+        await saveSessionSnapshot({
+            portalKey,
+            lastViewKey: getViewKey(),
+            lastAction,
+            statePayload: stateOverride === undefined ? getState() : stateOverride
+        }, { silent: true });
+    };
+
+    window.addEventListener("beforeunload", () => {
+        void saveSessionSnapshot({
+            portalKey,
+            lastViewKey: getViewKey(),
+            lastAction: "beforeunload",
+            statePayload: getState()
+        }, { silent: true, keepalive: true });
+    });
+
+    const checkForRestore = async () => {
+        const snapshot = await getSessionSnapshot({ silent: true });
+        if (!snapshot?.exists) {
+            return;
+        }
+        if (snapshot.role !== current.role || snapshot.portalKey !== portalKey) {
+            return;
+        }
+
+        const parsedPayload = parseSnapshotPayload(snapshot.statePayload);
+        showSessionRestoreBanner(
+            bannerMessage,
+            async () => {
+                await restoreState(parsedPayload, snapshot);
+                await persistSnapshot("restore-applied", getState());
+            },
+            async () => {
+                await clearSessionSnapshot(true);
+            }
+        );
+    };
+
+    return { checkForRestore, persistSnapshot };
 }
 
 function getQueryParam(name) {

@@ -1,5 +1,6 @@
 const expectedRole = document.querySelector("main").dataset.role;
 const currentUser = requireRole(expectedRole);
+let sessionSnapshotController = null;
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
     welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
@@ -436,6 +437,46 @@ async function refreshNotifications() {
     }
 }
 
+function getNotificationSnapshotState() {
+    return {
+        scope: document.getElementById("notificationScopeFilter")?.value || "active",
+        read: document.getElementById("notificationReadFilter")?.value || "all",
+        priority: document.getElementById("notificationPriorityFilter")?.value || "all",
+        sortBy: document.getElementById("notificationSortBy")?.value || "createdAt",
+        sortDir: document.getElementById("notificationSortDir")?.value || "desc",
+        query: document.getElementById("notificationSearchInput")?.value || ""
+    };
+}
+
+function applyNotificationSnapshotState(state) {
+    const values = state || {};
+    const scope = document.getElementById("notificationScopeFilter");
+    const read = document.getElementById("notificationReadFilter");
+    const priority = document.getElementById("notificationPriorityFilter");
+    const sortBy = document.getElementById("notificationSortBy");
+    const sortDir = document.getElementById("notificationSortDir");
+    const search = document.getElementById("notificationSearchInput");
+
+    if (scope && values.scope) {
+        scope.value = values.scope;
+    }
+    if (read && values.read) {
+        read.value = values.read;
+    }
+    if (priority && values.priority) {
+        priority.value = values.priority;
+    }
+    if (sortBy && values.sortBy) {
+        sortBy.value = values.sortBy;
+    }
+    if (sortDir && values.sortDir) {
+        sortDir.value = values.sortDir;
+    }
+    if (search) {
+        search.value = values.query || "";
+    }
+}
+
 function resetReaderUi(statusText) {
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
@@ -596,11 +637,15 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
 });
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
-    refreshNotifications().catch((e) => showToast(e.message, true));
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-refresh"))
+        .catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
-    refreshNotifications().catch((e) => showToast(e.message, true));
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-apply"))
+        .catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("resetNotificationFiltersBtn")?.addEventListener("click", () => {
@@ -630,7 +675,9 @@ document.getElementById("resetNotificationFiltersBtn")?.addEventListener("click"
         search.value = "";
     }
 
-    refreshNotifications().catch((e) => showToast(e.message, true));
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-reset"))
+        .catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("applyBorrowFiltersBtn")?.addEventListener("click", () => {
@@ -672,9 +719,23 @@ document.getElementById("resetBorrowFiltersBtn")?.addEventListener("click", () =
 });
 
 if (currentUser) {
+    sessionSnapshotController = initSessionSnapshotPortal({
+        portalKey: `${currentUser.role.toLowerCase()}-portal`,
+        defaultViewKey: "notifications-board",
+        getViewKey: () => "notifications-board",
+        getState: getNotificationSnapshotState,
+        restoreState: async (state) => {
+            applyNotificationSnapshotState(state);
+            await refreshNotifications();
+            showToast("Previous notification view restored.", false);
+        },
+        bannerMessage: "A previous notification view is available for this session."
+    });
+
     loadProfile().catch((e) => showToast(e.message, true));
     refreshBooks().catch((e) => showToast(e.message, true));
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));
     refreshNotifications().catch((e) => showToast(e.message, true));
+    sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }

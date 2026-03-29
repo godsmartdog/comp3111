@@ -1,4 +1,5 @@
 const currentUser = requireRole("AUTHOR");
+let sessionSnapshotController = null;
 if (currentUser) {
     document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
     attachLogout("logoutBtn");
@@ -661,6 +662,17 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 });
 
 if (currentUser) {
+    sessionSnapshotController = initSessionSnapshotPortal({
+        portalKey: "author-portal",
+        defaultViewKey: "author-dashboard",
+        getViewKey: () => "author-dashboard",
+        getState: () => ({ page: "author-dashboard" }),
+        restoreState: async () => {
+            showToast("Previous author portal state restored.", false);
+        },
+        bannerMessage: "A previous author portal state is available for this session."
+    });
+
     refreshAuthorPasswordStrength(authorPasswordInput?.value || "");
     loadAuthorProfile().catch((e) => {
         const feedback = document.getElementById("authorProfileFeedback");
@@ -685,4 +697,5 @@ if (currentUser) {
         showToast(e.message, true);
     });
     refreshAuthorNotifications().catch((e) => showToast(e.message, true));
+    sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }

@@ -23,6 +23,7 @@ import Library.Repository.MemoryBookSubmissionRepository2;
 import Library.Repository.MemoryBorrowRepository;
 import Library.Repository.MemoryLibrarianProfileRepository3;
 import Library.Repository.MemoryReadingProgressRepository;
+import Library.Repository.MemorySessionSnapshotRepository;
 import Library.Repository.MemoryUserRepository;
 import Library.Security.SessionManager;
 import Library.Service.AuthService;
@@ -35,6 +36,7 @@ import Library.Service.LibrarianService3;
 import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Service.SessionSnapshotService;
 import Library.Ui.LibraryApiHandlers;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
@@ -141,6 +143,13 @@ public final class LibraryIntegrationTest {
         runner.run("books endpoint supports keyword and availability filters", LibraryIntegrationTest::testBooksEndpointSupportsKeywordAndAvailabilityFilters);
         runner.run("books endpoint rejects invalid availability filter", LibraryIntegrationTest::testBooksEndpointRejectsInvalidAvailabilityFilter);
         runner.run("shared filters reject invalid recommendation limits", LibraryIntegrationTest::testSharedFilterParsingForRecommendationLimit);
+        runner.run("session snapshot save and get success", LibraryIntegrationTest::testSessionSnapshotSaveAndGetSuccess);
+        runner.run("session snapshot clear removes state", LibraryIntegrationTest::testSessionSnapshotClearRemovesState);
+        runner.run("session snapshot no state returns safe empty response", LibraryIntegrationTest::testSessionSnapshotNoSnapshotReturnsSafeEmptyResponse);
+        runner.run("session snapshot ownership is session scoped", LibraryIntegrationTest::testSessionSnapshotOwnershipIsSessionScoped);
+        runner.run("logout clears session snapshot", LibraryIntegrationTest::testLogoutClearsSessionSnapshot);
+        runner.run("dev crash hook for snapshots is guarded", LibraryIntegrationTest::testDevCrashHookForSnapshotIsGuarded);
+        runner.run("dev crash hook can save session snapshot", LibraryIntegrationTest::testDevCrashHookCanSaveSessionSnapshot);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
         runner.finish();
     }
@@ -3297,6 +3306,233 @@ public final class LibraryIntegrationTest {
         }
     }
 
+    private static void testSessionSnapshotSaveAndGetSuccess() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("snapshot-user", "Snapshot User", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-user", "Password1!", "STUDENT");
+
+            HttpRequest saveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "portalKey=student-portal&lastViewKey=notifications-board&lastAction=apply-filter&statePayload=%7B%22scope%22%3A%22archived%22%7D"
+                    ))
+                    .build();
+            HttpResponse<String> saveResponse = client.send(saveRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, saveResponse.statusCode(), "save snapshot should return HTTP 200");
+            assertTrue(saveResponse.body().contains("\"exists\":true"), "save response should confirm snapshot exists");
+            assertTrue(saveResponse.body().contains("\"portalKey\":\"student-portal\""), "save response should include portal key");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "get snapshot should return HTTP 200");
+            assertTrue(getResponse.body().contains("\"exists\":true"), "get response should indicate snapshot exists");
+            assertTrue(getResponse.body().contains("\"username\":\"snapshot-user\""), "get response should include username");
+            assertTrue(getResponse.body().contains("\"lastAction\":\"apply-filter\""), "get response should include last action");
+            assertTrue(getResponse.body().contains("archived"), "get response should include saved state payload");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testSessionSnapshotClearRemovesState() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("snapshot-clear", "Snapshot Clear", "Password1!", Role.STAFF);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-clear", "Password1!", "STAFF");
+
+            HttpRequest saveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=staff-portal&lastViewKey=notifications-board&lastAction=save"))
+                    .build();
+            assertEquals(200, client.send(saveRequest, HttpResponse.BodyHandlers.ofString()).statusCode(), "save before clear should succeed");
+
+            HttpRequest clearRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/clear"))
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> clearResponse = client.send(clearRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, clearResponse.statusCode(), "clear snapshot should return HTTP 200");
+            assertTrue(clearResponse.body().contains("\"cleared\":true"), "clear response should confirm removal");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "get after clear should return HTTP 200");
+            assertTrue(getResponse.body().contains("\"exists\":false"), "get after clear should be empty");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testSessionSnapshotNoSnapshotReturnsSafeEmptyResponse() throws Exception {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("snapshot-empty", "Snapshot Empty", "Password1!", "Bio");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-empty", "Password1!", "AUTHOR");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "empty snapshot request should return HTTP 200");
+            assertTrue(getResponse.body().contains("\"exists\":false"), "empty snapshot response should be safe and explicit");
+            assertTrue(getResponse.body().contains("\"portalKey\":\"\""), "empty snapshot response should include blank portal key");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testSessionSnapshotOwnershipIsSessionScoped() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("snapshot-scope", "Snapshot Scope", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String firstSessionId = loginAndGetSessionId(client, baseUrl, "snapshot-scope", "Password1!", "STUDENT");
+            String secondSessionId = loginAndGetSessionId(client, baseUrl, "snapshot-scope", "Password1!", "STUDENT");
+
+            HttpRequest saveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", firstSessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=student-portal&lastViewKey=notifications-board&lastAction=owner-save"))
+                    .build();
+            assertEquals(200, client.send(saveRequest, HttpResponse.BodyHandlers.ofString()).statusCode(), "owner session save should succeed");
+
+            HttpRequest otherSessionGet = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot"))
+                    .header("X-Session-Id", secondSessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> otherSessionResponse = client.send(otherSessionGet, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, otherSessionResponse.statusCode(), "second session get should return HTTP 200");
+            assertTrue(otherSessionResponse.body().contains("\"exists\":false"), "second session should not see first session snapshot");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLogoutClearsSessionSnapshot() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("snapshot-logout", "Snapshot Logout", "Password1!", "EMP-SNAPSHOT");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-logout", "Password1!", "LIBRARIAN");
+
+            HttpRequest saveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=librarian-portal&lastViewKey=pending-submissions&lastAction=save"))
+                    .build();
+            assertEquals(200, client.send(saveRequest, HttpResponse.BodyHandlers.ofString()).statusCode(), "save before logout should succeed");
+
+            HttpRequest logoutRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/logout"))
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> logoutResponse = client.send(logoutRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, logoutResponse.statusCode(), "logout should succeed");
+            assertFalse(context.sessionSnapshotService.getSnapshot(sessionId, "snapshot-logout", Role.LIBRARIAN).isPresent(), "logout should clear server-side snapshot");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testDevCrashHookForSnapshotIsGuarded() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("snapshot-guard", "Snapshot Guard", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-guard", "Password1!", "STUDENT");
+
+            HttpRequest guardedRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/dev/crash-test"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=student-portal&lastViewKey=notifications-board"))
+                    .build();
+            HttpResponse<String> guardedResponse = client.send(guardedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(403, guardedResponse.statusCode(), "dev crash hook should be guarded without token");
+            assertTrue(guardedResponse.body().contains("Crash test hook disabled"), "guarded response should explain dev-only restriction");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testDevCrashHookCanSaveSessionSnapshot() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("snapshot-dev", "Snapshot Dev", "Password1!", Role.STAFF);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "snapshot-dev", "Password1!", "STAFF");
+
+            HttpRequest devRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/dev/crash-test"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .header("X-Crash-Test-Hook", "enable")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "portalKey=staff-portal&lastViewKey=notifications-board&lastAction=simulate&statePayload=%7B%22query%22%3A%22urgent%22%7D"
+                    ))
+                    .build();
+            HttpResponse<String> devResponse = client.send(devRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, devResponse.statusCode(), "dev crash hook should succeed with token");
+            assertTrue(devResponse.body().contains("\"status\":\"simulated\""), "dev crash hook should confirm simulation");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "snapshot get after dev crash hook should return HTTP 200");
+            assertTrue(getResponse.body().contains("\"portalKey\":\"staff-portal\""), "dev crash hook should save portal key");
+            assertTrue(getResponse.body().contains("urgent"), "dev crash hook should persist state payload");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static void testSessionSnapshotCrashRecoveryHook() throws Exception {
         TestContext context = new TestContext();
         context.authService.registerStudentOrStaff("crash-user", "Crash User", "Password1!", Role.STUDENT);
@@ -3363,9 +3599,10 @@ public final class LibraryIntegrationTest {
                 context.authorService,
                 context.authorDraftService,
                 context.fileService,
-            context.librarianService,
-            context.notificationService,
-            context.readingProgressService
+                context.librarianService,
+                context.notificationService,
+                context.readingProgressService,
+                context.sessionSnapshotService
         );
         handlers.register(server);
         server.start();
@@ -3587,6 +3824,7 @@ public final class LibraryIntegrationTest {
         private final LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
         private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
         private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
+        private final SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(new MemorySessionSnapshotRepository());
 
         private TestContext() {
             SessionManager.getInstance().destroySession();
