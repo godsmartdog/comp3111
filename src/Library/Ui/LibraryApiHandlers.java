@@ -10,6 +10,7 @@ import Library.Model.Role;
 import Library.Model.User;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryReadingProgressRepository;
+import Library.Security.SecurityConfig;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
@@ -32,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -61,6 +63,7 @@ public class LibraryApiHandlers {
     private final ReadingProgressService readingProgressService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Long> sessionLastActiveAtMs = new ConcurrentHashMap<>();
     private volatile SessionSnapshotSchema latestSessionSnapshot;
 
     public LibraryApiHandlers(AuthService authService,
@@ -134,6 +137,7 @@ public class LibraryApiHandlers {
 
                 String sessionId = UUID.randomUUID().toString();
                 sessions.put(sessionId, user);
+                sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                 refreshSessionSnapshot();
 
                 String payload = "{" +
@@ -156,6 +160,7 @@ public class LibraryApiHandlers {
             String sessionId = exchange.getRequestHeaders().getFirst(SESSION_HEADER);
             if (sessionId != null) {
                 sessions.remove(sessionId.trim());
+                sessionLastActiveAtMs.remove(sessionId.trim());
                 refreshSessionSnapshot();
             }
             sendText(exchange, 200, "Logged out.");
@@ -190,6 +195,7 @@ public class LibraryApiHandlers {
                         refreshSessionSnapshot();
                         int beforeCount = sessions.size();
                         sessions.clear();
+                        sessionLastActiveAtMs.clear();
                         sendJson(exchange, 200, "{" +
                                 "\"status\":\"simulated\"," +
                                 "\"evictedSessions\":" + beforeCount + "," +
@@ -257,11 +263,13 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String fullName = required(form, "fullName");
                 String newPassword = form.getOrDefault("password", "");
-                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword);
+                String currentPassword = form.getOrDefault("currentPassword", "");
+                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword, currentPassword);
 
                 String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
                 if (!sessionId.isEmpty()) {
                     sessions.put(sessionId, updated);
+                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                     refreshSessionSnapshot();
                 }
 
@@ -1244,6 +1252,18 @@ public class LibraryApiHandlers {
             throw new ApiAuthException("Session expired or invalid. Please login again.");
         }
 
+        long now = Instant.now().toEpochMilli();
+        long lastActiveAt = sessionLastActiveAtMs.getOrDefault(sessionId, now);
+        long idleTimeoutMs = SecurityConfig.sessionIdleTimeoutMs();
+        if (now - lastActiveAt > idleTimeoutMs) {
+            sessions.remove(sessionId);
+            sessionLastActiveAtMs.remove(sessionId);
+            refreshSessionSnapshot();
+            throw new ApiAuthException("Session expired due to inactivity. Please login again.");
+        }
+
+        sessionLastActiveAtMs.put(sessionId, now);
+
         for (Role role : allowedRoles) {
             if (user.getRole() == role) {
                 return user;
@@ -1264,6 +1284,7 @@ public class LibraryApiHandlers {
 
     private int restoreSessionsFromSnapshot(SessionSnapshotSchema snapshot) {
         sessions.clear();
+        sessionLastActiveAtMs.clear();
         int restored = 0;
 
         for (SessionSnapshotSchema.SessionEntry entry : snapshot.sessions()) {
@@ -1271,6 +1292,7 @@ public class LibraryApiHandlers {
                 Role role = Role.valueOf(entry.role());
                 User user = new User(entry.username(), entry.fullName(), "", role);
                 sessions.put(entry.sessionId(), user);
+                sessionLastActiveAtMs.put(entry.sessionId(), Instant.now().toEpochMilli());
                 restored++;
             } catch (Exception ignored) {
                 // Skip invalid or unknown session entries.

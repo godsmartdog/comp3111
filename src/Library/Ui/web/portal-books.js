@@ -13,6 +13,97 @@ let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
 
+async function loadProfile() {
+    const profile = await api("/api/profile");
+    const fullNameInput = document.getElementById("profileFullName");
+    const currentPasswordInput = document.getElementById("profileCurrentPassword");
+    const newPasswordInput = document.getElementById("profilePassword");
+    const profileFeedback = document.getElementById("profileFeedback");
+
+    if (fullNameInput) {
+        fullNameInput.value = profile.fullName || "";
+    }
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
+    if (newPasswordInput) {
+        newPasswordInput.value = "";
+    }
+    if (profileFeedback) {
+        profileFeedback.textContent = "";
+    }
+}
+
+async function saveProfile() {
+    const fullNameInput = document.getElementById("profileFullName");
+    const currentPasswordInput = document.getElementById("profileCurrentPassword");
+    const newPasswordInput = document.getElementById("profilePassword");
+    const profileFeedback = document.getElementById("profileFeedback");
+
+    const fullName = (fullNameInput?.value || "").trim();
+    const currentPassword = (currentPasswordInput?.value || "").trim();
+    const newPassword = (newPasswordInput?.value || "").trim();
+
+    if (!fullName) {
+        showToast("Full Name cannot be empty.", true);
+        if (profileFeedback) {
+            profileFeedback.textContent = "Full Name cannot be empty.";
+        }
+        return;
+    }
+
+    if (newPassword) {
+        if (!currentPassword) {
+            showToast("Current password is required to change password.", true);
+            if (profileFeedback) {
+                profileFeedback.textContent = "Current password is required to change password.";
+            }
+            return;
+        }
+
+        const passwordIssues = getPasswordPolicyViolations(newPassword);
+        if (passwordIssues.length > 0) {
+            const message = passwordIssues[0];
+            showToast(message, true);
+            if (profileFeedback) {
+                profileFeedback.textContent = message;
+            }
+            return;
+        }
+    }
+
+    await api("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({
+            fullName,
+            password: newPassword,
+            currentPassword
+        })
+    }, false);
+
+    if (currentUser) {
+        currentUser.fullName = fullName;
+        saveCurrentUser(currentUser);
+    }
+
+    const welcomeLine = document.getElementById("welcomeLine");
+    if (welcomeLine && currentUser) {
+        welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
+    }
+
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
+    if (newPasswordInput) {
+        newPasswordInput.value = "";
+    }
+    if (profileFeedback) {
+        profileFeedback.textContent = "Profile updated successfully.";
+    }
+    showToast("Profile updated successfully.", false);
+}
+
 function updateSelectedBookLabel() {
     const selectedBookLabel = document.getElementById("selectedBook");
     const totalSelected = selectedBookIds.size;
@@ -351,6 +442,16 @@ document.getElementById("showAllBtn").addEventListener("click", () => {
         availabilityFilter.value = "all";
     }
     refreshBooks().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
+    saveProfile().catch((e) => {
+        const profileFeedback = document.getElementById("profileFeedback");
+        if (profileFeedback) {
+            profileFeedback.textContent = e.message;
+        }
+        showToast(e.message, true);
+    });
 });
 
 document.getElementById("prevPageBtn").addEventListener("click", () => {
