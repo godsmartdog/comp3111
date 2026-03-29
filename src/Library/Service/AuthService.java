@@ -94,19 +94,27 @@ public class AuthService {
         }
 
         user.updateFullName(fullName.trim());
+        validateCurrentPasswordForPasswordChange(user, newPassword, currentPassword);
         if (newPassword != null && !newPassword.isBlank()) {
-            if (currentPassword == null || currentPassword.isBlank()) {
-                throw new ValidationException("Current password is required to change password.");
-            }
-            if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
-                throw new AuthenticationException("Current password is incorrect.");
-            }
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
         }
 
         userRepository.save(user);
         return user;
+    }
+
+    public static void validateCurrentPasswordForPasswordChange(User user, String newPassword, String currentPassword) {
+        if (newPassword == null || newPassword.isBlank()) {
+            return;
+        }
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new ValidationException("Current password is required to change password.");
+        }
+        if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
+            throw new AuthenticationException("Current password is incorrect.");
+        }
     }
 
     // Private helper method to validate basic input fields such as username and full name, ensuring they are not null or blank before proceeding with registration or other operations.

@@ -1130,13 +1130,15 @@ public class LibraryApiHandlers {
                 String fullName = required(form, "fullName");
                 String employeeId = required(form, "employeeId");
                 String password = form.getOrDefault("password", "");
+                String currentPassword = form.getOrDefault("currentPassword", "");
 
                 LibrarianService3.LibrarianProfileSnapshot updated = librarianService.updateLibrarianProfile(
                         user.getUsername(),
                         user.getUsername(),
                         fullName,
                         employeeId,
-                        password
+                    password,
+                    currentPassword
                 );
 
                 notificationService.addNotification(
@@ -1149,6 +1151,7 @@ public class LibraryApiHandlers {
                 if (!sessionId.isEmpty()) {
                     user.updateFullName(updated.fullName());
                     sessions.put(sessionId, user);
+                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                     refreshSessionSnapshot();
                 }
 
