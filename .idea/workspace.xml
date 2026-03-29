@@ -4,17 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de5ffc5-fe5f-42c8-9700-3b3e50ebc2eb" name="Changes" comment="initialize">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Model/Book.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Model/Book.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Model/BorrowRecord.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Model/BorrowRecord.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Service/BorrowService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Service/BorrowService.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Test/LibraryIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Test/LibraryIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/LibraryApiHandlers.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/LibraryApiHandlers.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/web/portal-books.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/web/portal-books.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/web/staff.html" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/web/staff.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/web/student.html" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/web/student.html" afterDir="false" />
-    </list>
+    <list default="true" id="3de5ffc5-fe5f-42c8-9700-3b3e50ebc2eb" name="Changes" comment="initialize" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -62,7 +52,7 @@
   "keyToString": {
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "Shell Script.run-library.sh.executor": "Run",
-    "git-widget-placeholder": "feat/p2-t1.5-borrowed-books-screen",
+    "git-widget-placeholder": "fix/p2-t1.5-hardening-auth-metadata",
     "kotlin-language-version-configured": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",

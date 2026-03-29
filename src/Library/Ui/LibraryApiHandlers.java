@@ -270,11 +270,7 @@ public class LibraryApiHandlers {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String bookId = required(query, "bookId");
-
-                borrowService.listActiveBorrowsByUser(user.getUsername()).stream()
-                        .filter(record -> record.getBookId().equals(bookId))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException("Book is not currently borrowed by this user."));
+                borrowService.requireActiveBorrow(user.getUsername(), bookId);
 
                 Book book = bookService.findBookById(bookId)
                         .orElseThrow(() -> new IllegalArgumentException("Book not found."));
@@ -313,11 +309,7 @@ public class LibraryApiHandlers {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String bookId = required(query, "bookId");
-
-                borrowService.listActiveBorrowsByUser(user.getUsername()).stream()
-                        .filter(record -> record.getBookId().equals(bookId))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException("Book is not currently borrowed by this user."));
+                borrowService.requireActiveBorrow(user.getUsername(), bookId);
 
                 Book book = bookService.findBookById(bookId)
                         .orElseThrow(() -> new IllegalArgumentException("Book not found."));
@@ -350,6 +342,7 @@ public class LibraryApiHandlers {
                 if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                     Map<String, String> query = readQuery(exchange.getRequestURI());
                     String bookId = required(query, "bookId");
+                    borrowService.requireActiveBorrow(user.getUsername(), bookId);
                     ReadingProgress progress = readingProgressService.getProgress(user.getUsername(), bookId);
                     sendJson(exchange, 200, readingProgressToJson(progress));
                     return;
@@ -357,6 +350,7 @@ public class LibraryApiHandlers {
 
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
+                borrowService.requireActiveBorrow(user.getUsername(), bookId);
                 int bookmark = Integer.parseInt(form.getOrDefault("bookmark", "1"));
                 List<String> highlights = parseHighlights(form.getOrDefault("highlights", ""));
                 ReadingProgress updated = readingProgressService.updateProgress(user.getUsername(), bookId, bookmark, highlights);
@@ -468,17 +462,17 @@ public class LibraryApiHandlers {
                 String description = required(form, "description");
                 String filePath = form.getOrDefault("filePath", "").trim();
 
-                String submissionFileName;
+                String submissionFileReference;
                 if (uploadedFile != null) {
                     fileService.validateSubmissionFile(uploadedFile.path().toString());
-                    submissionFileName = uploadedFile.originalFileName();
+                    submissionFileReference = uploadedFile.path().toString();
                 } else {
                     filePath = required(form, "filePath");
                     fileService.validateSubmissionFile(filePath);
-                    submissionFileName = Path.of(filePath).getFileName().toString();
+                    submissionFileReference = filePath;
                 }
 
-                BookSubmission2 submission = authorService.publishBook(user.getUsername(), title, genres, description, submissionFileName);
+                BookSubmission2 submission = authorService.publishBook(user.getUsername(), title, genres, description, submissionFileReference);
                 sendText(exchange, 200, "Submission created: " + submission.getId());
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
