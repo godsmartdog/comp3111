@@ -76,6 +76,8 @@ public final class LibraryIntegrationTest {
         runner.run("librarian notifications list and mark read success", LibraryIntegrationTest::testLibrarianNotificationsListAndReadSuccess);
         runner.run("librarian notification ownership boundary", LibraryIntegrationTest::testLibrarianNotificationOwnershipBoundary);
         runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
+        runner.run("librarian can view borrowed-books records", LibraryIntegrationTest::testLibrarianCanViewBorrowedBooksRecords);
+        runner.run("non-librarian cannot access borrowed-books records endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint);
         runner.finish();
     }
 
@@ -517,6 +519,72 @@ public final class LibraryIntegrationTest {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/api/librarian/approved-books"))
+                    .GET()
+                    .header("X-Session-Id", sessionId)
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(401, response.statusCode(), "non-librarian should receive HTTP 401");
+            assertTrue(response.body().contains("Permission denied"), "response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianCanViewBorrowedBooksRecords() throws Exception {
+        TestContext context = new TestContext();
+        Book activeBook = context.addApprovedBook("Borrowed Active", "Author Active", "Active summary");
+        Book returnedBook = context.addApprovedBook("Borrowed Returned", "Author Returned", "Returned summary");
+
+        context.authService.registerStudentOrStaff("borrower-one", "Borrower One", "Password1!", Role.STUDENT);
+        BorrowRecord activeRecord = context.borrowService.borrowBook("borrower-one", activeBook.getId(), 7);
+        BorrowRecord returnedRecord = context.borrowService.borrowBook("borrower-one", returnedBook.getId(), 7);
+        context.borrowService.returnBook("borrower-one", returnedBook.getId());
+
+        context.librarianService.registerLibrarian("lib-records", "Lib Records", "Password1!", "EMP-RECORDS");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-records", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/borrowed-records"))
+                    .GET()
+                    .header("X-Session-Id", sessionId)
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode(), "librarian borrowed-records endpoint should return HTTP 200");
+            String body = response.body();
+            assertTrue(body.contains("\"borrowId\":\"" + activeRecord.getId() + "\""), "response should include active borrow id");
+            assertTrue(body.contains("\"borrowId\":\"" + returnedRecord.getId() + "\""), "response should include returned borrow id");
+            assertTrue(body.contains("\"bookId\":\"" + activeBook.getId() + "\""), "response should include book id");
+            assertTrue(body.contains("\"bookTitle\":\"" + activeBook.getTitle() + "\""), "response should include book title");
+            assertTrue(body.contains("\"borrowerUsername\":\"borrower-one\""), "response should include borrower username");
+            assertTrue(body.contains("\"borrowDate\":"), "response should include borrow date field");
+            assertTrue(body.contains("\"dueDate\":"), "response should include due date field");
+            assertTrue(body.contains("\"status\":\"Borrowed\""), "response should include borrowed status");
+            assertTrue(body.contains("\"status\":\"Returned\""), "response should include returned status");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        context.addApprovedBook("Records Blocked", "Author Blocked", "Summary Blocked");
+        context.authService.registerStudentOrStaff("stu-records-no-access", "Stu Records", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "stu-records-no-access", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/borrowed-records"))
                     .GET()
                     .header("X-Session-Id", sessionId)
                     .build();

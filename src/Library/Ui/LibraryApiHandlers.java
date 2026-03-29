@@ -739,6 +739,44 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/borrowed-records", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                List<BorrowRecord> records = borrowService.listAllBorrowRecords();
+                List<String> jsonItems = new ArrayList<>();
+
+                for (BorrowRecord record : records) {
+                    String title = bookService.findBookById(record.getBookId())
+                            .map(Book::getTitle)
+                            .orElse(record.getBookId());
+                    String returnDate = record.getReturnedDate() == null ? "" : record.getReturnedDate().toString();
+                    String status = record.isReturned() ? "Returned" : "Borrowed";
+
+                    jsonItems.add("{" +
+                            "\"borrowId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
+                            "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
+                            "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
+                            "\"borrowerUsername\":\"" + JsonUtil.escape(record.getUsername()) + "\"," +
+                            "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
+                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
+                            "\"returnDate\":\"" + JsonUtil.escape(returnDate) + "\"," +
+                            "\"status\":\"" + status + "\"" +
+                            "}");
+                }
+
+                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/profile", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");

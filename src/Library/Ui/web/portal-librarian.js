@@ -135,6 +135,54 @@ async function refreshApprovedBooks() {
     }
 }
 
+function renderBorrowedRecords(items) {
+    const body = document.getElementById("borrowedRecordsBody");
+    const status = document.getElementById("borrowedRecordsStatus");
+    if (!body || !status) {
+        return;
+    }
+
+    body.innerHTML = "";
+    if (!Array.isArray(items) || items.length === 0) {
+        status.textContent = "No borrowed books records found.";
+        return;
+    }
+
+    status.textContent = `Found ${items.length} borrowed record(s).`;
+    items.forEach((item) => {
+        const row = document.createElement("tr");
+        const returnDate = item.returnDate || "-";
+        const bookLabel = `${item.bookTitle || item.bookId} (${item.bookId})`;
+        row.innerHTML = `
+            <td>${item.borrowId}</td>
+            <td>${bookLabel}</td>
+            <td>${item.borrowerUsername}</td>
+            <td>${item.borrowDate || ""}</td>
+            <td>${item.dueDate || ""}</td>
+            <td>${returnDate}</td>
+            <td>${item.status || ""}</td>
+        `;
+        body.appendChild(row);
+    });
+}
+
+async function refreshBorrowedRecords() {
+    const status = document.getElementById("borrowedRecordsStatus");
+    if (status) {
+        status.textContent = "Loading borrowed books records...";
+    }
+
+    try {
+        const items = await api("/api/librarian/borrowed-records");
+        renderBorrowedRecords(items);
+    } catch (error) {
+        if (status) {
+            status.textContent = "Failed to load borrowed books records.";
+        }
+        throw error;
+    }
+}
+
 async function refreshLibrarianNotifications() {
     const status = document.getElementById("librarianNotificationStatus");
     const list = document.getElementById("librarianNotificationsList");
@@ -225,6 +273,10 @@ document.getElementById("refreshApprovedBooksBtn")?.addEventListener("click", ()
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("refreshBorrowedRecordsBtn")?.addEventListener("click", () => {
+    refreshBorrowedRecords().catch((e) => showToast(e.message, true));
+});
+
 document.getElementById("refreshLibrarianNotificationsBtn")?.addEventListener("click", () => {
     refreshLibrarianNotifications().catch((e) => showToast(e.message, true));
 });
@@ -239,5 +291,6 @@ if (currentUser) {
     });
     refreshPending().catch((e) => showToast(e.message, true));
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
+    refreshBorrowedRecords().catch((e) => showToast(e.message, true));
     refreshLibrarianNotifications().catch((e) => showToast(e.message, true));
 }
