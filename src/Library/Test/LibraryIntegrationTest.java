@@ -70,6 +70,8 @@ public final class LibraryIntegrationTest {
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
         runner.run("author notifications list and mark read", LibraryIntegrationTest::testAuthorNotificationListAndRead);
         runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
+        runner.run("author notifications summary unread count", LibraryIntegrationTest::testAuthorNotificationSummaryUnreadCount);
+        runner.run("non-author forbidden from author notification APIs", LibraryIntegrationTest::testNonAuthorForbiddenFromAuthorNotificationApis);
         runner.run("librarian can view approved books endpoint", LibraryIntegrationTest::testLibrarianCanViewApprovedBooksEndpoint);
         runner.run("non-librarian cannot access approved books endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessApprovedBooksEndpoint);
         runner.run("librarian profile update success", LibraryIntegrationTest::testLibrarianProfileUpdateSuccess);
@@ -488,6 +490,102 @@ public final class LibraryIntegrationTest {
                 () -> context.notificationService.markAsRead("author-owner-b", foreign.getId()),
                 "does not belong to this user");
     }
+
+            private static void testAuthorNotificationSummaryUnreadCount() throws Exception {
+            TestContext context = new TestContext();
+            context.authorService.registerAuthor("author-summary", "Author Summary", "Password1!", "Bio");
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "author-summary", "Password1!", "AUTHOR");
+
+                HttpRequest profileUpdateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Author+Summary&bio=Updated+bio&password="))
+                    .build();
+                HttpResponse<String> profileUpdateResponse = client.send(profileUpdateRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, profileUpdateResponse.statusCode(), "author profile update should generate one unread notification");
+
+                HttpRequest notificationsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> notificationsResponse = client.send(notificationsRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, notificationsResponse.statusCode(), "author notifications list should return HTTP 200");
+                String notificationId = extractJsonField(notificationsResponse.body(), "id");
+
+                HttpRequest summaryRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications/summary"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> summaryBefore = client.send(summaryRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, summaryBefore.statusCode(), "author notifications summary should return HTTP 200");
+                assertTrue(summaryBefore.body().contains("\"unreadCount\":1"), "summary should show one unread notification initially");
+
+                HttpRequest markReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + notificationId))
+                    .build();
+                HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, markReadResponse.statusCode(), "author mark-read should return HTTP 200");
+
+                HttpResponse<String> summaryAfter = client.send(summaryRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, summaryAfter.statusCode(), "author notifications summary after read should return HTTP 200");
+                assertTrue(summaryAfter.body().contains("\"unreadCount\":0"), "summary unread count should decrease after mark-read");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testNonAuthorForbiddenFromAuthorNotificationApis() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("student-author-notify-no", "Student No Author Notify", "Password1!", Role.STUDENT);
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "student-author-notify-no", "Password1!", "STUDENT");
+
+                HttpRequest listRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> listResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(401, listResponse.statusCode(), "non-author should be forbidden from author notifications list");
+                assertTrue(listResponse.body().contains("Permission denied"), "list response should explain permission denied");
+
+                HttpRequest summaryRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications/summary"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> summaryResponse = client.send(summaryRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(401, summaryResponse.statusCode(), "non-author should be forbidden from author notifications summary");
+                assertTrue(summaryResponse.body().contains("Permission denied"), "summary response should explain permission denied");
+
+                HttpRequest readRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=fake-id"))
+                    .build();
+                HttpResponse<String> readResponse = client.send(readRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(401, readResponse.statusCode(), "non-author should be forbidden from author notifications read endpoint");
+                assertTrue(readResponse.body().contains("Permission denied"), "read response should explain permission denied");
+            } finally {
+                server.stop(0);
+            }
+            }
 
     private static void testLibrarianCanViewApprovedBooksEndpoint() throws Exception {
         TestContext context = new TestContext();

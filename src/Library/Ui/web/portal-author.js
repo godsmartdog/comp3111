@@ -189,21 +189,34 @@ async function refreshPublishedBooks() {
 
 async function refreshAuthorNotifications() {
     const status = document.getElementById("authorNotificationStatus");
+    const unreadLine = document.getElementById("authorNotificationUnread");
     const list = document.getElementById("authorNotificationsList");
-    if (!status || !list) {
+    if (!status || !list || !unreadLine) {
         return;
     }
 
     try {
+        unreadLine.textContent = "Unread: --";
         const items = await api("/api/author/notifications");
+        let unreadCount = items.filter((item) => !item.read).length;
+
+        try {
+            const summary = await api("/api/author/notifications/summary");
+            if (summary && typeof summary.unreadCount === "number") {
+                unreadCount = summary.unreadCount;
+            }
+        } catch (_) {
+            // Fallback to local count from list payload for backward compatibility.
+        }
+
         list.innerHTML = "";
+        unreadLine.textContent = `Unread: ${unreadCount}`;
 
         if (!Array.isArray(items) || items.length === 0) {
             status.textContent = "No notifications.";
             return;
         }
 
-        const unreadCount = items.filter((item) => !item.read).length;
         status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
 
         items.forEach((item) => {
@@ -237,6 +250,7 @@ async function refreshAuthorNotifications() {
         });
     } catch (error) {
         status.textContent = "Failed to load notifications.";
+        unreadLine.textContent = "Unread: --";
         throw error;
     }
 }
