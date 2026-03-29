@@ -32,6 +32,15 @@ public class BookService {
                 .collect(Collectors.toList());
     }
 
+    public List<Book> listApprovedBooksByAuthorUsername(String authorUsername) {
+        String normalized = authorUsername == null ? "" : authorUsername.trim();
+        return bookRepository.findAll().stream()
+                .filter(Book::isApproved)
+                .filter(book -> book.getAuthorUsername().equals(normalized))
+                .sorted(Comparator.comparing(Book::getTitle))
+                .collect(Collectors.toList());
+    }
+
     public Optional<Book> findBookById(String bookId) {
         return bookRepository.findById(bookId);
     }

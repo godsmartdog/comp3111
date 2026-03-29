@@ -515,6 +515,23 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/published", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<Book> books = bookService.listApprovedBooksByAuthorUsername(user.getUsername());
+                sendJson(exchange, 200, authorPublishedBooksToJson(books));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/preview", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -778,6 +795,21 @@ public class LibraryApiHandlers {
                     "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private static String authorPublishedBooksToJson(List<Book> books) {
+        List<String> values = new ArrayList<>();
+        for (Book book : books) {
+            String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                    "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
+                    "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";

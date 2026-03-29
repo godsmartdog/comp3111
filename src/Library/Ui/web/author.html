@@ -52,6 +52,26 @@
         <h3>Saved Drafts</h3>
         <ul id="drafts"></ul>
 
+        <h3>My Published Books</h3>
+        <div class="panel-subtle">
+            <p id="publishedStatus">Loading published books...</p>
+            <button id="loadPublishedBtn" class="secondary" type="button">Refresh Published Books</button>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Summary</th>
+                        <th>Publish Date</th>
+                        <th>Status</th>
+                    </tr>
+                    </thead>
+                    <tbody id="publishedBooksBody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <h3>Preview</h3>
         <pre id="authorPreview"></pre>
 
