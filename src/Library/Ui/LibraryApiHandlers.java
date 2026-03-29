@@ -963,18 +963,19 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.LIBRARIAN);
-                List<BookSubmission2> items = librarianService.getPendingSubmissions();
-                List<String> jsonItems = new ArrayList<>();
-                for (BookSubmission2 submission : items) {
-                    jsonItems.add("{" +
-                            "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
-                            "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
-                            "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
-                            "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
-                            "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"" +
-                            "}");
-                }
-                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                String status = parseLibrarianSubmissionStatus(query);
+                String sortBy = parseLibrarianSubmissionSortBy(query);
+                String sortDir = parseLibrarianSubmissionSortDir(query);
+
+                List<BookSubmission2> items = librarianService.querySubmissionsForReview(
+                        keyword,
+                        status,
+                        sortBy,
+                        sortDir
+                );
+                sendJson(exchange, 200, librarianSubmissionsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1342,6 +1343,33 @@ public class LibraryApiHandlers {
         throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
     }
 
+    private static String parseLibrarianSubmissionStatus(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "status", "pending");
+        if ("all".equalsIgnoreCase(raw)
+                || "pending".equalsIgnoreCase(raw)
+                || "approved".equalsIgnoreCase(raw)
+                || "rejected".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("status must be one of: all, pending, approved, rejected.");
+    }
+
+    private static String parseLibrarianSubmissionSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "");
+        if (raw.isEmpty() || "submittedDate".equalsIgnoreCase(raw)) {
+            return raw;
+        }
+        throw new IllegalArgumentException("sortBy must be one of: submittedDate.");
+    }
+
+    private static String parseLibrarianSubmissionSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "asc");
+        if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
     private static LocalDate parseDateFilter(Map<String, String> values, String key) {
         String raw = RequestFilters.getTrimmed(values, key, "");
         if (raw.isEmpty()) {
@@ -1479,6 +1507,22 @@ public class LibraryApiHandlers {
                     "\"status\":\"" + submission.getStatus() + "\"," +
                     "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
                     "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(submission.getRejectionReason())) + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private static String librarianSubmissionsToJson(List<BookSubmission2> submissions) {
+        List<String> values = new ArrayList<>();
+        for (BookSubmission2 submission : submissions) {
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
+                    "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
+                    "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
+                    "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
+                    "\"status\":\"" + submission.getStatus() + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";

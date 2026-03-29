@@ -62,6 +62,21 @@
         </div>
 
         <h2>Pending Submissions</h2>
+        <div class="toolbar">
+            <input id="submissionSearchInput" type="text" placeholder="Search by title or author">
+            <select id="submissionStatusFilter">
+                <option value="pending" selected>Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+            </select>
+            <select id="submissionSortDirFilter">
+                <option value="asc" selected>Submitted Date: Oldest First</option>
+                <option value="desc">Submitted Date: Newest First</option>
+            </select>
+            <button id="applySubmissionFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetSubmissionFiltersBtn" class="secondary" type="button">Reset</button>
+        </div>
         <button id="refreshPendingBtn" class="secondary">Refresh Pending Submissions</button>
 
         <div class="table-wrap">
@@ -70,6 +85,7 @@
                 <tr>
                     <th>Title</th>
                     <th>Author</th>
+                    <th>Status</th>
                     <th>Submitted</th>
                     <th>File</th>
                     <th>Action</th>
