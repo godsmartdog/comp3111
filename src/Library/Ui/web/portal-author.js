@@ -10,6 +10,63 @@ let previewObjectUrl = null;
 const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
 const filePreview = document.getElementById("filePreview");
+const authorPasswordInput = document.getElementById("authorProfilePassword");
+const authorPasswordStrengthLabel = document.getElementById("authorPasswordStrengthLabel");
+const authorPasswordStrengthHint = document.getElementById("authorPasswordStrengthHint");
+const authorPasswordChecklist = document.getElementById("authorPasswordChecklist");
+
+const authorPasswordRuleLength = document.getElementById("authorPasswordRuleLength");
+const authorPasswordRuleUpper = document.getElementById("authorPasswordRuleUpper");
+const authorPasswordRuleLower = document.getElementById("authorPasswordRuleLower");
+const authorPasswordRuleDigit = document.getElementById("authorPasswordRuleDigit");
+const authorPasswordRuleSpecial = document.getElementById("authorPasswordRuleSpecial");
+
+function updatePasswordRuleLine(element, passed, label) {
+    if (!element) {
+        return;
+    }
+    element.textContent = `${passed ? "[OK]" : "[ ]"} ${label}`;
+}
+
+function refreshAuthorPasswordStrength(passwordRaw) {
+    if (!authorPasswordStrengthLabel || !authorPasswordStrengthHint || !authorPasswordChecklist) {
+        return;
+    }
+
+    const password = passwordRaw || "";
+    if (!password) {
+        authorPasswordStrengthLabel.textContent = "Strength: --";
+        authorPasswordStrengthHint.textContent = "Enter a new password to see strength guidance.";
+        authorPasswordChecklist.classList.add("hidden");
+        return;
+    }
+
+    const checks = {
+        length: password.length >= 8 && password.length <= 64,
+        upper: /[A-Z]/.test(password),
+        lower: /[a-z]/.test(password),
+        digit: /\d/.test(password),
+        special: /[^A-Za-z0-9]/.test(password)
+    };
+
+    const passedCount = Object.values(checks).filter(Boolean).length;
+    let level = "Weak";
+    if (passedCount >= 5) {
+        level = "Strong";
+    } else if (passedCount >= 3) {
+        level = "Medium";
+    }
+
+    authorPasswordStrengthLabel.textContent = `Strength: ${level}`;
+    authorPasswordStrengthHint.textContent = "Password rules are enforced by server-side validation on save.";
+    authorPasswordChecklist.classList.remove("hidden");
+
+    updatePasswordRuleLine(authorPasswordRuleLength, checks.length, "8-64 characters");
+    updatePasswordRuleLine(authorPasswordRuleUpper, checks.upper, "At least one uppercase letter");
+    updatePasswordRuleLine(authorPasswordRuleLower, checks.lower, "At least one lowercase letter");
+    updatePasswordRuleLine(authorPasswordRuleDigit, checks.digit, "At least one digit");
+    updatePasswordRuleLine(authorPasswordRuleSpecial, checks.special, "At least one special character");
+}
 
 function clearFilePreviewUrl() {
     if (previewObjectUrl) {
@@ -130,6 +187,10 @@ fileInput.addEventListener("change", async () => {
         filePreview.textContent = "Failed to render local preview.";
         showToast(error.message || "Preview failed.", true);
     }
+});
+
+authorPasswordInput?.addEventListener("input", () => {
+    refreshAuthorPasswordStrength(authorPasswordInput.value);
 });
 
 async function refreshDrafts() {
@@ -354,6 +415,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 });
 
 if (currentUser) {
+    refreshAuthorPasswordStrength(authorPasswordInput?.value || "");
     loadAuthorProfile().catch((e) => {
         const feedback = document.getElementById("authorProfileFeedback");
         if (feedback) {
