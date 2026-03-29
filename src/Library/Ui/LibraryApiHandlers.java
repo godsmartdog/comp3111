@@ -814,6 +814,8 @@ public class LibraryApiHandlers {
                             .map(Book::getTitle)
                             .orElse(record.getBookId());
                     String returnDate = record.getReturnedDate() == null ? "" : record.getReturnedDate().toString();
+                    boolean returned = record.isReturned();
+                    boolean overdue = !returned && record.getDueDate().isBefore(java.time.LocalDate.now());
                     String status = record.isReturned() ? "Returned" : "Borrowed";
 
                     jsonItems.add("{" +
@@ -824,7 +826,9 @@ public class LibraryApiHandlers {
                             "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
                             "\"dueDate\":\"" + record.getDueDate() + "\"," +
                             "\"returnDate\":\"" + JsonUtil.escape(returnDate) + "\"," +
-                            "\"status\":\"" + status + "\"" +
+                        "\"status\":\"" + status + "\"," +
+                        "\"returned\":" + returned + "," +
+                        "\"overdue\":" + overdue +
                             "}");
                 }
 

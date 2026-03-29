@@ -153,6 +153,17 @@ function renderBorrowedRecords(items) {
         const row = document.createElement("tr");
         const returnDate = item.returnDate || "-";
         const bookLabel = `${item.bookTitle || item.bookId} (${item.bookId})`;
+        const isReturned = item.returned === true || String(item.status || "").toLowerCase() === "returned";
+        const isOverdue = item.overdue === true || (!isReturned && !!item.dueDate && new Date(item.dueDate) < new Date(new Date().toDateString()));
+        const statusText = item.status || "";
+        const statusCell = isOverdue
+            ? `${statusText}<span class="overdue-badge">OVERDUE</span>`
+            : statusText;
+
+        if (isOverdue) {
+            row.classList.add("borrowed-record-overdue");
+        }
+
         row.innerHTML = `
             <td>${item.borrowId}</td>
             <td>${bookLabel}</td>
@@ -160,7 +171,7 @@ function renderBorrowedRecords(items) {
             <td>${item.borrowDate || ""}</td>
             <td>${item.dueDate || ""}</td>
             <td>${returnDate}</td>
-            <td>${item.status || ""}</td>
+            <td>${statusCell}</td>
         `;
         body.appendChild(row);
     });
