@@ -104,6 +104,12 @@ public final class LibraryIntegrationTest {
         runner.run("librarian profile update success", LibraryIntegrationTest::testLibrarianProfileUpdateSuccess);
         runner.run("librarian profile validation failures", LibraryIntegrationTest::testLibrarianProfileValidationFailures);
         runner.run("librarian profile ownership boundary", LibraryIntegrationTest::testLibrarianProfileOwnershipBoundary);
+        runner.run("librarian password change requires current password", LibraryIntegrationTest::testLibrarianPasswordChangeRequiresCurrentPassword);
+        runner.run("librarian password change rejects wrong current password", LibraryIntegrationTest::testLibrarianPasswordChangeRejectsWrongCurrentPassword);
+        runner.run("librarian password change succeeds with correct current password", LibraryIntegrationTest::testLibrarianPasswordChangeSucceedsWithCorrectCurrentPassword);
+        runner.run("librarian non-password profile update works without current password", LibraryIntegrationTest::testLibrarianNonPasswordProfileUpdateWorksWithoutCurrentPassword);
+        runner.run("librarian inactive session expires and rejects api call", LibraryIntegrationTest::testLibrarianInactiveSessionExpiresAndRejectsApiCall);
+        runner.run("librarian active session review endpoint remains functioning", LibraryIntegrationTest::testLibrarianActiveSessionReviewEndpointRemainsFunctioning);
         runner.run("librarian notifications list and mark read success", LibraryIntegrationTest::testLibrarianNotificationsListAndReadSuccess);
         runner.run("librarian notification ownership boundary", LibraryIntegrationTest::testLibrarianNotificationOwnershipBoundary);
         runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
@@ -1739,6 +1745,211 @@ public final class LibraryIntegrationTest {
         }
     }
 
+    private static void testLibrarianPasswordChangeRequiresCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-reauth-missing", "Lib Missing", "Password1!", "EMP-MISSING");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-reauth-missing", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+Missing&employeeId=EMP-MISSING&password=NewPass1!"))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, response.statusCode(), "librarian password change without current password should be rejected");
+            assertTrue(response.body().contains("Current password is required"), "response should explain re-auth requirement");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianPasswordChangeRejectsWrongCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-reauth-wrong", "Lib Wrong", "Password1!", "EMP-WRONG");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-reauth-wrong", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+Wrong&employeeId=EMP-WRONG&password=NewPass1!&currentPassword=WrongPass1!"))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, response.statusCode(), "librarian password change with wrong current password should be rejected");
+            assertTrue(response.body().contains("Current password is incorrect."), "response should explain current password mismatch");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianPasswordChangeSucceedsWithCorrectCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-reauth-ok", "Lib Ok", "Password1!", "EMP-OK");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-reauth-ok", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+Ok+Updated&employeeId=EMP-NEW&password=NewPass1!&currentPassword=Password1!"))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "librarian password change with correct current password should succeed");
+
+            HttpRequest oldLogin = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/login"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("username=lib-reauth-ok&password=Password1!&role=LIBRARIAN"))
+                    .build();
+            HttpResponse<String> oldLoginResponse = client.send(oldLogin, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, oldLoginResponse.statusCode(), "old librarian password should no longer work");
+
+            HttpRequest newLogin = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/login"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("username=lib-reauth-ok&password=NewPass1!&role=LIBRARIAN"))
+                    .build();
+            HttpResponse<String> newLoginResponse = client.send(newLogin, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, newLoginResponse.statusCode(), "new librarian password should work after successful update");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianNonPasswordProfileUpdateWorksWithoutCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-nopwd", "Lib NoPwd", "Password1!", "EMP-NOPWD");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-nopwd", "Password1!", "LIBRARIAN");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+NoPwd+Updated&employeeId=EMP-NOPWD&password="))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "librarian non-password profile update should work without current password");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "updated librarian profile should still be retrievable");
+            assertTrue(getResponse.body().contains("\"fullName\":\"Lib NoPwd Updated\""), "librarian full name should be updated");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianInactiveSessionExpiresAndRejectsApiCall() throws Exception {
+        final String propertyKey = "library.sessionIdleTimeoutMs";
+        String previous = System.getProperty(propertyKey);
+        System.setProperty(propertyKey, "120");
+
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-session-expired", "Lib Session", "Password1!", "EMP-SESSION");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-session-expired", "Password1!", "LIBRARIAN");
+
+            Thread.sleep(220);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(401, response.statusCode(), "inactive librarian session should expire automatically");
+            assertTrue(response.body().contains("Session expired"), "response should explain inactivity session expiry");
+        } finally {
+            server.stop(0);
+            restoreSystemProperty(propertyKey, previous);
+        }
+    }
+
+    private static void testLibrarianActiveSessionReviewEndpointRemainsFunctioning() throws Exception {
+        final String propertyKey = "library.sessionIdleTimeoutMs";
+        String previous = System.getProperty(propertyKey);
+        System.setProperty(propertyKey, "300");
+
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("librarian-active-session", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-active-review", "Author Active", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-active-review", "Lib Active", "Password1!", "EMP-ACTIVE");
+
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-active-review",
+                "Active Session Review",
+                List.of("Technology"),
+                "Description",
+                file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-active-review", "Password1!", "LIBRARIAN");
+
+            HttpRequest keepAliveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> firstResponse = client.send(keepAliveRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, firstResponse.statusCode(), "first librarian pending request should succeed");
+
+            Thread.sleep(150);
+
+            HttpRequest reviewRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/review"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "submissionId=" + submission.getId() + "&action=approve&comment=Looks+good"
+                    ))
+                    .build();
+            HttpResponse<String> reviewResponse = client.send(reviewRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewResponse.statusCode(), "librarian review endpoint should remain functional for active session");
+            assertTrue(reviewResponse.body().contains("Submission approved."), "review response should confirm approval");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+            restoreSystemProperty(propertyKey, previous);
+        }
+    }
+
     private static void testStudentStaffNotificationApisListAndReadSuccess() throws Exception {
         TestContext context = new TestContext();
         context.authService.registerStudentOrStaff("staff-notify", "Staff Notify", "Password1!", Role.STAFF);
@@ -2698,7 +2909,8 @@ public final class LibraryIntegrationTest {
             "lib-profile",
             "New Lib",
             "EMP-NEW",
-            "NewPass1!"
+            "NewPass1!",
+            "Password1!"
         );
         assertEquals("New Lib", updated.fullName(), "librarian full name should update");
         assertEquals("EMP-NEW", updated.employeeId(), "employee id should update");
@@ -2714,14 +2926,20 @@ public final class LibraryIntegrationTest {
         context.librarianService.registerLibrarian("lib-validate", "Valid Librarian", "Password1!", "EMP-VALID");
 
         expectThrows(ValidationException.class,
-            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "", "EMP-VALID", ""),
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "", "EMP-VALID", "", ""),
             "Full Name cannot be empty");
         expectThrows(ValidationException.class,
-            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "", ""),
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "", "", ""),
             "Employee ID cannot be empty");
         expectThrows(ValidationException.class,
-            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "EMP-VALID", "short"),
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "EMP-VALID", "short", "Password1!"),
             "Password must be between 8 and 64 characters");
+        expectThrows(ValidationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "EMP-VALID", "NewPass1!", ""),
+            "Current password is required to change password");
+        expectThrows(AuthenticationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "EMP-VALID", "NewPass1!", "WrongPass1!"),
+            "Current password is incorrect");
         }
 
         private static void testLibrarianProfileOwnershipBoundary() {
@@ -2730,7 +2948,7 @@ public final class LibraryIntegrationTest {
         context.librarianService.registerLibrarian("lib-b", "Lib B", "Password1!", "EMP-B");
 
         expectThrows(ValidationException.class,
-            () -> context.librarianService.updateLibrarianProfile("lib-a", "lib-b", "Changed", "EMP-CHANGED", ""),
+            () -> context.librarianService.updateLibrarianProfile("lib-a", "lib-b", "Changed", "EMP-CHANGED", "", ""),
             "Cannot update another librarian's profile");
 
         LibrarianProfile3 profileB = context.librarianProfileRepository.findByUsername("lib-b")

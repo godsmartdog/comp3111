@@ -10,12 +10,17 @@ async function loadLibrarianProfile() {
     const payload = await api("/api/librarian/profile");
     document.getElementById("librarianProfileFullName").value = payload.fullName || "";
     document.getElementById("librarianProfileEmployeeId").value = payload.employeeId || "";
+    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
 }
 
 async function saveLibrarianProfile() {
     const feedback = document.getElementById("librarianProfileFeedback");
     const fullName = document.getElementById("librarianProfileFullName").value.trim();
     const employeeId = document.getElementById("librarianProfileEmployeeId").value.trim();
+    const currentPassword = document.getElementById("librarianProfileCurrentPassword")?.value || "";
     const password = document.getElementById("librarianProfilePassword").value;
 
     if (!fullName) {
@@ -30,6 +35,12 @@ async function saveLibrarianProfile() {
     }
 
     if (password.trim()) {
+        if (!currentPassword.trim()) {
+            feedback.textContent = "Current password is required to change password.";
+            showToast(feedback.textContent, true);
+            return;
+        }
+
         const issues = getPasswordPolicyViolations(password);
         if (issues.length > 0) {
             feedback.textContent = issues[0];
@@ -41,10 +52,14 @@ async function saveLibrarianProfile() {
     const text = await api("/api/librarian/profile", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, employeeId, password })
+        body: formBody({ fullName, employeeId, password, currentPassword })
     }, false);
 
     feedback.textContent = text;
+    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
     document.getElementById("librarianProfilePassword").value = "";
     if (currentUser) {
         currentUser.fullName = fullName;

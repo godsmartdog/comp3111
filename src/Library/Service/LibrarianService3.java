@@ -93,7 +93,8 @@ public class LibrarianService3 {
                                                            String targetUsername,
                                                            String fullName,
                                                            String employeeId,
-                                                           String newPassword) {
+                                                           String newPassword,
+                                                           String currentPassword) {
         if (actingUsername == null || actingUsername.isBlank()) {
             throw new ValidationException("Username cannot be empty.");
         }
@@ -121,6 +122,7 @@ public class LibrarianService3 {
         }
 
         user.updateFullName(fullName.trim());
+        AuthService.validateCurrentPasswordForPasswordChange(user, newPassword, currentPassword);
         if (newPassword != null && !newPassword.isBlank()) {
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));

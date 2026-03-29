@@ -23,7 +23,12 @@ async function api(path, options = {}, expectJson = true) {
     if (!response.ok) {
         const text = await response.text();
         if (response.status === 401) {
+            const role = current?.role || "";
+            const redirect = role
+                ? `login.html?role=${encodeURIComponent(role)}&sessionMessage=${encodeURIComponent(text || "Session expired. Please login again.")}`
+                : `login.html?sessionMessage=${encodeURIComponent(text || "Session expired. Please login again.")}`;
             localStorage.removeItem("currentUser");
+            window.location.href = redirect;
         }
         throw new Error(text || "Request failed.");
     }
