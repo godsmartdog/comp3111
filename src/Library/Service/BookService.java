@@ -41,6 +41,10 @@ public class BookService {
                 .collect(Collectors.toList());
     }
 
+    public List<Book> listApprovedBooksForLibrarian() {
+        return listApprovedBooksWithAvailability();
+    }
+
     public Optional<Book> findBookById(String bookId) {
         return bookRepository.findById(bookId);
     }

@@ -32,6 +32,13 @@ import Library.Service.LibrarianService3;
 import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Ui.LibraryApiHandlers;
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -60,6 +67,8 @@ public final class LibraryIntegrationTest {
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
         runner.run("author notifications list and mark read", LibraryIntegrationTest::testAuthorNotificationListAndRead);
         runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
+        runner.run("librarian can view approved books endpoint", LibraryIntegrationTest::testLibrarianCanViewApprovedBooksEndpoint);
+        runner.run("non-librarian cannot access approved books endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessApprovedBooksEndpoint);
         runner.finish();
     }
 
@@ -454,6 +463,108 @@ public final class LibraryIntegrationTest {
         expectThrows(BusinessException.class,
                 () -> context.notificationService.markAsRead("author-owner-b", foreign.getId()),
                 "does not belong to this user");
+    }
+
+    private static void testLibrarianCanViewApprovedBooksEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        Book b1 = context.addApprovedBook("Approved One", "Author One", "Summary One");
+        Book b2 = context.addApprovedBook("Approved Two", "Author Two", "Summary Two");
+        b2.setAvailable(false);
+
+        context.librarianService.registerLibrarian("lib-view", "Lib View", "Password1!", "EMP-VIEW");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-view", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/approved-books"))
+                    .GET()
+                    .header("X-Session-Id", sessionId)
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode(), "librarian approved books endpoint should return HTTP 200");
+            String body = response.body();
+            assertTrue(body.contains("\"title\":\"" + b1.getTitle() + "\""), "response should include first approved book");
+            assertTrue(body.contains("\"title\":\"" + b2.getTitle() + "\""), "response should include second approved book");
+            assertTrue(body.contains("\"status\":\"Available\""), "response should include available status");
+            assertTrue(body.contains("\"status\":\"Unavailable\""), "response should include unavailable status");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testNonLibrarianCannotAccessApprovedBooksEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        context.addApprovedBook("Approved Three", "Author Three", "Summary Three");
+        context.authService.registerStudentOrStaff("stu-no-access", "Stu NoAccess", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "stu-no-access", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/approved-books"))
+                    .GET()
+                    .header("X-Session-Id", sessionId)
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(401, response.statusCode(), "non-librarian should receive HTTP 401");
+            assertTrue(response.body().contains("Permission denied"), "response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static HttpServer createApiServer(TestContext context) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        LibraryApiHandlers handlers = new LibraryApiHandlers(
+                context.authService,
+                context.bookService,
+                context.borrowService,
+                context.recommendationService,
+                context.authorService,
+                context.authorDraftService,
+                context.fileService,
+                context.librarianService
+        );
+        handlers.register(server);
+        server.start();
+        return server;
+    }
+
+    private static String loginAndGetSessionId(HttpClient client,
+                                               String baseUrl,
+                                               String username,
+                                               String password,
+                                               String role) throws Exception {
+        String form = "username=" + username + "&password=" + password + "&role=" + role;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode(), "login should succeed for endpoint test");
+
+        String body = response.body();
+        String marker = "\"sessionId\":\"";
+        int start = body.indexOf(marker);
+        if (start < 0) {
+            throw new AssertionError("sessionId not found in login response: " + body);
+        }
+        int from = start + marker.length();
+        int end = body.indexOf('"', from);
+        if (end < 0) {
+            throw new AssertionError("sessionId terminator not found in login response: " + body);
+        }
+        return body.substring(from, end);
     }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
