@@ -4,13 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de5ffc5-fe5f-42c8-9700-3b3e50ebc2eb" name="Changes" comment="initialize">
-      <change beforePath="$PROJECT_DIR$/src/Library/Service/LibrarianService3.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Service/LibrarianService3.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Test/LibraryIntegrationTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Test/LibraryIntegrationTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/LibraryApiHandlers.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/LibraryApiHandlers.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/web/librarian.html" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/web/librarian.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Library/Ui/web/portal-librarian.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/Library/Ui/web/portal-librarian.js" afterDir="false" />
-    </list>
+    <list default="true" id="3de5ffc5-fe5f-42c8-9700-3b3e50ebc2eb" name="Changes" comment="initialize" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -59,7 +53,7 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "SHELLCHECK.PATH": "/Users/y.h.lam/Library/Application Support/JetBrains/IntelliJIdea2025.3/plugins/Shell Script/shellcheck",
     "Shell Script.run-library.sh.executor": "Run",
-    "git-widget-placeholder": "feat/p2-t3.4-librarian-manage-profile",
+    "git-widget-placeholder": "feat/p2-t3.6-borrowed-books-record-screen",
     "kotlin-language-version-configured": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",

@@ -9,6 +9,7 @@ import Library.Repository.BorrowRepository;
 import Library.Security.SecurityConfig;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -112,5 +113,18 @@ public class BorrowService {
         autoReturnOverdueBooks(username);
         return borrowRepository.findActiveByUsernameAndBookId(username, bookId)
                 .orElseThrow(() -> new BusinessException("Book is not currently borrowed by this user."));
+    }
+
+    public List<BorrowRecord> listAllBorrowRecords() {
+        // This reporting method is intentionally side-effect-free because it powers
+        // read/list screens (for example, librarian borrowed-records view).
+        // Overdue auto-return must only run in explicit workflow operations
+        // (borrow/return/active-borrow checks), not in list/read APIs.
+        return borrowRepository.findAll().stream()
+                .sorted(
+                        Comparator.comparing(BorrowRecord::getBorrowDate, Comparator.reverseOrder())
+                                .thenComparing(BorrowRecord::getId)
+                )
+                .collect(Collectors.toList());
     }
 }
