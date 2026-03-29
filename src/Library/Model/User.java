@@ -8,8 +8,8 @@ public class User {
 
     // Member variables
     private final String username;
-    private final String fullName;
-    private final String passwordHash;
+    private String fullName;
+    private String passwordHash;
     private final Role role;
     private final LocalDateTime createdAt;
 
@@ -28,6 +28,14 @@ public class User {
     public String getPasswordHash() { return passwordHash; }
     public Role getRole() { return role; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+
+    public void updateFullName(String fullName) {
+        this.fullName = fullName;
+    }
+
+    public void updatePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 
     // Foundation for future implementation - customizing/ overloading operators
     @Override

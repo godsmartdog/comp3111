@@ -1,6 +1,7 @@
 package Library.Test;
 
 import Library.Exception.BusinessException;
+import Library.Exception.AuthenticationException;
 import Library.Exception.ValidationException;
 import Library.Model.Book;
 import Library.Model.BookDraft2;
@@ -8,6 +9,7 @@ import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
+import Library.Model.User;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
 import Library.Repository.MemoryBookRepository;

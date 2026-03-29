@@ -170,6 +170,42 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/profile", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    String payload = "{" +
+                            "\"username\":\"" + JsonUtil.escape(user.getUsername()) + "\"," +
+                            "\"fullName\":\"" + JsonUtil.escape(user.getFullName()) + "\"," +
+                            "\"role\":\"" + user.getRole() + "\"" +
+                            "}";
+                    sendJson(exchange, 200, payload);
+                    return;
+                }
+
+                Map<String, String> form = readForm(exchange);
+                String fullName = required(form, "fullName");
+                String newPassword = form.getOrDefault("password", "");
+                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword);
+
+                String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+                if (!sessionId.isEmpty()) {
+                    sessions.put(sessionId, updated);
+                }
+
+                sendText(exchange, 200, "Profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrow", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
