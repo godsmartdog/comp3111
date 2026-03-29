@@ -59,7 +59,18 @@ function renderBooks(books) {
 }
 
 async function refreshBooks(keyword = "") {
-    const url = keyword ? `/api/books?keyword=${encodeURIComponent(keyword)}` : "/api/books";
+    const normalizedKeyword = typeof keyword === "string" ? keyword.trim() : "";
+    const availability = document.getElementById("availabilityFilter")?.value || "all";
+    const params = new URLSearchParams();
+    if (normalizedKeyword) {
+        params.set("keyword", normalizedKeyword);
+    }
+    if (availability !== "all") {
+        params.set("availability", availability);
+    }
+
+    const query = params.toString();
+    const url = query ? `/api/books?${query}` : "/api/books";
     const books = await api(url);
     allBooks = [...books].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
     currentPage = 1;
@@ -250,7 +261,20 @@ document.getElementById("searchBtn").addEventListener("click", () => {
     refreshBooks(document.getElementById("searchKeyword").value.trim()).catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("searchKeyword")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    refreshBooks(document.getElementById("searchKeyword").value.trim()).catch((e) => showToast(e.message, true));
+});
+
 document.getElementById("showAllBtn").addEventListener("click", () => {
+    document.getElementById("searchKeyword").value = "";
+    const availabilityFilter = document.getElementById("availabilityFilter");
+    if (availabilityFilter) {
+        availabilityFilter.value = "all";
+    }
     refreshBooks().catch((e) => showToast(e.message, true));
 });
 

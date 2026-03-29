@@ -89,6 +89,8 @@ public final class LibraryIntegrationTest {
         runner.run("non-librarian cannot reject submissions endpoint", LibraryIntegrationTest::testNonLibrarianCannotRejectSubmissionsEndpoint);
         runner.run("reject reason length validation", LibraryIntegrationTest::testRejectReasonLengthValidation);
         runner.run("notification foundation supports metadata and action", LibraryIntegrationTest::testNotificationMetadataAndActionFoundation);
+        runner.run("books endpoint supports keyword and availability filters", LibraryIntegrationTest::testBooksEndpointSupportsKeywordAndAvailabilityFilters);
+        runner.run("books endpoint rejects invalid availability filter", LibraryIntegrationTest::testBooksEndpointRejectsInvalidAvailabilityFilter);
         runner.run("shared filters reject invalid recommendation limits", LibraryIntegrationTest::testSharedFilterParsingForRecommendationLimit);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
         runner.finish();
@@ -1158,6 +1160,80 @@ public final class LibraryIntegrationTest {
 
         NotificationItem stored = context.notificationService.listByUser("foundation-user").get(0);
         assertEquals("BOOK-123", stored.getMetadata().get("bookId"), "stored notification should retain metadata");
+    }
+
+    private static void testBooksEndpointSupportsKeywordAndAvailabilityFilters() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("books-filter-user", "Books Filter User", "Password1!", Role.STUDENT);
+
+        context.addApprovedBook("Clean Code", "Robert Martin", "Readable code guidance.");
+        Book cleanArchitecture = context.addApprovedBook("Clean Architecture", "Robert Martin", "Architecture patterns.");
+        context.addApprovedBook("Domain Modeling", "Eric Evans", "Domain-driven design.");
+        cleanArchitecture.setAvailable(false);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "books-filter-user", "Password1!", "STUDENT");
+
+            HttpRequest byKeywordRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books?keyword=Clean"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> byKeywordResponse = client.send(byKeywordRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, byKeywordResponse.statusCode(), "keyword filter request should succeed");
+            assertTrue(byKeywordResponse.body().contains("\"title\":\"Clean Code\""), "keyword filter should include matching title");
+            assertTrue(byKeywordResponse.body().contains("\"title\":\"Clean Architecture\""), "keyword filter should include second matching title");
+            assertFalse(byKeywordResponse.body().contains("\"title\":\"Domain Modeling\""), "keyword filter should exclude non-matching title");
+
+            HttpRequest availableOnlyRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books?availability=available"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> availableOnlyResponse = client.send(availableOnlyRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, availableOnlyResponse.statusCode(), "availability filter request should succeed");
+            assertTrue(availableOnlyResponse.body().contains("\"title\":\"Clean Code\""), "available filter should keep available books");
+            assertFalse(availableOnlyResponse.body().contains("\"title\":\"Clean Architecture\""), "available filter should exclude unavailable books");
+
+            HttpRequest combinedFilterRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books?q=Clean&availability=unavailable"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> combinedFilterResponse = client.send(combinedFilterRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, combinedFilterResponse.statusCode(), "combined filters request should succeed");
+            assertTrue(combinedFilterResponse.body().contains("\"title\":\"Clean Architecture\""), "combined filters should include matching unavailable book");
+            assertFalse(combinedFilterResponse.body().contains("\"title\":\"Clean Code\""), "combined filters should exclude available book");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBooksEndpointRejectsInvalidAvailabilityFilter() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("books-filter-invalid", "Books Filter Invalid", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Filter Validation", "Validator", "Validation sample.");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "books-filter-invalid", "Password1!", "STUDENT");
+
+            HttpRequest invalidFilterRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books?availability=maybe"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> invalidFilterResponse = client.send(invalidFilterRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, invalidFilterResponse.statusCode(), "invalid availability filter should be rejected");
+            assertTrue(invalidFilterResponse.body().contains("availability must be one of"), "error should explain allowed availability values");
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static void testSharedFilterParsingForRecommendationLimit() throws Exception {

@@ -41,6 +41,11 @@
         <h2>Books</h2>
         <div class="toolbar">
             <input id="searchKeyword" type="text" placeholder="Search by title or author">
+            <select id="availabilityFilter" aria-label="Availability filter">
+                <option value="all" selected>All Status</option>
+                <option value="available">Available Only</option>
+                <option value="unavailable">Unavailable Only</option>
+            </select>
             <button id="searchBtn">Search</button>
             <button id="showAllBtn" class="secondary">Show All</button>
         </div>

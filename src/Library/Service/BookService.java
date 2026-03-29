@@ -32,6 +32,21 @@ public class BookService {
                 .collect(Collectors.toList());
     }
 
+    public List<Book> listApprovedBooksWithFilters(String keyword, Boolean availableFilter) {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        List<Book> base = normalizedKeyword.isEmpty()
+                ? listApprovedBooksWithAvailability()
+                : searchApprovedBooks(normalizedKeyword);
+
+        if (availableFilter == null) {
+            return base;
+        }
+
+        return base.stream()
+                .filter(book -> book.isAvailable() == availableFilter)
+                .collect(Collectors.toList());
+    }
+
     public List<Book> listApprovedBooksByAuthorUsername(String authorUsername) {
         String normalized = authorUsername == null ? "" : authorUsername.trim();
         return bookRepository.findAll().stream()
