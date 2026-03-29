@@ -709,6 +709,36 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/approved-books", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                List<Book> items = bookService.listApprovedBooksForLibrarian();
+                List<String> jsonItems = new ArrayList<>();
+                for (Book book : items) {
+                    String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+                    String availability = book.isAvailable() ? "Available" : "Unavailable";
+                    jsonItems.add("{" +
+                            "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                            "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                            "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
+                            "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
+                            "\"status\":\"" + availability + "\"," +
+                            "\"available\":" + book.isAvailable() +
+                            "}");
+                }
+                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/review", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
