@@ -124,6 +124,57 @@ public class AuthorService2 {
                 + "Description: " + normalizedDescription + "\n";
     }
 
+    public AuthorProfileSnapshot getAuthorProfile(String username) {
+        String normalizedUsername = normalizeRequired(username, "Username cannot be empty.");
+        User user = userRepository.findByUsername(normalizedUsername)
+                .orElseThrow(() -> new ValidationException("Author user not found."));
+        if (user.getRole() != Role.AUTHOR) {
+            throw new ValidationException("User is not an author.");
+        }
+
+        AuthorProfile2 profile = authorProfileRepository.findByUsername(normalizedUsername)
+                .orElseGet(() -> {
+                    AuthorProfile2 created = new AuthorProfile2(normalizedUsername, "");
+                    authorProfileRepository.save(created);
+                    return created;
+                });
+
+        return new AuthorProfileSnapshot(user.getUsername(), user.getFullName(), profile.getBio());
+    }
+
+    public AuthorProfileSnapshot updateAuthorProfile(String actingUsername,
+                                                     String targetUsername,
+                                                     String fullName,
+                                                     String bio,
+                                                     String newPassword) {
+        String normalizedActor = normalizeRequired(actingUsername, "Username cannot be empty.");
+        String normalizedTarget = normalizeRequired(targetUsername, "Username cannot be empty.");
+        if (!normalizedActor.equals(normalizedTarget)) {
+            throw new ValidationException("Cannot update another author's profile.");
+        }
+
+        String normalizedFullName = normalizeRequired(fullName, "Full Name cannot be empty.");
+        String normalizedBio = normalizeRequired(bio, "Bio cannot be empty.");
+
+        User user = userRepository.findByUsername(normalizedTarget)
+                .orElseThrow(() -> new ValidationException("Author user not found."));
+        if (user.getRole() != Role.AUTHOR) {
+            throw new ValidationException("User is not an author.");
+        }
+
+        user.updateFullName(normalizedFullName);
+        if (newPassword != null && !newPassword.isBlank()) {
+            PasswordPolicy.validate(newPassword);
+            user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+        userRepository.save(user);
+
+        AuthorProfile2 profile = new AuthorProfile2(user.getUsername(), normalizedBio);
+        authorProfileRepository.save(profile);
+
+        return new AuthorProfileSnapshot(user.getUsername(), user.getFullName(), profile.getBio());
+    }
+
     // Private helper method to validate that the provided genres are all supported, throwing a ValidationException if any unsupported genres are found.
     private List<String> normalizeGenres(List<String> genres, String emptyMessage) {
         if (genres == null) {
@@ -171,5 +222,8 @@ public class AuthorService2 {
             throw new ValidationException(errorMessage);
         }
         return value.trim();
+    }
+
+    public record AuthorProfileSnapshot(String username, String fullName, String bio) {
     }
 }

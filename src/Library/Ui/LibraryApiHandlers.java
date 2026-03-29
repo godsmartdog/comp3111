@@ -532,6 +532,39 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/profile", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    AuthorService2.AuthorProfileSnapshot profile = authorService.getAuthorProfile(user.getUsername());
+                    String payload = "{" +
+                            "\"username\":\"" + JsonUtil.escape(profile.username()) + "\"," +
+                            "\"fullName\":\"" + JsonUtil.escape(profile.fullName()) + "\"," +
+                            "\"bio\":\"" + JsonUtil.escape(profile.bio()) + "\"" +
+                            "}";
+                    sendJson(exchange, 200, payload);
+                    return;
+                }
+
+                Map<String, String> form = readForm(exchange);
+                String fullName = required(form, "fullName");
+                String bio = required(form, "bio");
+                String password = form.getOrDefault("password", "");
+
+                authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password);
+                sendText(exchange, 200, "Author profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/preview", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");

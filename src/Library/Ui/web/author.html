@@ -22,6 +22,24 @@
 
 <main class="layout single-col" data-role="AUTHOR">
     <section class="panel glass-panel">
+        <h2>Manage Profile</h2>
+        <div class="split">
+            <div>
+                <div class="inline-row">
+                    <label for="authorProfileFullName">Full Name</label>
+                    <input id="authorProfileFullName" type="text" placeholder="Your full name">
+                </div>
+                <label for="authorProfileBio">Bio</label>
+                <textarea id="authorProfileBio" rows="3" placeholder="Short author bio"></textarea>
+                <div class="inline-row">
+                    <label for="authorProfilePassword">New Password</label>
+                    <input id="authorProfilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <button id="saveAuthorProfileBtn" class="secondary" type="button">Save Profile</button>
+                <p id="authorProfileFeedback"></p>
+            </div>
+        </div>
+
         <h2>Book Submission</h2>
 
         <div class="form-grid">
