@@ -73,6 +73,9 @@ public final class LibraryIntegrationTest {
         runner.run("librarian profile update success", LibraryIntegrationTest::testLibrarianProfileUpdateSuccess);
         runner.run("librarian profile validation failures", LibraryIntegrationTest::testLibrarianProfileValidationFailures);
         runner.run("librarian profile ownership boundary", LibraryIntegrationTest::testLibrarianProfileOwnershipBoundary);
+        runner.run("librarian notifications list and mark read success", LibraryIntegrationTest::testLibrarianNotificationsListAndReadSuccess);
+        runner.run("librarian notification ownership boundary", LibraryIntegrationTest::testLibrarianNotificationOwnershipBoundary);
+        runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
         runner.finish();
     }
 
@@ -526,6 +529,133 @@ public final class LibraryIntegrationTest {
         }
     }
 
+    private static void testLibrarianNotificationsListAndReadSuccess() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-notify", "Lib Notify", "Password1!", "EMP-NOTIFY");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "lib-notify", "Password1!", "LIBRARIAN");
+
+            HttpRequest profileUpdate = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+Notify+Updated&employeeId=EMP-NOTIFY&password="))
+                    .build();
+            HttpResponse<String> profileUpdateResponse = client.send(profileUpdate, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, profileUpdateResponse.statusCode(), "profile update should succeed");
+
+            HttpRequest listRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> listResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, listResponse.statusCode(), "librarian notifications list should return HTTP 200");
+            assertTrue(listResponse.body().contains("\"title\":\"Librarian Profile Updated\""), "notifications should include librarian profile update message");
+            assertTrue(listResponse.body().contains("\"read\":false"), "new notification should be unread");
+            String notificationId = extractJsonField(listResponse.body(), "id");
+
+            HttpRequest markReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + notificationId))
+                    .build();
+            HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, markReadResponse.statusCode(), "mark read should return HTTP 200");
+            assertTrue(markReadResponse.body().contains("\"status\":\"read\""), "mark read response should return read status");
+
+            HttpResponse<String> afterReadListResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, afterReadListResponse.statusCode(), "librarian notifications list after read should return HTTP 200");
+            assertTrue(afterReadListResponse.body().contains("\"id\":\"" + notificationId + "\""), "same notification should still exist");
+            assertTrue(afterReadListResponse.body().contains("\"read\":true"), "notification should become read");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianNotificationOwnershipBoundary() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-owner-a", "Lib Owner A", "Password1!", "EMP-A");
+        context.librarianService.registerLibrarian("lib-owner-b", "Lib Owner B", "Password1!", "EMP-B");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String ownerASession = loginAndGetSessionId(client, baseUrl, "lib-owner-a", "Password1!", "LIBRARIAN");
+
+            HttpRequest ownerAProfileUpdate = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerASession)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Lib+Owner+A&employeeId=EMP-A&password="))
+                    .build();
+            HttpResponse<String> ownerAProfileResponse = client.send(ownerAProfileUpdate, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, ownerAProfileResponse.statusCode(), "owner A profile update should succeed");
+
+            HttpRequest ownerAListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications"))
+                    .header("X-Session-Id", ownerASession)
+                    .GET()
+                    .build();
+            HttpResponse<String> ownerAListResponse = client.send(ownerAListRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, ownerAListResponse.statusCode(), "owner A notifications should list successfully");
+            String ownerANotificationId = extractJsonField(ownerAListResponse.body(), "id");
+
+            String ownerBSession = loginAndGetSessionId(client, baseUrl, "lib-owner-b", "Password1!", "LIBRARIAN");
+            HttpRequest ownerBMarkReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerBSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + ownerANotificationId))
+                    .build();
+            HttpResponse<String> ownerBMarkReadResponse = client.send(ownerBMarkReadRequest, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, ownerBMarkReadResponse.statusCode(), "librarian cannot mark another librarian's notification");
+            assertTrue(ownerBMarkReadResponse.body().contains("does not belong to this user"), "response should explain ownership boundary");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testNonLibrarianForbiddenFromLibrarianNotificationApis() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("stu-notification-api", "Stu Notification", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "stu-notification-api", "Password1!", "STUDENT");
+
+            HttpRequest listRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> listResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, listResponse.statusCode(), "non-librarian list request should be forbidden");
+            assertTrue(listResponse.body().contains("Permission denied"), "list response should explain permission denied");
+
+            HttpRequest markReadRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/notifications/read"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=fake-id"))
+                    .build();
+            HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, markReadResponse.statusCode(), "non-librarian mark read should be forbidden");
+            assertTrue(markReadResponse.body().contains("Permission denied"), "mark read response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static HttpServer createApiServer(TestContext context) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         LibraryApiHandlers handlers = new LibraryApiHandlers(
@@ -567,6 +697,20 @@ public final class LibraryIntegrationTest {
         int end = body.indexOf('"', from);
         if (end < 0) {
             throw new AssertionError("sessionId terminator not found in login response: " + body);
+        }
+        return body.substring(from, end);
+    }
+
+    private static String extractJsonField(String body, String fieldName) {
+        String marker = "\"" + fieldName + "\":\"";
+        int start = body.indexOf(marker);
+        if (start < 0) {
+            throw new AssertionError(fieldName + " not found in response: " + body);
+        }
+        int from = start + marker.length();
+        int end = body.indexOf('"', from);
+        if (end < 0) {
+            throw new AssertionError(fieldName + " terminator not found in response: " + body);
         }
         return body.substring(from, end);
     }

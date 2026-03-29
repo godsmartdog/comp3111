@@ -771,6 +771,12 @@ public class LibraryApiHandlers {
                         password
                 );
 
+                notificationService.addNotification(
+                    user.getUsername(),
+                    "Librarian Profile Updated",
+                    "Your librarian profile has been updated successfully."
+                );
+
                 String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
                 if (!sessionId.isEmpty()) {
                     user.updateFullName(updated.fullName());
@@ -778,6 +784,48 @@ public class LibraryApiHandlers {
                 }
 
                 sendText(exchange, 200, "Librarian profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/notifications", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                List<NotificationItem> items = notificationService.listByUser(user.getUsername());
+                sendJson(exchange, 200, notificationsToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/notifications/read", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.markAsRead(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"read\"," +
+                        "\"message\":\"Notification marked as read.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
