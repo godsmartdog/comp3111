@@ -1,12 +1,14 @@
 package Library.Service;
 
 import Library.Exception.BusinessException;
+import Library.Model.NotificationAction;
 import Library.Model.NotificationItem;
 import Library.Repository.NotificationRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 public class NotificationService {
     private final NotificationRepository notificationRepository;
@@ -23,7 +25,22 @@ public class NotificationService {
     }
 
     public NotificationItem addNotification(String username, String title, String message) {
-        NotificationItem item = new NotificationItem(username, safeTitle(title), safeMessage(message), LocalDateTime.now());
+        return addNotification(username, title, message, null, Map.of());
+    }
+
+    public NotificationItem addNotification(String username,
+                                            String title,
+                                            String message,
+                                            NotificationAction action,
+                                            Map<String, String> metadata) {
+        NotificationItem item = new NotificationItem(
+                username,
+                safeTitle(title),
+                safeMessage(message),
+                LocalDateTime.now(),
+                action,
+                metadata
+        );
         notificationRepository.save(item);
         return item;
     }

@@ -7,10 +7,10 @@ import Library.Model.Book;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
+import Library.Model.NotificationAction;
 import Library.Model.NotificationItem;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
-import Library.Model.User;
 import Library.Model.AuthorProfile2;
 import Library.Model.LibrarianProfile3;
 import Library.Repository.MemoryNotificationRepository;
@@ -44,6 +44,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 public final class LibraryIntegrationTest {
     public static void main(String[] args) throws Exception {
@@ -81,6 +82,9 @@ public final class LibraryIntegrationTest {
         runner.run("author and librarian forbidden from student/staff notification APIs", LibraryIntegrationTest::testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis);
         runner.run("librarian can view borrowed-books records", LibraryIntegrationTest::testLibrarianCanViewBorrowedBooksRecords);
         runner.run("non-librarian cannot access borrowed-books records endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint);
+        runner.run("notification foundation supports metadata and action", LibraryIntegrationTest::testNotificationMetadataAndActionFoundation);
+        runner.run("shared filters reject invalid recommendation limits", LibraryIntegrationTest::testSharedFilterParsingForRecommendationLimit);
+        runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
         runner.finish();
     }
 
@@ -873,6 +877,115 @@ public final class LibraryIntegrationTest {
             HttpResponse<String> markReadResponse = client.send(markReadRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(401, markReadResponse.statusCode(), "non-librarian mark read should be forbidden");
             assertTrue(markReadResponse.body().contains("Permission denied"), "mark read response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testNotificationMetadataAndActionFoundation() {
+        TestContext context = new TestContext();
+        NotificationAction action = new NotificationAction("deeplink", "Open Book", "/books/view", "GET");
+
+        NotificationItem item = context.notificationService.addNotification(
+                "foundation-user",
+                "Borrow Ready",
+                "Open your borrowed book.",
+                action,
+                Map.of("bookId", "BOOK-123", "source", "borrow-flow")
+        );
+
+        assertEquals("deeplink", item.getAction().getType(), "action type should be stored");
+        assertEquals("Open Book", item.getAction().getLabel(), "action label should be stored");
+        assertEquals("BOOK-123", item.getMetadata().get("bookId"), "metadata should store book identifier");
+        assertEquals("borrow-flow", item.getMetadata().get("source"), "metadata should keep source context");
+
+        NotificationItem stored = context.notificationService.listByUser("foundation-user").get(0);
+        assertEquals("BOOK-123", stored.getMetadata().get("bookId"), "stored notification should retain metadata");
+    }
+
+    private static void testSharedFilterParsingForRecommendationLimit() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("filter-user", "Filter User", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "filter-user", "Password1!", "STUDENT");
+
+            HttpRequest invalidLimitRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/recommendations?limit=abc"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> invalidLimitResponse = client.send(invalidLimitRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, invalidLimitResponse.statusCode(), "invalid numeric limit should be rejected");
+            assertTrue(invalidLimitResponse.body().contains("Invalid numeric value for limit"), "response should indicate numeric parsing issue");
+
+            HttpRequest outOfRangeLimitRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/recommendations?limit=0"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> outOfRangeLimitResponse = client.send(outOfRangeLimitRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, outOfRangeLimitResponse.statusCode(), "out-of-range limit should be rejected");
+            assertTrue(outOfRangeLimitResponse.body().contains("limit must be between 1 and 50"), "response should indicate allowed range");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testSessionSnapshotCrashRecoveryHook() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("crash-user", "Crash User", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Crash Recovery Book", "Ops Team", "Used to validate post-recovery access.");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "crash-user", "Password1!", "STUDENT");
+
+            HttpRequest snapshotRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/internal/crash-test?action=snapshot"))
+                    .header("X-Crash-Test-Hook", "enable")
+                    .GET()
+                    .build();
+            HttpResponse<String> snapshotResponse = client.send(snapshotRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, snapshotResponse.statusCode(), "snapshot action should succeed");
+            assertTrue(snapshotResponse.body().contains("\"schemaVersion\":1"), "snapshot should include schema version");
+            assertTrue(snapshotResponse.body().contains("\"sessionId\":\"" + sessionId + "\""), "snapshot should include active session");
+
+            HttpRequest simulateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/internal/crash-test"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Crash-Test-Hook", "enable")
+                    .POST(HttpRequest.BodyPublishers.ofString("action=simulate"))
+                    .build();
+            HttpResponse<String> simulateResponse = client.send(simulateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, simulateResponse.statusCode(), "simulate action should succeed");
+            assertTrue(simulateResponse.body().contains("\"status\":\"simulated\""), "simulate response should confirm crash simulation");
+
+            HttpRequest beforeRecoverBooksRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> beforeRecoverBooksResponse = client.send(beforeRecoverBooksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, beforeRecoverBooksResponse.statusCode(), "session should be invalid after simulated crash");
+
+            HttpRequest recoverRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/internal/crash-test"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Crash-Test-Hook", "enable")
+                    .POST(HttpRequest.BodyPublishers.ofString("action=recover"))
+                    .build();
+            HttpResponse<String> recoverResponse = client.send(recoverRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, recoverResponse.statusCode(), "recover action should succeed");
+            assertTrue(recoverResponse.body().contains("\"status\":\"recovered\""), "recover response should confirm restoration");
+
+            HttpResponse<String> afterRecoverBooksResponse = client.send(beforeRecoverBooksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, afterRecoverBooksResponse.statusCode(), "restored session should be usable after recovery");
         } finally {
             server.stop(0);
         }
