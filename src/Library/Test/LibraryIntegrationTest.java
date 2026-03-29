@@ -109,6 +109,12 @@ public final class LibraryIntegrationTest {
         runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
         runner.run("student/staff notifications list and mark read success", LibraryIntegrationTest::testStudentStaffNotificationApisListAndReadSuccess);
         runner.run("student/staff notification ownership boundary endpoint", LibraryIntegrationTest::testStudentStaffNotificationOwnershipBoundaryEndpoint);
+        runner.run("student/staff profile password change requires current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRequiresCurrentPassword);
+        runner.run("student/staff profile password change rejects wrong current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRejectsWrongCurrentPassword);
+        runner.run("student/staff profile password change succeeds with correct current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeSucceedsWithCorrectCurrentPassword);
+        runner.run("student/staff profile update without password does not require current password", LibraryIntegrationTest::testStudentStaffProfileUpdateWithoutPasswordDoesNotRequireCurrentPassword);
+        runner.run("student/staff inactive session expires automatically", LibraryIntegrationTest::testStudentStaffInactiveSessionExpiresAutomatically);
+        runner.run("student/staff active session stays valid with continuous activity", LibraryIntegrationTest::testStudentStaffActiveSessionStaysValidWithContinuousActivity);
         runner.run("author and librarian forbidden from student/staff notification APIs", LibraryIntegrationTest::testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis);
         runner.run("librarian can view borrowed-books records", LibraryIntegrationTest::testLibrarianCanViewBorrowedBooksRecords);
         runner.run("non-librarian cannot access borrowed-books records endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint);
@@ -1830,6 +1836,195 @@ public final class LibraryIntegrationTest {
         }
     }
 
+    private static void testStudentStaffProfilePasswordChangeRequiresCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("profile-reauth-missing", "Profile Missing", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "profile-reauth-missing", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Profile+Missing&password=NewPass1!"))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, response.statusCode(), "password update without current password should be rejected");
+            assertTrue(response.body().contains("Current password is required"), "response should explain re-auth requirement");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffProfilePasswordChangeRejectsWrongCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("profile-reauth-wrong", "Profile Wrong", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "profile-reauth-wrong", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Profile+Wrong&password=NewPass1!&currentPassword=WrongPass1!"))
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, response.statusCode(), "password update with wrong current password should be rejected");
+            assertTrue(response.body().contains("Current password is incorrect."), "response should explain current password mismatch");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffProfilePasswordChangeSucceedsWithCorrectCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("profile-reauth-ok", "Profile Ok", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "profile-reauth-ok", "Password1!", "STUDENT");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Profile+Ok+Updated&password=NewPass1!&currentPassword=Password1!"))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "password update with correct current password should succeed");
+
+            HttpRequest oldLogin = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/login"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("username=profile-reauth-ok&password=Password1!&role=STUDENT"))
+                    .build();
+            HttpResponse<String> oldLoginResponse = client.send(oldLogin, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, oldLoginResponse.statusCode(), "old password should no longer work");
+
+            HttpRequest newLogin = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/login"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("username=profile-reauth-ok&password=NewPass1!&role=STUDENT"))
+                    .build();
+            HttpResponse<String> newLoginResponse = client.send(newLogin, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, newLoginResponse.statusCode(), "new password should work after successful update");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffProfileUpdateWithoutPasswordDoesNotRequireCurrentPassword() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("profile-nopwd", "Profile NoPwd", "Password1!", Role.STAFF);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "profile-nopwd", "Password1!", "STAFF");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Profile+NoPwd+Updated&password="))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "non-password profile update should succeed without current password");
+
+            HttpRequest getRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, getResponse.statusCode(), "updated profile should still be retrievable");
+            assertTrue(getResponse.body().contains("\"fullName\":\"Profile NoPwd Updated\""), "full name should update without password change");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testStudentStaffInactiveSessionExpiresAutomatically() throws Exception {
+        final String propertyKey = "library.sessionIdleTimeoutMs";
+        String previous = System.getProperty(propertyKey);
+        System.setProperty(propertyKey, "120");
+
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("session-expire", "Session Expire", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Idle Timeout Book", "Idle Author", "Idle Summary");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "session-expire", "Password1!", "STUDENT");
+
+            Thread.sleep(220);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, response.statusCode(), "inactive session should expire automatically");
+            assertTrue(response.body().contains("Session expired"), "response should explain session inactivity expiry");
+        } finally {
+            server.stop(0);
+            restoreSystemProperty(propertyKey, previous);
+        }
+    }
+
+    private static void testStudentStaffActiveSessionStaysValidWithContinuousActivity() throws Exception {
+        final String propertyKey = "library.sessionIdleTimeoutMs";
+        String previous = System.getProperty(propertyKey);
+        System.setProperty(propertyKey, "300");
+
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("session-active", "Session Active", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Keep Alive Book", "Keep Author", "Keep Summary");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "session-active", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> first = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, first.statusCode(), "first authenticated request should succeed");
+
+            Thread.sleep(150);
+            HttpResponse<String> second = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, second.statusCode(), "session should remain valid with recent activity");
+
+            Thread.sleep(150);
+            HttpResponse<String> third = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, third.statusCode(), "continuous requests should keep session active");
+        } finally {
+            server.stop(0);
+            restoreSystemProperty(propertyKey, previous);
+        }
+    }
+
     private static void testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis() throws Exception {
         TestContext context = new TestContext();
         context.authorService.registerAuthor("author-notify-no", "Author Notify", "Password1!", "Bio");
@@ -2548,6 +2743,14 @@ public final class LibraryIntegrationTest {
         Files.write(path, lines);
         path.toFile().deleteOnExit();
         return path;
+    }
+
+    private static void restoreSystemProperty(String key, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, previousValue);
+        }
     }
 
     private static void assertEquals(Object expected, Object actual, String message) {

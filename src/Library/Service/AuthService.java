@@ -79,7 +79,7 @@ public class AuthService {
         return sessionManager.getCurrentUser();
     }
 
-    public User updateStudentOrStaffProfile(String username, String fullName, String newPassword) {
+    public User updateStudentOrStaffProfile(String username, String fullName, String newPassword, String currentPassword) {
         if (username == null || username.isBlank()) {
             throw new ValidationException("Username cannot be empty.");
         }
@@ -95,6 +95,12 @@ public class AuthService {
 
         user.updateFullName(fullName.trim());
         if (newPassword != null && !newPassword.isBlank()) {
+            if (currentPassword == null || currentPassword.isBlank()) {
+                throw new ValidationException("Current password is required to change password.");
+            }
+            if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
+                throw new AuthenticationException("Current password is incorrect.");
+            }
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
         }

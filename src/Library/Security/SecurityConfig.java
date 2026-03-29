@@ -7,10 +7,25 @@ public final class SecurityConfig {
     public static final int MAX_BORROW_LIMIT = 5;
     public static final int MAX_BORROW_DAYS = 14;
     public static final int DEFAULT_BORROW_DAYS = MAX_BORROW_DAYS;
+    public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 15L * 60L * 1000L;
     public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md", ".jpg", ".jpeg", ".png");
     // make this class private access, no one can SecurityConfig config = new SecurityConfig(); do this accidently,
     //just see this as avoid waste of memory
     private SecurityConfig() {
+    }
+
+    public static long sessionIdleTimeoutMs() {
+        String raw = System.getProperty("library.sessionIdleTimeoutMs");
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+        }
+
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return parsed > 0 ? parsed : DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+        }
     }
 }
