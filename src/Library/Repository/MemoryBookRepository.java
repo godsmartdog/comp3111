@@ -18,6 +18,11 @@ public class MemoryBookRepository implements BookRepository {
     public Optional<Book> findById(String id) {
         return Optional.ofNullable(books.get(id));
     }
+
+    @Override
+    public void deleteById(String id) {
+        books.remove(id);
+    }
 // list all book stored currently
     @Override
     public List<Book> findAll() {

@@ -73,6 +73,10 @@ public final class LibraryIntegrationTest {
         runner.run("cannot mark another user's notification", LibraryIntegrationTest::testNotificationOwnershipValidation);
         runner.run("author can view own published books", LibraryIntegrationTest::testAuthorPublishedBooksOwnOnly);
         runner.run("author published books enforce ownership boundary", LibraryIntegrationTest::testAuthorPublishedBooksOwnershipBoundary);
+        runner.run("author owner can update published book metadata", LibraryIntegrationTest::testAuthorOwnerCanUpdatePublishedBookMetadata);
+        runner.run("author owner can delete published book without active borrows", LibraryIntegrationTest::testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows);
+        runner.run("author non-owner cannot update or delete published book", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeletePublishedBook);
+        runner.run("author delete published book blocked with active borrows", LibraryIntegrationTest::testAuthorDeletePublishedBookBlockedWhenActiveBorrowsExist);
         runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
         runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
@@ -671,6 +675,191 @@ public final class LibraryIntegrationTest {
         assertEquals(0, ownerBView.size(), "owner-b must not see owner-a published books");
 
         Files.deleteIfExists(ownerFile);
+    }
+
+    private static void testAuthorOwnerCanUpdatePublishedBookMetadata() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-update", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-update", "Author Pub Update", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-update",
+                "Published Original",
+                List.of("Technology"),
+                "Original Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-update", "Lib Pub Update", "Password1!", "EMP-PU");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-update").get(0);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-update", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Published+Updated"
+                                    + "&genres=Science,Technology"
+                                    + "&description=Updated+Description"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "owner update published book should return HTTP 200");
+            assertTrue(updateResponse.body().contains("Published book updated"), "response should confirm published book update");
+
+            Book updated = context.bookRepository.findById(published.getId())
+                    .orElseThrow(() -> new AssertionError("expected published book to exist"));
+            assertEquals("Published Updated", updated.getTitle(), "published title should update");
+            assertEquals("Updated Description", updated.getSummary(), "published description should update");
+            assertEquals(List.of("Science", "Technology"), updated.getGenres(), "published genres should update and normalize");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-delete", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-delete", "Author Pub Delete", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-delete",
+                "Published Delete Me",
+                List.of("Technology"),
+                "Delete Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-delete", "Lib Pub Delete", "Password1!", "EMP-PD");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-delete").get(0);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-delete", "Password1!", "AUTHOR");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookId=" + published.getId()))
+                    .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, deleteResponse.statusCode(), "owner delete published book should return HTTP 200");
+            assertTrue(deleteResponse.body().contains("Published book deleted"), "response should confirm published book deletion");
+
+            assertTrue(context.bookRepository.findById(published.getId()).isEmpty(), "deleted published book should be removed from repository");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorNonOwnerCannotUpdateOrDeletePublishedBook() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-boundary", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-owner", "Author Pub Owner", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-pub-other", "Author Pub Other", "Password1!", "Bio");
+
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-owner",
+                "Owner Published",
+                List.of("Technology"),
+                "Owner Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-boundary", "Lib Pub Boundary", "Password1!", "EMP-PB");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-owner").get(0);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String otherSession = loginAndGetSessionId(client, baseUrl, "author-pub-other", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", otherSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Hacked+Title"
+                                    + "&genres=Science"
+                                    + "&description=Hacked+Description"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, updateResponse.statusCode(), "non-owner update published book should be rejected");
+            assertTrue(updateResponse.body().contains("Cannot update another author's published book."), "non-owner update should explain ownership boundary");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", otherSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookId=" + published.getId()))
+                    .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteResponse.statusCode(), "non-owner delete published book should be rejected");
+            assertTrue(deleteResponse.body().contains("Cannot delete another author's published book."), "non-owner delete should explain ownership boundary");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorDeletePublishedBookBlockedWhenActiveBorrowsExist() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-active-borrow", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-active", "Author Pub Active", "Password1!", "Bio");
+        context.authService.registerStudentOrStaff("reader-active", "Reader Active", "Password1!", Role.STUDENT);
+
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-active",
+                "Published Borrowed",
+                List.of("Technology"),
+                "Borrowed Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-active", "Lib Pub Active", "Password1!", "EMP-PA");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-active").get(0);
+
+        context.borrowService.borrowBook("reader-active", published.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-active", "Password1!", "AUTHOR");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookId=" + published.getId()))
+                    .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteResponse.statusCode(), "delete should be blocked when active borrows exist");
+            assertTrue(deleteResponse.body().contains("Cannot delete a published book with active borrows."), "delete-block response should explain active borrow restriction");
+            assertTrue(context.bookRepository.findById(published.getId()).isPresent(), "published book should remain after blocked delete");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
     }
 
     private static void testAuthorProfileUpdateSuccess() {
@@ -1982,7 +2171,13 @@ public final class LibraryIntegrationTest {
         private final BookService bookService = new BookService(bookRepository);
         private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository);
         private final RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
-        private final AuthorService2 authorService = new AuthorService2(userRepository, authorProfileRepository, submissionRepository);
+        private final AuthorService2 authorService = new AuthorService2(
+            userRepository,
+            authorProfileRepository,
+            submissionRepository,
+            bookRepository,
+            borrowRepository
+        );
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
         private final LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);

@@ -12,6 +12,7 @@ import java.util.Optional;
 public interface BookRepository {
     void save(Book book);
     Optional<Book> findById(String id);
+    void deleteById(String id);
     List<Book> findAll();
     List<Book> searchByTitleOrAuthor(String keyword);
 }
