@@ -1,7 +1,6 @@
 param(
     [switch]$Tests,
     [switch]$Web,
-    [switch]$JavaFX,
     [switch]$SmokeTest,
     [switch]$CompileOnly
 )
@@ -43,7 +42,8 @@ function Write-SourceList {
     )
 
     $sourceFiles = Get-ChildItem -Recurse -File $Folders -Filter *.java |
-        Select-Object -ExpandProperty FullName
+        Select-Object -ExpandProperty FullName |
+        Sort-Object
 
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllLines($OutputFile, $sourceFiles, $utf8NoBom)
@@ -68,16 +68,18 @@ $javac = Resolve-ToolPath -Candidates $javacCandidates -ToolName "javac"
 
 Write-Host "Using java: $java"
 Write-Host "Using javac: $javac"
+$testSources = $null
+$fxSources = $null
 Push-Location $sourceRoot
 try {
-    if (!$Tests -and !$Web -and !$JavaFX -and !$SmokeTest) {
+    if (!$Tests -and !$Web -and !$SmokeTest) {
         Write-Host "No mode provided. Defaulting to -Web."
         $Web = $true
     }
 
     if ($Tests) {
         $testOutput = Join-Path $sourceRoot "out-tests"
-        $testSources = Join-Path $sourceRoot "sources-tests.txt"
+        $testSources = [System.IO.Path]::GetTempFileName()
 
         Write-Host "Preparing test source list..."
         Write-SourceList -Folders @(
@@ -106,9 +108,9 @@ try {
         }
     }
 
-    if ($Web -or $JavaFX -or $SmokeTest) {
+    if ($Web -or $SmokeTest) {
         $fxOutput = Join-Path $sourceRoot "out-fx"
-        $fxSources = Join-Path $sourceRoot "sources-all.txt"
+        $fxSources = [System.IO.Path]::GetTempFileName()
 
         Write-Host "Preparing full source list..."
         Write-SourceList -Folders @("Library") -OutputFile $fxSources
@@ -145,4 +147,10 @@ try {
 }
 finally {
     Pop-Location
+    if ($testSources -and (Test-Path $testSources)) {
+        Remove-Item -Path $testSources -Force -ErrorAction SilentlyContinue
+    }
+    if ($fxSources -and (Test-Path $fxSources)) {
+        Remove-Item -Path $fxSources -Force -ErrorAction SilentlyContinue
+    }
 }

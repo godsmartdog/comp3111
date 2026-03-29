@@ -73,6 +73,13 @@ SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SOURCE_ROOT"
 echo "Working directory: $SOURCE_ROOT"
 
+TEST_SOURCES=""
+FX_SOURCES=""
+cleanup_temp_files() {
+    rm -f "${TEST_SOURCES:-}" "${FX_SOURCES:-}"
+}
+trap cleanup_temp_files EXIT
+
 # ---------------------------------------------------------------------------
 # Helper: collect .java files from a list of directories into a temp file.
 # Uses mktemp so we never overwrite any version-controlled sources-*.txt file.
@@ -104,7 +111,6 @@ if $MODE_TESTS; then
 
     echo "Compiling integration tests..."
     "$JAVAC" -encoding UTF-8 -d "$TEST_OUTPUT" @"$TEST_SOURCES"
-    rm -f "$TEST_SOURCES"
 
     if ! $COMPILE_ONLY; then
         echo "Running integration tests..."
@@ -125,7 +131,6 @@ if $MODE_WEB || $MODE_SMOKE; then
 
     echo "Compiling application (web UI + services)..."
     "$JAVAC" -encoding UTF-8 -d "$FX_OUTPUT" @"$FX_SOURCES"
-    rm -f "$FX_SOURCES"
 
     if ! $COMPILE_ONLY; then
         if $MODE_SMOKE; then
