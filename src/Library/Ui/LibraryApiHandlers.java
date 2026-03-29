@@ -8,9 +8,11 @@ import Library.Model.NotificationItem;
 import Library.Model.NotificationPriority;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
+import Library.Model.SessionSnapshot;
 import Library.Model.User;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryReadingProgressRepository;
+import Library.Repository.MemorySessionSnapshotRepository;
 import Library.Security.SecurityConfig;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
@@ -22,6 +24,7 @@ import Library.Service.LibrarianService3;
 import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Service.SessionSnapshotService;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -62,6 +65,7 @@ public class LibraryApiHandlers {
     private final LibrarianService3 librarianService;
     private final NotificationService notificationService;
     private final ReadingProgressService readingProgressService;
+    private final SessionSnapshotService sessionSnapshotService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
     private final Map<String, Long> sessionLastActiveAtMs = new ConcurrentHashMap<>();
@@ -85,20 +89,22 @@ public class LibraryApiHandlers {
                         fileService,
                         librarianService,
                         new NotificationService(new MemoryNotificationRepository()),
-                        new ReadingProgressService(new MemoryReadingProgressRepository())
+                        new ReadingProgressService(new MemoryReadingProgressRepository()),
+                        new SessionSnapshotService(new MemorySessionSnapshotRepository())
                     );
-                    }
+    }
 
-                    public LibraryApiHandlers(AuthService authService,
-                                  BookService bookService,
-                                  BorrowService borrowService,
-                                  RecommendationService recommendationService,
-                                  AuthorService2 authorService,
-                                  AuthorDraftService authorDraftService,
-                                  FileService fileService,
-                                  LibrarianService3 librarianService,
-                                  NotificationService notificationService,
-                                  ReadingProgressService readingProgressService) {
+    public LibraryApiHandlers(AuthService authService,
+                              BookService bookService,
+                              BorrowService borrowService,
+                              RecommendationService recommendationService,
+                              AuthorService2 authorService,
+                              AuthorDraftService authorDraftService,
+                              FileService fileService,
+                              LibrarianService3 librarianService,
+                              NotificationService notificationService,
+                              ReadingProgressService readingProgressService,
+                              SessionSnapshotService sessionSnapshotService) {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
@@ -107,12 +113,15 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
-                    this.notificationService = notificationService == null
-                        ? new NotificationService(new MemoryNotificationRepository())
-                        : notificationService;
-                    this.readingProgressService = readingProgressService == null
-                        ? new ReadingProgressService(new MemoryReadingProgressRepository())
-                        : readingProgressService;
+        this.notificationService = notificationService == null
+            ? new NotificationService(new MemoryNotificationRepository())
+            : notificationService;
+        this.readingProgressService = readingProgressService == null
+            ? new ReadingProgressService(new MemoryReadingProgressRepository())
+            : readingProgressService;
+        this.sessionSnapshotService = sessionSnapshotService == null
+            ? new SessionSnapshotService(new MemorySessionSnapshotRepository())
+            : sessionSnapshotService;
         this.latestSessionSnapshot = SessionSnapshotSchema.empty();
     }
 
@@ -188,11 +197,127 @@ public class LibraryApiHandlers {
             }
             String sessionId = exchange.getRequestHeaders().getFirst(SESSION_HEADER);
             if (sessionId != null) {
-                sessions.remove(sessionId.trim());
-                sessionLastActiveAtMs.remove(sessionId.trim());
+                String trimmedSessionId = sessionId.trim();
+                sessionSnapshotService.clearSnapshotForSession(trimmedSessionId);
+                sessions.remove(trimmedSessionId);
+                sessionLastActiveAtMs.remove(trimmedSessionId);
                 refreshSessionSnapshot();
             }
             sendText(exchange, 200, "Logged out.");
+        });
+
+        server.createContext("/api/session-snapshot/save", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                Map<String, String> form = readForm(exchange);
+                String portalKey = RequestFilters.getTrimmed(form, "portalKey", "");
+                String lastViewKey = RequestFilters.getTrimmed(form, "lastViewKey", "");
+                String lastAction = RequestFilters.getTrimmed(form, "lastAction", "");
+                String statePayload = RequestFilters.getTrimmed(form, "statePayload", "");
+
+                SessionSnapshot snapshot = sessionSnapshotService.saveSnapshot(
+                        sessionId,
+                        user.getUsername(),
+                        user.getRole(),
+                        portalKey,
+                        lastViewKey,
+                        lastAction,
+                        statePayload
+                );
+                sendJson(exchange, 200, sessionSnapshotToJson(snapshot, true));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/session-snapshot", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                SessionSnapshot snapshot = sessionSnapshotService
+                        .getSnapshot(sessionId, user.getUsername(), user.getRole())
+                        .orElse(null);
+                sendJson(exchange, 200, sessionSnapshotToJson(snapshot, snapshot != null));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/session-snapshot/clear", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                boolean cleared = sessionSnapshotService.clearSnapshot(sessionId, user.getUsername(), user.getRole());
+                sendJson(exchange, 200, "{" +
+                        "\"status\":\"cleared\"," +
+                        "\"cleared\":" + cleared +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/dev/crash-test", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                Map<String, String> form = readForm(exchange);
+                String portalKey = RequestFilters.getTrimmed(form, "portalKey", "");
+                String lastViewKey = RequestFilters.getTrimmed(form, "lastViewKey", "");
+                String lastAction = RequestFilters.getTrimmed(form, "lastAction", "simulate");
+                String statePayload = RequestFilters.getTrimmed(form, "statePayload", "");
+
+                SessionSnapshot snapshot = sessionSnapshotService.saveSnapshot(
+                        sessionId,
+                        user.getUsername(),
+                        user.getRole(),
+                        portalKey,
+                        lastViewKey,
+                        lastAction,
+                        statePayload
+                );
+
+                String payload = sessionSnapshotToJson(snapshot, true);
+                payload = payload.substring(0, payload.length() - 1)
+                        + ",\"status\":\"simulated\",\"scope\":\"dev-only endpoint\"}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
         });
 
         server.createContext("/api/internal/crash-test", exchange -> {
@@ -1379,6 +1504,7 @@ public class LibraryApiHandlers {
         long lastActiveAt = sessionLastActiveAtMs.getOrDefault(sessionId, now);
         long idleTimeoutMs = SecurityConfig.sessionIdleTimeoutMs();
         if (now - lastActiveAt > idleTimeoutMs) {
+            sessionSnapshotService.clearSnapshotForSession(sessionId);
             sessions.remove(sessionId);
             sessionLastActiveAtMs.remove(sessionId);
             refreshSessionSnapshot();
@@ -1394,6 +1520,18 @@ public class LibraryApiHandlers {
         }
 
         throw new ApiAuthException("Permission denied for role " + user.getRole() + ".");
+    }
+
+    private User requireAuthenticated(HttpExchange exchange) {
+        return requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+    }
+
+    private String requireSessionId(HttpExchange exchange) {
+        String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+        if (sessionId.isEmpty()) {
+            throw new ApiAuthException("Missing session. Please login again.");
+        }
+        return sessionId;
     }
 
     private boolean isCrashHookEnabled(HttpExchange exchange) {
@@ -1686,6 +1824,34 @@ public class LibraryApiHandlers {
         return "{" +
                 "\"total\":" + items.size() + "," +
                 "\"unreadCount\":" + unreadCount +
+                "}";
+    }
+
+    private String sessionSnapshotToJson(SessionSnapshot snapshot, boolean exists) {
+        if (!exists || snapshot == null) {
+            return "{" +
+                    "\"exists\":false," +
+                    "\"sessionId\":\"\"," +
+                    "\"username\":\"\"," +
+                    "\"role\":\"\"," +
+                    "\"portalKey\":\"\"," +
+                    "\"lastViewKey\":\"\"," +
+                    "\"lastAction\":\"\"," +
+                    "\"timestamp\":\"\"," +
+                    "\"statePayload\":\"\"" +
+                    "}";
+        }
+
+        return "{" +
+                "\"exists\":true," +
+                "\"sessionId\":\"" + JsonUtil.escape(snapshot.getSessionId()) + "\"," +
+                "\"username\":\"" + JsonUtil.escape(snapshot.getUsername()) + "\"," +
+                "\"role\":\"" + JsonUtil.escape(snapshot.getRole().name()) + "\"," +
+                "\"portalKey\":\"" + JsonUtil.escape(snapshot.getPortalKey()) + "\"," +
+                "\"lastViewKey\":\"" + JsonUtil.escape(snapshot.getLastViewKey()) + "\"," +
+                "\"lastAction\":\"" + JsonUtil.escape(snapshot.getLastAction()) + "\"," +
+                "\"timestamp\":\"" + JsonUtil.escape(DATE_TIME_FORMATTER.format(snapshot.getCapturedAt())) + "\"," +
+                "\"statePayload\":\"" + JsonUtil.escape(snapshot.getStatePayload()) + "\"" +
                 "}";
     }
 
