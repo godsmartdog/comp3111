@@ -797,6 +797,88 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/submissions", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<BookSubmission2> items = authorService.listSubmissionsByAuthor(user.getUsername());
+                sendJson(exchange, 200, authorSubmissionsToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/update", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+
+                String submissionId = required(form, "submissionId");
+                String title = required(form, "title");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String description = required(form, "description");
+                String filePath = RequestFilters.getTrimmed(form, "filePath", "");
+                if (!filePath.isEmpty()) {
+                    fileService.validateSubmissionFile(filePath);
+                }
+
+                BookSubmission2 updated = authorService.updatePendingSubmission(
+                        user.getUsername(),
+                        submissionId,
+                        title,
+                        genres,
+                        description,
+                        filePath
+                );
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Submission Updated",
+                        "Your pending submission was updated: " + updated.getTitle()
+                );
+                sendText(exchange, 200, "Submission updated: " + updated.getId());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String submissionId = required(form, "submissionId");
+
+                authorService.deletePendingSubmission(user.getUsername(), submissionId);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Submission Deleted",
+                        "Your pending submission was deleted."
+                );
+                sendText(exchange, 200, "Submission deleted: " + submissionId);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/pending", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1292,6 +1374,29 @@ public class LibraryApiHandlers {
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private static String authorSubmissionsToJson(List<BookSubmission2> submissions) {
+        List<String> values = new ArrayList<>();
+        for (BookSubmission2 submission : submissions) {
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : submission.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
+
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"description\":\"" + JsonUtil.escape(submission.getDescription()) + "\"," +
+                    "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
+                    "\"status\":\"" + submission.getStatus() + "\"," +
+                    "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
+                    "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(submission.getRejectionReason())) + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";

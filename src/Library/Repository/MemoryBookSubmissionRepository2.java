@@ -23,6 +23,11 @@ public class MemoryBookSubmissionRepository2 implements BookSubmissionRepository
         data.add(submission);//store in list
     }
 
+    @Override
+    public void deleteById(String id) {
+        data.removeIf(s -> s.getId().equals(id));
+    }
+
     //return first match id submitmission
     @Override
     public Optional<BookSubmission2> findById(String id) {
