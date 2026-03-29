@@ -693,11 +693,19 @@ public final class LibraryIntegrationTest {
         TestContext context = new TestContext();
         Book activeBook = context.addApprovedBook("Borrowed Active", "Author Active", "Active summary");
         Book returnedBook = context.addApprovedBook("Borrowed Returned", "Author Returned", "Returned summary");
+        Book overdueBook = context.addApprovedBook("Borrowed Overdue", "Author Overdue", "Overdue summary");
 
         context.authService.registerStudentOrStaff("borrower-one", "Borrower One", "Password1!", Role.STUDENT);
         BorrowRecord activeRecord = context.borrowService.borrowBook("borrower-one", activeBook.getId(), 7);
         BorrowRecord returnedRecord = context.borrowService.borrowBook("borrower-one", returnedBook.getId(), 7);
         context.borrowService.returnBook("borrower-one", returnedBook.getId());
+        BorrowRecord overdueRecord = new BorrowRecord(
+            "borrower-one",
+            overdueBook.getId(),
+            LocalDate.now().minusDays(10),
+            LocalDate.now().minusDays(2)
+        );
+        context.borrowRepository.save(overdueRecord);
 
         context.librarianService.registerLibrarian("lib-records", "Lib Records", "Password1!", "EMP-RECORDS");
 
@@ -718,6 +726,7 @@ public final class LibraryIntegrationTest {
             String body = response.body();
             assertTrue(body.contains("\"borrowId\":\"" + activeRecord.getId() + "\""), "response should include active borrow id");
             assertTrue(body.contains("\"borrowId\":\"" + returnedRecord.getId() + "\""), "response should include returned borrow id");
+            assertTrue(body.contains("\"borrowId\":\"" + overdueRecord.getId() + "\""), "response should include overdue borrow id");
             assertTrue(body.contains("\"bookId\":\"" + activeBook.getId() + "\""), "response should include book id");
             assertTrue(body.contains("\"bookTitle\":\"" + activeBook.getTitle() + "\""), "response should include book title");
             assertTrue(body.contains("\"borrowerUsername\":\"borrower-one\""), "response should include borrower username");
@@ -725,6 +734,18 @@ public final class LibraryIntegrationTest {
             assertTrue(body.contains("\"dueDate\":"), "response should include due date field");
             assertTrue(body.contains("\"status\":\"Borrowed\""), "response should include borrowed status");
             assertTrue(body.contains("\"status\":\"Returned\""), "response should include returned status");
+
+            String activeRecordJson = extractBorrowRecordObject(body, activeRecord.getId());
+            assertTrue(activeRecordJson.contains("\"returned\":false"), "active record should expose returned=false");
+            assertTrue(activeRecordJson.contains("\"overdue\":false"), "active non-overdue record should expose overdue=false");
+
+            String returnedRecordJson = extractBorrowRecordObject(body, returnedRecord.getId());
+            assertTrue(returnedRecordJson.contains("\"returned\":true"), "returned record should expose returned=true");
+            assertTrue(returnedRecordJson.contains("\"overdue\":false"), "returned record should not be marked overdue");
+
+            String overdueRecordJson = extractBorrowRecordObject(body, overdueRecord.getId());
+            assertTrue(overdueRecordJson.contains("\"returned\":false"), "overdue record should expose returned=false");
+            assertTrue(overdueRecordJson.contains("\"overdue\":true"), "overdue active record should expose overdue=true");
         } finally {
             server.stop(0);
         }
@@ -1048,6 +1069,26 @@ public final class LibraryIntegrationTest {
             throw new AssertionError(fieldName + " terminator not found in response: " + body);
         }
         return body.substring(from, end);
+    }
+
+    private static String extractBorrowRecordObject(String responseBody, String borrowId) {
+        String marker = "\"borrowId\":\"" + borrowId + "\"";
+        int markerIndex = responseBody.indexOf(marker);
+        if (markerIndex < 0) {
+            throw new AssertionError("Borrow record not found in response: " + borrowId);
+        }
+
+        int objectStart = responseBody.lastIndexOf('{', markerIndex);
+        if (objectStart < 0) {
+            throw new AssertionError("Borrow record object start not found for: " + borrowId);
+        }
+
+        int objectEnd = responseBody.indexOf('}', markerIndex);
+        if (objectEnd < 0) {
+            throw new AssertionError("Borrow record object end not found for: " + borrowId);
+        }
+
+        return responseBody.substring(objectStart, objectEnd + 1);
     }
 
         private static void testLibrarianProfileUpdateSuccess() {
