@@ -6,6 +6,7 @@ import Library.Model.Book;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
+import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
@@ -13,6 +14,7 @@ import Library.Repository.MemoryBookRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
 import Library.Repository.MemoryBorrowRepository;
 import Library.Repository.MemoryLibrarianProfileRepository3;
+import Library.Repository.MemoryReadingProgressRepository;
 import Library.Repository.MemoryUserRepository;
 import Library.Security.SessionManager;
 import Library.Service.AuthService;
@@ -22,6 +24,7 @@ import Library.Service.BookService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,6 +41,8 @@ public final class LibraryIntegrationTest {
         runner.run("author publish accepts normalized genres", LibraryIntegrationTest::testAuthorPublishAcceptsNormalizedGenres);
         runner.run("librarian reject and bulk approve flow", LibraryIntegrationTest::testRejectAndBulkApproveFlow);
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
+        runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
+        runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.finish();
     }
 
@@ -205,6 +210,30 @@ public final class LibraryIntegrationTest {
         Files.deleteIfExists(previewFile);
     }
 
+    private static void testAutoReturnOverdueBorrows() {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Borrowed Yesterday", "Tester", "Overdue book sample.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord("overdue-user", book.getId(), LocalDate.now().minusDays(10), LocalDate.now().minusDays(1));
+        context.borrowRepository.save(overdue);
+
+        List<BorrowRecord> active = context.borrowService.listActiveBorrowsByUser("overdue-user");
+        assertEquals(0, active.size(), "overdue borrow should be auto-returned and hidden from active list");
+        assertTrue(overdue.isReturned(), "overdue record should be marked returned");
+        assertTrue(overdue.isAutoReturned(), "overdue record should be flagged as auto-returned");
+        assertTrue(book.isAvailable(), "book should become available after auto-return");
+    }
+
+    private static void testReadingProgressPersistence() {
+        TestContext context = new TestContext();
+        context.readingProgressService.updateProgress("reader-1", "book-1", 7, List.of("line A", "line B"));
+
+        ReadingProgress progress = context.readingProgressService.getProgress("reader-1", "book-1");
+        assertEquals(7, progress.getBookmarkPage(), "bookmark should persist");
+        assertEquals(List.of("line A", "line B"), progress.getHighlights(), "highlights should persist");
+    }
+
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
         Path path = Files.createTempFile(prefix, suffix);
         Files.write(path, lines);
@@ -267,6 +296,7 @@ public final class LibraryIntegrationTest {
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
         private final LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
+        private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
 
         private TestContext() {
             SessionManager.getInstance().destroySession();

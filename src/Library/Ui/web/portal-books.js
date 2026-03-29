@@ -7,6 +7,7 @@ if (currentUser) {
 }
 
 let selectedBookId = null;
+let selectedBorrowedBookId = null;
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
@@ -82,10 +83,111 @@ async function refreshBorrows() {
     list.innerHTML = "";
     items.forEach((item) => {
         const li = document.createElement("li");
-        li.textContent = `${item.bookTitle} (due ${item.dueDate})`;
+        li.innerHTML = `
+            <span>${item.bookTitle} (due ${item.dueDate})${item.overdue ? " [OVERDUE]" : ""}</span>
+            <button class="secondary" type="button">Read</button>
+            <button class="secondary" type="button">Return</button>
+        `;
+        const buttons = li.querySelectorAll("button");
+        const readBtn = buttons[0];
+        const returnBtn = buttons[1];
+
+        readBtn.addEventListener("click", async () => {
+            try {
+                selectedBorrowedBookId = item.bookId;
+                document.getElementById("readerStatus").textContent = `Reading: ${item.bookTitle}`;
+                await loadBorrowedContent(item.bookId);
+                await loadReadingProgress(item.bookId);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        returnBtn.addEventListener("click", async () => {
+            try {
+                const text = await api("/api/return", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({ bookId: item.bookId })
+                }, false);
+                showToast(text, false);
+                if (selectedBorrowedBookId === item.bookId) {
+                    resetReaderUi("Book returned.");
+                }
+                await refreshBooks();
+                await refreshBorrows();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
         list.appendChild(li);
     });
 }
+
+function resetReaderUi(statusText) {
+    const status = document.getElementById("readerStatus");
+    const readerPdf = document.getElementById("readerPdf");
+    const readerText = document.getElementById("readerText");
+    status.textContent = statusText;
+    readerPdf.style.display = "none";
+    readerPdf.src = "";
+    readerText.style.display = "none";
+    readerText.textContent = "";
+    document.getElementById("bookmarkPage").value = "1";
+    document.getElementById("highlightsInput").value = "";
+}
+
+async function loadBorrowedContent(bookId) {
+    const payload = await api(`/api/borrow/content?bookId=${encodeURIComponent(bookId)}`);
+    const readerPdf = document.getElementById("readerPdf");
+    const readerText = document.getElementById("readerText");
+
+    if (payload.type === "pdf") {
+        readerText.style.display = "none";
+        readerText.textContent = "";
+        readerPdf.style.display = "block";
+        readerPdf.src = payload.url;
+        return;
+    }
+
+    readerPdf.style.display = "none";
+    readerPdf.src = "";
+    readerText.style.display = "block";
+    readerText.textContent = payload.content || "No content available.";
+}
+
+async function loadReadingProgress(bookId) {
+    const progress = await api(`/api/reading-progress?bookId=${encodeURIComponent(bookId)}`);
+    document.getElementById("bookmarkPage").value = String(progress.bookmark || 1);
+    document.getElementById("highlightsInput").value = Array.isArray(progress.highlights)
+        ? progress.highlights.join("\n")
+        : "";
+}
+
+document.getElementById("saveProgressBtn").addEventListener("click", async () => {
+    try {
+        if (!selectedBorrowedBookId) {
+            showToast("Please click Read on a borrowed book first.", true);
+            return;
+        }
+
+        const bookmark = Number(document.getElementById("bookmarkPage").value || "1");
+        const highlights = document.getElementById("highlightsInput").value;
+        await api("/api/reading-progress", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                bookId: selectedBorrowedBookId,
+                bookmark,
+                highlights
+            })
+        });
+        showToast("Reading progress saved.", false);
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("searchBtn").addEventListener("click", () => {
     refreshBooks(document.getElementById("searchKeyword").value.trim()).catch((e) => showToast(e.message, true));
