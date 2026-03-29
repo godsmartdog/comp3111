@@ -17,6 +17,8 @@ import java.util.Locale;
 
 // Service class to handle librarian-related operations such as registration, login, and managing book submissions, including approving or rejecting submissions and converting approved submissions into published books.
 public class LibrarianService3 {
+    private static final int MAX_REJECTION_REASON_LENGTH = 500;
+
     private final UserRepository userRepository;
     private final LibrarianProfileRepository3 librarianProfileRepository;
     private final BookSubmissionRepository2 submissionRepository;
@@ -176,14 +178,20 @@ public class LibrarianService3 {
 
     // Method to reject a book submission, validating the submission's existence and status before marking it as rejected and saving the updated submission, which allows librarians to manage submissions that do not meet the library's standards or requirements.
     public void rejectSubmission(String submissionId, String comment) {
+        rejectSubmission(submissionId, comment, comment);
+    }
+
+    public BookSubmission2 rejectSubmission(String submissionId, String comment, String rejectionReason) {
         BookSubmission2 s = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found."));
         if (s.getStatus() != SubmissionState.PENDING) {
             throw new ValidationException("Only pending submissions can be rejected.");
         }
 
-        s.reject(comment == null ? "Rejected" : comment);
+        String safeReason = normalizeRejectionReason(rejectionReason);
+        s.reject(comment == null ? "Rejected" : comment, safeReason);
         submissionRepository.save(s);
+        return s;
     }
 
     // Method to bulk approve multiple book submissions, iterating through the list of submission IDs and calling the approveSubmission method for each ID, which allows librarians to efficiently manage and approve multiple submissions at once.
@@ -194,6 +202,14 @@ public class LibrarianService3 {
     // Method to bulk reject multiple book submissions, iterating through the list of submission IDs and calling the rejectSubmission method for each ID, which allows librarians to efficiently manage and reject multiple submissions at once.
     public void bulkReject(List<String> submissionIds, String comment) {
         for (String id : submissionIds) rejectSubmission(id, comment);
+    }
+
+    private static String normalizeRejectionReason(String reason) {
+        String value = reason == null ? "" : reason.trim();
+        if (value.length() > MAX_REJECTION_REASON_LENGTH) {
+            throw new ValidationException("Rejection reason must be at most " + MAX_REJECTION_REASON_LENGTH + " characters.");
+        }
+        return value;
     }
 
     public record LibrarianProfileSnapshot(String username, String fullName, String employeeId) {

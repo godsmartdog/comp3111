@@ -23,6 +23,7 @@ public class BookSubmission2 {
 
     private SubmissionState status;
     private String librarianComment;
+    private String rejectionReason;
     private LocalDate approvedDate;
 
     // Constructor - first function overloading with currrent system date
@@ -37,6 +38,7 @@ public class BookSubmission2 {
         this.fileName = fileName;
         this.submittedDate = LocalDate.now();
         this.status = SubmissionState.PENDING;
+        this.rejectionReason = "";
     }
 
     // Constructor - second function overloading with user defined and given system date
@@ -51,6 +53,7 @@ public class BookSubmission2 {
         this.fileName = fileName;
         this.submittedDate = submittedDate;
         this.status = SubmissionState.PENDING;// Initialization prevent null exception with use of PENDING
+        this.rejectionReason = "";
     }
     
     // Accessor
@@ -64,18 +67,26 @@ public class BookSubmission2 {
     public LocalDate getSubmittedDate() { return submittedDate; }
     public SubmissionState getStatus() { return status; }
     public String getLibrarianComment() { return librarianComment; }
+    public String getRejectionReason() { return rejectionReason; }
     public LocalDate getApprovedDate() { return approvedDate; }
 
     // Mutator - change status to APPROVED to list considered books - (still not published - only publish afterwards)
     public void approve(String comment) {
         this.status = SubmissionState.APPROVED;
         this.librarianComment = comment;
+        this.rejectionReason = "";
         this.approvedDate = LocalDate.now();
     }
 
     // Mutator - change status to REJECTED - (did NOT pass consideration stage - still before publish stage)
     public void reject(String comment) {
+        reject(comment, "");
+    }
+
+    public void reject(String comment, String rejectionReason) {
         this.status = SubmissionState.REJECTED;
         this.librarianComment = comment;
+        this.rejectionReason = rejectionReason == null ? "" : rejectionReason;
+        this.approvedDate = null;
     }
 }

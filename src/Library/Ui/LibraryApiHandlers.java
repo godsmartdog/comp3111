@@ -947,12 +947,21 @@ public class LibraryApiHandlers {
                 String submissionId = required(form, "submissionId");
                 String action = required(form, "action").toLowerCase();
                 String comment = form.getOrDefault("comment", "");
+                String reason = form.getOrDefault("reason", "");
 
                 if ("approve".equals(action)) {
                     librarianService.approveSubmission(submissionId, comment);
                     sendText(exchange, 200, "Submission approved.");
                 } else if ("reject".equals(action)) {
-                    librarianService.rejectSubmission(submissionId, comment);
+                    BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
+                    String notificationMessage = rejected.getRejectionReason().isBlank()
+                            ? "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian."
+                            : "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + rejected.getRejectionReason();
+                    notificationService.addNotification(
+                            rejected.getAuthorUsername(),
+                            "Submission Rejected",
+                            notificationMessage
+                    );
                     sendText(exchange, 200, "Submission rejected.");
                 } else {
                     sendText(exchange, 400, "Action must be approve or reject.");
