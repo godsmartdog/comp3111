@@ -12,6 +12,24 @@ import java.util.List;
 import java.util.Map;
 
 public class NotificationService {
+    public enum NotificationScope {
+        ACTIVE,
+        ARCHIVED,
+        ALL;
+
+        public static NotificationScope fromString(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return ACTIVE;
+            }
+            return switch (raw.trim().toLowerCase()) {
+                case "active" -> ACTIVE;
+                case "archived" -> ARCHIVED;
+                case "all" -> ALL;
+                default -> throw new BusinessException("Invalid scope. Use active, archived, or all.");
+            };
+        }
+    }
+
     private final NotificationRepository notificationRepository;
 
     public NotificationService(NotificationRepository notificationRepository) {
@@ -19,8 +37,18 @@ public class NotificationService {
     }
 
     public List<NotificationItem> listByUser(String username) {
+        return listByUser(username, NotificationScope.ACTIVE);
+    }
+
+    public List<NotificationItem> listByUser(String username, NotificationScope scope) {
         ensureDefaultNotification(username);
-        List<NotificationItem> items = new ArrayList<>(notificationRepository.findByUsername(username));
+        NotificationScope effectiveScope = scope == null ? NotificationScope.ACTIVE : scope;
+        List<NotificationItem> items = new ArrayList<>();
+        for (NotificationItem item : notificationRepository.findByUsername(username)) {
+            if (matchesScope(item, effectiveScope)) {
+                items.add(item);
+            }
+        }
         items.sort(Comparator.comparing(NotificationItem::getCreatedAt).reversed());
         return items;
     }
@@ -79,6 +107,38 @@ public class NotificationService {
             throw new BusinessException("Notification not found.");
         }
         return item;
+    }
+
+    public NotificationItem archiveNotification(String username, String notificationId) {
+        NotificationItem item = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new BusinessException("Notification not found."));
+        if (!item.getUsername().equals(username)) {
+            throw new BusinessException("Notification does not belong to this user.");
+        }
+
+        item.archive();
+        notificationRepository.save(item);
+        return item;
+    }
+
+    public NotificationItem unarchiveNotification(String username, String notificationId) {
+        NotificationItem item = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new BusinessException("Notification not found."));
+        if (!item.getUsername().equals(username)) {
+            throw new BusinessException("Notification does not belong to this user.");
+        }
+
+        item.unarchive();
+        notificationRepository.save(item);
+        return item;
+    }
+
+    private static boolean matchesScope(NotificationItem item, NotificationScope scope) {
+        return switch (scope) {
+            case ACTIVE -> !item.isArchived();
+            case ARCHIVED -> item.isArchived();
+            case ALL -> true;
+        };
     }
 
     private void ensureDefaultNotification(String username) {

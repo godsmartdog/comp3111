@@ -305,22 +305,32 @@ async function refreshBorrows() {
 async function refreshNotifications() {
     const list = document.getElementById("notificationsList");
     const status = document.getElementById("notificationStatus");
+    const scopeFilter = document.getElementById("notificationScopeFilter");
     if (!list || !status) {
         return;
     }
 
+    const selectedScope = scopeFilter?.value || "active";
     status.textContent = "Loading notifications...";
     try {
-        const items = await api("/api/notifications");
+        const items = await api(`/api/notifications?scope=${encodeURIComponent(selectedScope)}`);
+        const activeItems = selectedScope === "active"
+            ? items
+            : await api("/api/notifications?scope=active");
         list.innerHTML = "";
 
         if (!Array.isArray(items) || items.length === 0) {
-            status.textContent = "No notifications.";
+            const activeUnread = Array.isArray(activeItems)
+                ? activeItems.filter((item) => !item.read).length
+                : 0;
+            status.textContent = `No notifications in ${selectedScope} view. Active unread: ${activeUnread}`;
             return;
         }
 
-        const unreadCount = items.filter((item) => !item.read).length;
-        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
+        const unreadCount = Array.isArray(activeItems)
+            ? activeItems.filter((item) => !item.read).length
+            : 0;
+        status.textContent = `View: ${selectedScope} | Total: ${items.length} | Active Unread: ${unreadCount}`;
 
         items.forEach((item) => {
             const li = document.createElement("li");
@@ -328,6 +338,7 @@ async function refreshNotifications() {
             const created = item.createdAt || "";
             const priority = (item.priority || "NORMAL").toUpperCase();
             const priorityClass = `priority-${priority.toLowerCase()}`;
+            const isArchived = item.archived === true;
 
             li.style.padding = "10px";
             li.style.borderRadius = "8px";
@@ -340,11 +351,12 @@ async function refreshNotifications() {
                     <strong>[${readLabel}] ${item.title}</strong>
                     <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                     <div>${item.message || ""}</div>
-                    <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}</small>
+                    <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
                 </div>
                 <div>
                     <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
                     <button class="danger notification-delete-btn" type="button">Delete</button>
+                    <button class="secondary notification-archive-btn" type="button">${isArchived ? "Unarchive" : "Archive"}</button>
                 </div>
             `;
 
@@ -372,6 +384,22 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification deleted.", false);
+                    await refreshNotifications();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            const archiveButton = li.querySelector(".notification-archive-btn");
+            archiveButton.addEventListener("click", async () => {
+                try {
+                    const endpoint = isArchived ? "/api/notifications/unarchive" : "/api/notifications/archive";
+                    const payload = await api(endpoint, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || (isArchived ? "Notification unarchived." : "Notification archived."), false);
                     await refreshNotifications();
                 } catch (error) {
                     showToast(error.message, true);
@@ -546,6 +574,10 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
 });
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
+    refreshNotifications().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyNotificationScopeBtn")?.addEventListener("click", () => {
     refreshNotifications().catch((e) => showToast(e.message, true));
 });
 

@@ -115,6 +115,8 @@ public final class LibraryIntegrationTest {
         runner.run("non-librarian forbidden from librarian notification APIs", LibraryIntegrationTest::testNonLibrarianForbiddenFromLibrarianNotificationApis);
         runner.run("student/staff notifications list and mark read success", LibraryIntegrationTest::testStudentStaffNotificationApisListAndReadSuccess);
         runner.run("student/staff notification ownership boundary endpoint", LibraryIntegrationTest::testStudentStaffNotificationOwnershipBoundaryEndpoint);
+        runner.run("student/staff notification archive and unarchive success", LibraryIntegrationTest::testStudentStaffNotificationArchiveAndUnarchiveSuccess);
+        runner.run("student/staff notification archive scope filtering and unread consistency", LibraryIntegrationTest::testStudentStaffNotificationArchiveScopeFilteringAndUnreadConsistency);
         runner.run("student/staff profile password change requires current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRequiresCurrentPassword);
         runner.run("student/staff profile password change rejects wrong current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRejectsWrongCurrentPassword);
         runner.run("student/staff profile password change succeeds with correct current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeSucceedsWithCorrectCurrentPassword);
@@ -2092,10 +2094,171 @@ public final class LibraryIntegrationTest {
             HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(400, deleteResponse.statusCode(), "student/staff cannot delete another user's notification");
             assertTrue(deleteResponse.body().contains("does not belong to this user"), "delete response should explain ownership boundary");
+
+                HttpRequest archiveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/archive"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerBSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + foreignNotificationId))
+                    .build();
+                HttpResponse<String> archiveResponse = client.send(archiveRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, archiveResponse.statusCode(), "student/staff cannot archive another user's notification");
+                assertTrue(archiveResponse.body().contains("does not belong to this user"), "archive response should explain ownership boundary");
+
+                HttpRequest unarchiveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/unarchive"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerBSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + foreignNotificationId))
+                    .build();
+                HttpResponse<String> unarchiveResponse = client.send(unarchiveRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, unarchiveResponse.statusCode(), "student/staff cannot unarchive another user's notification");
+                assertTrue(unarchiveResponse.body().contains("does not belong to this user"), "unarchive response should explain ownership boundary");
         } finally {
             server.stop(0);
         }
     }
+
+            private static void testStudentStaffNotificationArchiveAndUnarchiveSuccess() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("archive-owner", "Archive Owner", "Password1!", Role.STUDENT);
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "archive-owner", "Password1!", "STUDENT");
+
+                HttpRequest profileUpdateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Archive+Owner+Updated&password="))
+                    .build();
+                HttpResponse<String> profileUpdateResponse = client.send(profileUpdateRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, profileUpdateResponse.statusCode(), "profile update should create a notification to archive");
+
+                HttpRequest activeListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> activeListResponse = client.send(activeListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, activeListResponse.statusCode(), "active notifications list should return HTTP 200");
+                String notificationId = extractJsonField(activeListResponse.body(), "id");
+                assertTrue(activeListResponse.body().contains("\"archived\":false"), "new notification should be active by default");
+
+                HttpRequest archiveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/archive"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + notificationId))
+                    .build();
+                HttpResponse<String> archiveResponse = client.send(archiveRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, archiveResponse.statusCode(), "archive should succeed for owner");
+                assertTrue(archiveResponse.body().contains("\"status\":\"archived\""), "archive response should confirm archived status");
+
+                HttpRequest archivedListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=archived"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> archivedListResponse = client.send(archivedListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, archivedListResponse.statusCode(), "archived notifications list should return HTTP 200");
+                assertTrue(archivedListResponse.body().contains("\"id\":\"" + notificationId + "\""), "archived list should include archived notification");
+                assertTrue(archivedListResponse.body().contains("\"archived\":true"), "archived notification should expose archived=true");
+
+                HttpRequest unarchiveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/unarchive"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + notificationId))
+                    .build();
+                HttpResponse<String> unarchiveResponse = client.send(unarchiveRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, unarchiveResponse.statusCode(), "unarchive should succeed for owner");
+                assertTrue(unarchiveResponse.body().contains("\"status\":\"active\""), "unarchive response should confirm active status");
+
+                HttpResponse<String> afterUnarchiveActiveResponse = client.send(activeListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, afterUnarchiveActiveResponse.statusCode(), "active notifications after unarchive should return HTTP 200");
+                assertTrue(afterUnarchiveActiveResponse.body().contains("\"id\":\"" + notificationId + "\""), "unarchived notification should return to active list");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationArchiveScopeFilteringAndUnreadConsistency() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("archive-scope", "Archive Scope", "Password1!", Role.STAFF);
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "archive-scope", "Password1!", "STAFF");
+
+                HttpRequest profileUpdateOne = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Archive+Scope+One&password="))
+                    .build();
+                HttpRequest profileUpdateTwo = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Archive+Scope+Two&password="))
+                    .build();
+                assertEquals(200, client.send(profileUpdateOne, HttpResponse.BodyHandlers.ofString()).statusCode(), "first profile update should succeed");
+                assertEquals(200, client.send(profileUpdateTwo, HttpResponse.BodyHandlers.ofString()).statusCode(), "second profile update should succeed");
+
+                HttpRequest activeListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> activeBeforeArchive = client.send(activeListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, activeBeforeArchive.statusCode(), "default notifications endpoint should return active notifications");
+                String toArchiveId = extractJsonField(activeBeforeArchive.body(), "id");
+                int unreadBeforeArchive = countOccurrences(activeBeforeArchive.body(), "\"read\":false");
+
+                HttpRequest archiveRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/archive"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + toArchiveId))
+                    .build();
+                HttpResponse<String> archiveResponse = client.send(archiveRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, archiveResponse.statusCode(), "archive endpoint should succeed for owner");
+
+                HttpResponse<String> activeAfterArchive = client.send(activeListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, activeAfterArchive.statusCode(), "default notifications endpoint should still return active notifications");
+                assertFalse(activeAfterArchive.body().contains("\"id\":\"" + toArchiveId + "\""), "default active scope should exclude archived notifications");
+
+                HttpRequest archivedScopeRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=archived"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> archivedScopeResponse = client.send(archivedScopeRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, archivedScopeResponse.statusCode(), "archived scope endpoint should return HTTP 200");
+                assertTrue(archivedScopeResponse.body().contains("\"id\":\"" + toArchiveId + "\""), "archived scope should include archived notification");
+                assertTrue(archivedScopeResponse.body().contains("\"archived\":true"), "archived scope payload should mark notifications as archived");
+
+                HttpRequest invalidScopeRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=invalid"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> invalidScopeResponse = client.send(invalidScopeRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, invalidScopeResponse.statusCode(), "invalid scope should return HTTP 400");
+                assertTrue(invalidScopeResponse.body().contains("Invalid scope"), "invalid scope response should explain allowed values");
+
+                int unreadAfterArchive = countOccurrences(activeAfterArchive.body(), "\"read\":false");
+                assertTrue(unreadAfterArchive <= unreadBeforeArchive, "active unread count should not increase after archiving an active notification");
+            } finally {
+                server.stop(0);
+            }
+            }
 
     private static void testStudentStaffProfilePasswordChangeRequiresCurrentPassword() throws Exception {
         TestContext context = new TestContext();
