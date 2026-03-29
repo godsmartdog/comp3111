@@ -621,8 +621,84 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.AUTHOR);
-                List<Book> books = bookService.listApprovedBooksByAuthorUsername(user.getUsername());
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
                 sendJson(exchange, 200, authorPublishedBooksToJson(books));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-books", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
+                sendJson(exchange, 200, authorPublishedBooksToJson(books));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/update", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                String title = required(form, "title");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String description = required(form, "description");
+
+                Book updated = authorService.updateOwnedPublishedBook(
+                        user.getUsername(),
+                        bookId,
+                        title,
+                        genres,
+                        description
+                );
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Updated",
+                        "Your published book metadata was updated: " + updated.getTitle()
+                );
+                sendText(exchange, 200, "Published book updated: " + updated.getId());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+
+                authorService.deleteOwnedPublishedBook(user.getUsername(), bookId);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Deleted",
+                        "Your published book was removed from the catalog."
+                );
+                sendText(exchange, 200, "Published book deleted: " + bookId);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1368,10 +1444,16 @@ public class LibraryApiHandlers {
         List<String> values = new ArrayList<>();
         for (Book book : books) {
             String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"description\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
                     "}");
