@@ -13,6 +13,7 @@ import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 
 // Service class to handle librarian-related operations such as registration, login, and managing book submissions, including approving or rejecting submissions and converting approved submissions into published books.
 public class LibrarianService3 {
@@ -82,8 +83,29 @@ public class LibrarianService3 {
 
         // Convert submission to published/approved book for Task 1.3 listing
         Book book = new Book(s.getTitle(), s.getAuthorFullName(), s.getDescription());
+        book.setFileMetadata(s.getFileName(), detectContentType(s.getFileName()));
         book.approve(LocalDate.now());
         bookRepository.save(book);
+    }
+
+    private static String detectContentType(String fileName) {
+        String value = fileName == null ? "" : fileName.trim().toLowerCase(Locale.ROOT);
+        if (value.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        if (value.endsWith(".txt") || value.endsWith(".md")) {
+            return "text/plain";
+        }
+        if (value.endsWith(".doc") || value.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
+        if (value.endsWith(".jpg") || value.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (value.endsWith(".png")) {
+            return "image/png";
+        }
+        return "application/octet-stream";
     }
 
     // Method to reject a book submission, validating the submission's existence and status before marking it as rejected and saving the updated submission, which allows librarians to manage submissions that do not meet the library's standards or requirements.

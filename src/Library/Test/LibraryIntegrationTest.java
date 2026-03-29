@@ -43,6 +43,8 @@ public final class LibraryIntegrationTest {
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
+        runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
+        runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
         runner.finish();
     }
 
@@ -232,6 +234,40 @@ public final class LibraryIntegrationTest {
         ReadingProgress progress = context.readingProgressService.getProgress("reader-1", "book-1");
         assertEquals(7, progress.getBookmarkPage(), "bookmark should persist");
         assertEquals(List.of("line A", "line B"), progress.getHighlights(), "highlights should persist");
+    }
+
+    private static void testProgressAccessRequiresActiveBorrow() {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Restricted Borrow", "Security Tester", "Only borrower should read progress.");
+
+        context.authService.registerStudentOrStaff("non-borrower", "No Borrow", "Password1!", Role.STUDENT);
+        expectThrows(BusinessException.class,
+                () -> context.borrowService.requireActiveBorrow("non-borrower", book.getId()),
+                "not currently borrowed");
+    }
+
+    private static void testApprovedBookRetainsFileMetadata() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("metadata", ".pdf", List.of("fake pdf bytes"));
+
+        context.authorService.registerAuthor("author-meta", "Metadata Author", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-meta",
+                "Metadata Book",
+                List.of("Technology"),
+                "Book with file metadata.",
+                manuscript.toString()
+        );
+
+        context.librarianService.registerLibrarian("lib-meta", "Metadata Librarian", "Password1!", "EMP-META");
+        context.librarianService.approveSubmission(submission.getId(), "Approved with metadata.");
+
+        List<Book> approved = context.bookService.searchApprovedBooks("Metadata Book");
+        assertEquals(1, approved.size(), "approved metadata book should be searchable");
+        assertEquals(manuscript.toString(), approved.get(0).getFilePath(), "approved book should keep submission file reference");
+        assertEquals("application/pdf", approved.get(0).getContentType(), "approved book should store detected content type");
+
+        Files.deleteIfExists(manuscript);
     }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {

@@ -76,8 +76,7 @@ public class BorrowService {
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new NotFoundException("Book not found."));
 
-        BorrowRecord record = borrowRepository.findActiveByUsernameAndBookId(username, bookId)
-                .orElseThrow(() -> new BusinessException("No active borrow record found for this user and book."));
+        BorrowRecord record = requireActiveBorrow(username, bookId);
 
         record.markReturned();
         book.setAvailable(true);
@@ -107,5 +106,11 @@ public class BorrowService {
             bookRepository.findById(record.getBookId()).ifPresent(book -> book.setAvailable(true));
         }
         return overdue.size();
+    }
+
+    public BorrowRecord requireActiveBorrow(String username, String bookId) {
+        autoReturnOverdueBooks(username);
+        return borrowRepository.findActiveByUsernameAndBookId(username, bookId)
+                .orElseThrow(() -> new BusinessException("Book is not currently borrowed by this user."));
     }
 }
