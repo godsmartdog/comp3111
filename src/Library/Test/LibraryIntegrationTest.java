@@ -63,6 +63,11 @@ public final class LibraryIntegrationTest {
         runner.run("borrow records filter returned only", LibraryIntegrationTest::testBorrowRecordsFilterReturnedOnly);
         runner.run("borrow records filter overdue only", LibraryIntegrationTest::testBorrowRecordsFilterOverdueOnly);
         runner.run("borrow records no-filter baseline remains active only", LibraryIntegrationTest::testBorrowRecordsNoFilterCompatibilityBaseline);
+        runner.run("borrow reminders generate due-soon notification", LibraryIntegrationTest::testBorrowRemindersGenerateDueSoonNotification);
+        runner.run("borrow reminders generate overdue notification", LibraryIntegrationTest::testBorrowRemindersGenerateOverdueNotification);
+        runner.run("borrow reminders suppress duplicates on same day", LibraryIntegrationTest::testBorrowRemindersSuppressDuplicatesOnSameDay);
+        runner.run("borrow reminders stay owner scoped", LibraryIntegrationTest::testBorrowRemindersStayOwnerScoped);
+        runner.run("borrows endpoint remains compatible with reminder fields", LibraryIntegrationTest::testBorrowsEndpointRemainsCompatibleWithReminderFields);
         runner.run("borrow limit and recommendation ranking", LibraryIntegrationTest::testBorrowLimitAndRecommendations);
         runner.run("author draft publish and librarian approval", LibraryIntegrationTest::testAuthorDraftPublishAndApproval);
         runner.run("author publish accepts normalized genres", LibraryIntegrationTest::testAuthorPublishAcceptsNormalizedGenres);
@@ -470,6 +475,201 @@ public final class LibraryIntegrationTest {
             String body = response.body();
             assertTrue(body.contains("\"recordId\":\"" + activeRecord.getId() + "\""), "default borrows listing should include active record");
             assertFalse(body.contains("\"recordId\":\"" + returnedRecord.getId() + "\""), "default borrows listing should keep returned records hidden");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRemindersGenerateDueSoonNotification() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Due Soon Reminder Book", "Reminder Author", "Due soon reminder target.");
+        context.authService.registerStudentOrStaff("reminder-due-soon", "Reminder Due Soon", "Password1!", Role.STUDENT);
+        BorrowRecord record = context.borrowService.borrowBook("reminder-due-soon", book.getId(), 2);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "reminder-due-soon", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/reminders/check"))
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "manual reminder check should return HTTP 200");
+            assertTrue(response.body().contains("\"generated\":1"), "manual reminder check should report one generated due-soon reminder");
+
+            long reminderCount = countBorrowReminderNotifications(
+                    context.notificationService.listByUser("reminder-due-soon"),
+                    record.getId(),
+                    "due-soon"
+            );
+            assertEquals(1L, reminderCount, "due-soon reminder should be created exactly once");
+
+            NotificationItem reminder = context.notificationService.listByUser("reminder-due-soon").stream()
+                    .filter(item -> "borrow-reminder".equals(item.getMetadata().get("type")))
+                    .filter(item -> record.getId().equals(item.getMetadata().get("borrowRecordId")))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("expected due-soon reminder notification"));
+            assertEquals(NotificationPriority.NORMAL, reminder.getPriority(), "due-soon reminder should use normal priority");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRemindersGenerateOverdueNotification() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Overdue Reminder Book", "Reminder Author", "Overdue reminder target.");
+        context.authService.registerStudentOrStaff("reminder-overdue", "Reminder Overdue", "Password1!", Role.STUDENT);
+        book.setAvailable(false);
+        BorrowRecord record = new BorrowRecord(
+                "reminder-overdue",
+                book.getId(),
+                LocalDate.now().minusDays(7),
+                LocalDate.now().minusDays(1)
+        );
+        context.borrowRepository.save(record);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "reminder-overdue", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/reminders/check"))
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "manual reminder check should return HTTP 200 for overdue borrow");
+            assertTrue(response.body().contains("\"generated\":1"), "manual reminder check should report one generated overdue reminder");
+
+            NotificationItem reminder = context.notificationService.listByUser("reminder-overdue").stream()
+                    .filter(item -> "borrow-reminder".equals(item.getMetadata().get("type")))
+                    .filter(item -> "overdue".equals(item.getMetadata().get("category")))
+                    .filter(item -> record.getId().equals(item.getMetadata().get("borrowRecordId")))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("expected overdue reminder notification"));
+            assertEquals(NotificationPriority.HIGH, reminder.getPriority(), "overdue reminder should use high priority");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRemindersSuppressDuplicatesOnSameDay() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Duplicate Reminder Book", "Reminder Author", "Duplicate suppression target.");
+        context.authService.registerStudentOrStaff("reminder-duplicate", "Reminder Duplicate", "Password1!", Role.STUDENT);
+        BorrowRecord record = context.borrowService.borrowBook("reminder-duplicate", book.getId(), 2);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "reminder-duplicate", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/reminders/check"))
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> firstResponse = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> secondResponse = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, firstResponse.statusCode(), "first reminder check should return HTTP 200");
+            assertEquals(200, secondResponse.statusCode(), "second reminder check should return HTTP 200");
+            assertTrue(firstResponse.body().contains("\"generated\":1"), "first reminder check should create one reminder");
+            assertTrue(secondResponse.body().contains("\"generated\":0"), "second reminder check should suppress duplicate reminder creation");
+
+            long reminderCount = countBorrowReminderNotifications(
+                    context.notificationService.listByUser("reminder-duplicate"),
+                    record.getId(),
+                    "due-soon"
+            );
+            assertEquals(1L, reminderCount, "duplicate reminder checks should keep exactly one reminder for the same borrow/day/category");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowRemindersStayOwnerScoped() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Owner Scoped Reminder Book", "Reminder Author", "Ownership reminder target.");
+        context.authService.registerStudentOrStaff("reminder-owner-a", "Reminder Owner A", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("reminder-owner-b", "Reminder Owner B", "Password1!", Role.STUDENT);
+        BorrowRecord record = context.borrowService.borrowBook("reminder-owner-a", book.getId(), 2);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String otherSessionId = loginAndGetSessionId(client, baseUrl, "reminder-owner-b", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/reminders/check"))
+                    .header("X-Session-Id", otherSessionId)
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "other user reminder check should return HTTP 200");
+            assertTrue(response.body().contains("\"generated\":0"), "other user should not generate reminders for someone else's borrow");
+
+            long ownerReminderCount = countBorrowReminderNotifications(
+                    context.notificationService.listByUser("reminder-owner-a"),
+                    record.getId(),
+                    "due-soon"
+            );
+            assertEquals(0L, ownerReminderCount, "other user's reminder check must not create owner reminders");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBorrowsEndpointRemainsCompatibleWithReminderFields() throws Exception {
+        TestContext context = new TestContext();
+        Book dueSoonBook = context.addApprovedBook("Borrow Reminder Due Soon API", "Reminder Author", "Due soon API payload target.");
+        Book overdueBook = context.addApprovedBook("Borrow Reminder Overdue API", "Reminder Author", "Overdue API payload target.");
+        context.authService.registerStudentOrStaff("reminder-api", "Reminder Api", "Password1!", Role.STUDENT);
+
+        BorrowRecord dueSoonRecord = context.borrowService.borrowBook("reminder-api", dueSoonBook.getId(), 2);
+        overdueBook.setAvailable(false);
+        BorrowRecord overdueRecord = new BorrowRecord(
+                "reminder-api",
+                overdueBook.getId(),
+                LocalDate.now().minusDays(8),
+                LocalDate.now().minusDays(2)
+        );
+        context.borrowRepository.save(overdueRecord);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "reminder-api", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows?status=all"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "borrows endpoint should remain compatible with reminder fields enabled");
+
+            String body = response.body();
+            assertTrue(body.contains("\"recordId\":\"" + dueSoonRecord.getId() + "\""), "borrows response should include due-soon record");
+            assertTrue(body.contains("\"recordId\":\"" + overdueRecord.getId() + "\""), "borrows response should include overdue record");
+            assertTrue(body.contains("\"dueSoon\":true"), "borrows response should expose dueSoon as a boolean");
+            assertTrue(body.contains("\"reminderLevel\":\"due-soon\""), "borrows response should expose due-soon reminder level");
+            assertTrue(body.contains("\"overdue\":true"), "borrows response should expose overdue as a boolean");
+            assertTrue(body.contains("\"reminderLevel\":\"overdue\""), "borrows response should expose overdue reminder level");
+            assertTrue(body.contains("\"daysUntilDue\":2"), "borrows response should expose numeric daysUntilDue values without quoting");
+
+            long generatedReminderCount = context.notificationService.listByUser("reminder-api").stream()
+                    .filter(item -> "borrow-reminder".equals(item.getMetadata().get("type")))
+                    .count();
+            assertEquals(2L, generatedReminderCount, "borrows endpoint should generate one reminder per due-soon or overdue borrow");
         } finally {
             server.stop(0);
         }
@@ -3663,6 +3863,16 @@ public final class LibraryIntegrationTest {
             index += token.length();
         }
         return count;
+    }
+
+    private static long countBorrowReminderNotifications(List<NotificationItem> notifications,
+                                                         String borrowRecordId,
+                                                         String category) {
+        return notifications.stream()
+                .filter(item -> "borrow-reminder".equals(item.getMetadata().get("type")))
+                .filter(item -> borrowRecordId.equals(item.getMetadata().get("borrowRecordId")))
+                .filter(item -> category.equals(item.getMetadata().get("category")))
+                .count();
     }
 
     private static String extractBorrowRecordObject(String responseBody, String borrowId) {
