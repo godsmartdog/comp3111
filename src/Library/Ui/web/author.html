@@ -35,6 +35,17 @@
                     <label for="authorProfilePassword">New Password</label>
                     <input id="authorProfilePassword" type="password" placeholder="Leave blank to keep current password">
                 </div>
+                <div id="authorPasswordStrengthBox" class="policy-box" aria-live="polite">
+                    <div id="authorPasswordStrengthLabel">Strength: --</div>
+                    <div id="authorPasswordStrengthHint" class="hint">Enter a new password to see strength guidance.</div>
+                    <ul id="authorPasswordChecklist" class="policy-list hidden">
+                        <li id="authorPasswordRuleLength">8-64 characters</li>
+                        <li id="authorPasswordRuleUpper">At least one uppercase letter</li>
+                        <li id="authorPasswordRuleLower">At least one lowercase letter</li>
+                        <li id="authorPasswordRuleDigit">At least one digit</li>
+                        <li id="authorPasswordRuleSpecial">At least one special character</li>
+                    </ul>
+                </div>
                 <button id="saveAuthorProfileBtn" class="secondary" type="button">Save Profile</button>
                 <p id="authorProfileFeedback"></p>
             </div>
