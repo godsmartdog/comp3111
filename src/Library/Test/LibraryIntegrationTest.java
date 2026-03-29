@@ -52,6 +52,8 @@ public final class LibraryIntegrationTest {
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
         runner.run("personal notifications can be listed and marked read", LibraryIntegrationTest::testNotificationListAndMarkRead);
         runner.run("cannot mark another user's notification", LibraryIntegrationTest::testNotificationOwnershipValidation);
+        runner.run("author can view own published books", LibraryIntegrationTest::testAuthorPublishedBooksOwnOnly);
+        runner.run("author published books enforce ownership boundary", LibraryIntegrationTest::testAuthorPublishedBooksOwnershipBoundary);
         runner.finish();
     }
 
@@ -309,6 +311,52 @@ public final class LibraryIntegrationTest {
         expectThrows(BusinessException.class,
                 () -> context.notificationService.markAsRead("owner-b", foreignItem.getId()),
                 "does not belong to this user");
+    }
+
+    private static void testAuthorPublishedBooksOwnOnly() throws Exception {
+        TestContext context = new TestContext();
+        Path ownOne = createTempTextFile("author-own-1", ".txt", List.of("one"));
+        Path ownTwo = createTempTextFile("author-own-2", ".txt", List.of("two"));
+        Path other = createTempTextFile("author-other", ".txt", List.of("other"));
+
+        context.authorService.registerAuthor("author-own", "Own Author", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-other", "Other Author", "Password1!", "Bio");
+
+        BookSubmission2 ownSubmission1 = context.authorService.publishBook("author-own", "Own Title 1", List.of("Technology"), "Desc1", ownOne.toString());
+        BookSubmission2 ownSubmission2 = context.authorService.publishBook("author-own", "Own Title 2", List.of("Technology"), "Desc2", ownTwo.toString());
+        BookSubmission2 otherSubmission = context.authorService.publishBook("author-other", "Other Title", List.of("Technology"), "Desc3", other.toString());
+
+        context.librarianService.registerLibrarian("lib-own", "Lib Own", "Password1!", "EMP-OWN");
+        context.librarianService.approveSubmission(ownSubmission1.getId(), "ok");
+        context.librarianService.approveSubmission(ownSubmission2.getId(), "ok");
+        context.librarianService.approveSubmission(otherSubmission.getId(), "ok");
+
+        List<Book> ownPublished = context.bookService.listApprovedBooksByAuthorUsername("author-own");
+        assertEquals(2, ownPublished.size(), "author should only see own approved books");
+        assertTrue(ownPublished.stream().allMatch(book -> "author-own".equals(book.getAuthorUsername())), "all returned books should belong to author-own");
+        assertTrue(ownPublished.stream().allMatch(Book::isApproved), "all returned books should be approved");
+        assertTrue(ownPublished.stream().allMatch(book -> book.getPublishDate() != null), "publish date should be present for approved books");
+
+        Files.deleteIfExists(ownOne);
+        Files.deleteIfExists(ownTwo);
+        Files.deleteIfExists(other);
+    }
+
+    private static void testAuthorPublishedBooksOwnershipBoundary() throws Exception {
+        TestContext context = new TestContext();
+        Path ownerFile = createTempTextFile("owner-file", ".txt", List.of("owner"));
+
+        context.authorService.registerAuthor("owner-a", "Owner A", "Password1!", "Bio");
+        context.authorService.registerAuthor("owner-b", "Owner B", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook("owner-a", "Owner A Book", List.of("Technology"), "Desc", ownerFile.toString());
+
+        context.librarianService.registerLibrarian("lib-bound", "Lib Bound", "Password1!", "EMP-BOUND");
+        context.librarianService.approveSubmission(submission.getId(), "ok");
+
+        List<Book> ownerBView = context.bookService.listApprovedBooksByAuthorUsername("owner-b");
+        assertEquals(0, ownerBView.size(), "owner-b must not see owner-a published books");
+
+        Files.deleteIfExists(ownerFile);
     }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {

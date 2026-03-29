@@ -108,6 +108,35 @@ async function refreshDrafts() {
     });
 }
 
+async function refreshPublishedBooks() {
+    const status = document.getElementById("publishedStatus");
+    const body = document.getElementById("publishedBooksBody");
+    if (!status || !body) {
+        return;
+    }
+
+    const items = await api("/api/author/published");
+    body.innerHTML = "";
+
+    if (!Array.isArray(items) || items.length === 0) {
+        status.textContent = "No published books yet.";
+        return;
+    }
+
+    status.textContent = `Found ${items.length} published book(s).`;
+    items.forEach((item) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.title}</td>
+            <td>${item.summary || ""}</td>
+            <td>${item.publishDate || ""}</td>
+            <td>${item.status}</td>
+        `;
+        body.appendChild(row);
+    });
+}
+
 document.getElementById("autoSaveBtn").addEventListener("click", async () => {
     try {
         const text = await api("/api/author/draft", {
@@ -129,6 +158,16 @@ document.getElementById("autoSaveBtn").addEventListener("click", async () => {
 
 document.getElementById("loadDraftsBtn").addEventListener("click", () => {
     refreshDrafts().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
+    refreshPublishedBooks().catch((e) => {
+        const status = document.getElementById("publishedStatus");
+        if (status) {
+            status.textContent = "Failed to load published books.";
+        }
+        showToast(e.message, true);
+    });
 });
 
 document.getElementById("previewBtn").addEventListener("click", async () => {
@@ -184,4 +223,11 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
 if (currentUser) {
     refreshDrafts().catch((e) => showToast(e.message, true));
+    refreshPublishedBooks().catch((e) => {
+        const status = document.getElementById("publishedStatus");
+        if (status) {
+            status.textContent = "Failed to load published books.";
+        }
+        showToast(e.message, true);
+    });
 }
