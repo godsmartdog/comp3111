@@ -220,10 +220,12 @@ public class LibraryApiHandlers {
                 requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String keyword = RequestFilters.getTrimmed(query, "keyword", "");
+                if (keyword.isEmpty()) {
+                    keyword = RequestFilters.getTrimmed(query, "q", "");
+                }
+                Boolean availabilityFilter = parseAvailabilityFilter(query);
 
-                List<Book> books = keyword.isEmpty()
-                        ? bookService.listApprovedBooksWithAvailability()
-                        : bookService.searchApprovedBooks(keyword);
+                List<Book> books = bookService.listApprovedBooksWithFilters(keyword, availabilityFilter);
 
                 sendJson(exchange, 200, booksToJson(books));
             } catch (ApiAuthException e) {
@@ -1102,6 +1104,20 @@ public class LibraryApiHandlers {
             throw new IllegalArgumentException("Missing required field: " + key);
         }
         return value.trim();
+    }
+
+    private static Boolean parseAvailabilityFilter(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "availability", "");
+        if (raw.isEmpty() || "all".equalsIgnoreCase(raw)) {
+            return null;
+        }
+        if ("available".equalsIgnoreCase(raw)) {
+            return true;
+        }
+        if ("unavailable".equalsIgnoreCase(raw)) {
+            return false;
+        }
+        throw new IllegalArgumentException("availability must be one of: all, available, unavailable.");
     }
 
     private static String urlDecode(String input) {
