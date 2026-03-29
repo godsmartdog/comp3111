@@ -235,6 +235,7 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
 });
 
 if (currentUser) {
+    loadProfile().catch((e) => showToast(e.message, true));
     refreshBooks().catch((e) => showToast(e.message, true));
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));

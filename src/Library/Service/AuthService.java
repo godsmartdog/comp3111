@@ -79,6 +79,30 @@ public class AuthService {
         return sessionManager.getCurrentUser();
     }
 
+    public User updateStudentOrStaffProfile(String username, String fullName, String newPassword) {
+        if (username == null || username.isBlank()) {
+            throw new ValidationException("Username cannot be empty.");
+        }
+        if (fullName == null || fullName.isBlank()) {
+            throw new ValidationException("Full Name cannot be empty.");
+        }
+
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ValidationException("User not found."));
+        if (user.getRole() != Role.STUDENT && user.getRole() != Role.STAFF) {
+            throw new ValidationException("Only STUDENT or STAFF profile can be updated here.");
+        }
+
+        user.updateFullName(fullName.trim());
+        if (newPassword != null && !newPassword.isBlank()) {
+            PasswordPolicy.validate(newPassword);
+            user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+
+        userRepository.save(user);
+        return user;
+    }
+
     // Private helper method to validate basic input fields such as username and full name, ensuring they are not null or blank before proceeding with registration or other operations.
     private void validateBasicFields(String username, String fullName) {
         if (username == null || username.isBlank()) {
