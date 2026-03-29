@@ -43,6 +43,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class LibraryApiHandlers {
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private static final String SESSION_HEADER = "X-Session-Id";
+    private static final String CRASH_TEST_HEADER = "X-Crash-Test-Hook";
+    // Local/dev internal testing token only.
+    // TODO: Externalize this to environment/config before any production deployment.
+    private static final String CRASH_TEST_TOKEN = "enable";
 
     private final AuthService authService;
     private final BookService bookService;
@@ -56,6 +60,7 @@ public class LibraryApiHandlers {
     private final ReadingProgressService readingProgressService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
+    private volatile SessionSnapshotSchema latestSessionSnapshot;
 
     public LibraryApiHandlers(AuthService authService,
                               BookService bookService,
@@ -75,6 +80,7 @@ public class LibraryApiHandlers {
         this.librarianService = librarianService;
         this.notificationService = new NotificationService(new MemoryNotificationRepository());
         this.readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+        this.latestSessionSnapshot = SessionSnapshotSchema.empty();
     }
 
     public void register(HttpServer server) {
@@ -127,6 +133,7 @@ public class LibraryApiHandlers {
 
                 String sessionId = UUID.randomUUID().toString();
                 sessions.put(sessionId, user);
+                refreshSessionSnapshot();
 
                 String payload = "{" +
                         "\"username\":\"" + JsonUtil.escape(user.getUsername()) + "\"," +
@@ -148,8 +155,59 @@ public class LibraryApiHandlers {
             String sessionId = exchange.getRequestHeaders().getFirst(SESSION_HEADER);
             if (sessionId != null) {
                 sessions.remove(sessionId.trim());
+                refreshSessionSnapshot();
             }
             sendText(exchange, 200, "Logged out.");
+        });
+
+        server.createContext("/api/internal/crash-test", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (internal/dev-only endpoint).");
+                return;
+            }
+
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (internal/dev-only endpoint).");
+                return;
+            }
+
+            try {
+                Map<String, String> values = "POST".equalsIgnoreCase(exchange.getRequestMethod())
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String action = RequestFilters.getTrimmed(values, "action", "snapshot").toLowerCase();
+
+                switch (action) {
+                    case "snapshot" -> {
+                        refreshSessionSnapshot();
+                        String snapshotJson = latestSessionSnapshot.toJson();
+                        String payload = snapshotJson.substring(0, snapshotJson.length() - 1)
+                                + ",\"scope\":\"internal/dev-only crash-test endpoint\"}";
+                        sendJson(exchange, 200, payload);
+                    }
+                    case "simulate" -> {
+                        refreshSessionSnapshot();
+                        int beforeCount = sessions.size();
+                        sessions.clear();
+                        sendJson(exchange, 200, "{" +
+                                "\"status\":\"simulated\"," +
+                                "\"evictedSessions\":" + beforeCount + "," +
+                                "\"scope\":\"internal/dev-only crash-test endpoint\"" +
+                                "}");
+                    }
+                    case "recover" -> {
+                        int recovered = restoreSessionsFromSnapshot(latestSessionSnapshot);
+                        sendJson(exchange, 200, "{" +
+                                "\"status\":\"recovered\"," +
+                                "\"restoredSessions\":" + recovered + "," +
+                                "\"scope\":\"internal/dev-only crash-test endpoint\"" +
+                                "}");
+                    }
+                    default -> sendText(exchange, 400, "Unsupported crash-test action (internal/dev-only endpoint).");
+                }
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (internal/dev-only endpoint)");
+            }
         });
 
         server.createContext("/api/books", exchange -> {
@@ -161,7 +219,7 @@ public class LibraryApiHandlers {
             try {
                 requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
-                String keyword = query.getOrDefault("keyword", "").trim();
+                String keyword = RequestFilters.getTrimmed(query, "keyword", "");
 
                 List<Book> books = keyword.isEmpty()
                         ? bookService.listApprovedBooksWithAvailability()
@@ -201,6 +259,7 @@ public class LibraryApiHandlers {
                 String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
                 if (!sessionId.isEmpty()) {
                     sessions.put(sessionId, updated);
+                    refreshSessionSnapshot();
                 }
 
                 notificationService.addNotification(
@@ -269,7 +328,7 @@ public class LibraryApiHandlers {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
-                int days = Integer.parseInt(form.getOrDefault("days", "14"));
+                int days = RequestFilters.parseIntInRange(form, "days", 14, 1, 14);
 
                 BorrowRecord record = borrowService.borrowBook(user.getUsername(), bookId, days);
                 notificationService.addNotification(
@@ -294,7 +353,7 @@ public class LibraryApiHandlers {
             try {
                 requireRole(exchange, Role.STUDENT, Role.STAFF);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
-                int limit = Integer.parseInt(query.getOrDefault("limit", "5"));
+                int limit = RequestFilters.parseIntInRange(query, "limit", 5, 1, 50);
                 List<Book> books = recommendationService.recommendTopPopular(limit);
                 sendJson(exchange, 200, booksToJson(books));
             } catch (ApiAuthException e) {
@@ -450,8 +509,8 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
                 borrowService.requireActiveBorrow(user.getUsername(), bookId);
-                int bookmark = Integer.parseInt(form.getOrDefault("bookmark", "1"));
-                List<String> highlights = parseHighlights(form.getOrDefault("highlights", ""));
+                int bookmark = RequestFilters.parseIntInRange(form, "bookmark", 1, 1, Integer.MAX_VALUE);
+                List<String> highlights = RequestFilters.parseNewlineList(form, "highlights");
                 ReadingProgress updated = readingProgressService.updateProgress(user.getUsername(), bookId, bookmark, highlights);
                 sendJson(exchange, 200, readingProgressToJson(updated));
             } catch (ApiAuthException e) {
@@ -471,7 +530,7 @@ public class LibraryApiHandlers {
                 User user = requireRole(exchange, Role.AUTHOR);
                 Map<String, String> form = readForm(exchange);
                 String title = required(form, "title");
-                List<String> genres = splitCsv(form.getOrDefault("genres", ""));
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String description = form.getOrDefault("description", "");
                 String filePath = form.getOrDefault("filePath", "");
 
@@ -622,7 +681,7 @@ public class LibraryApiHandlers {
                 requireRole(exchange, Role.AUTHOR);
                 Map<String, String> form = readForm(exchange);
                 String title = required(form, "title");
-                List<String> genres = splitCsv(form.getOrDefault("genres", ""));
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String description = required(form, "description");
                 String preview = authorService.previewBook(title, genres, description);
                 sendText(exchange, 200, preview);
@@ -654,7 +713,7 @@ public class LibraryApiHandlers {
                 }
 
                 String title = required(form, "title");
-                List<String> genres = splitCsv(form.getOrDefault("genres", ""));
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String description = required(form, "description");
                 String filePath = form.getOrDefault("filePath", "").trim();
 
@@ -819,6 +878,7 @@ public class LibraryApiHandlers {
                 if (!sessionId.isEmpty()) {
                     user.updateFullName(updated.fullName());
                     sessions.put(sessionId, user);
+                    refreshSessionSnapshot();
                 }
 
                 sendText(exchange, 200, "Librarian profile updated successfully.");
@@ -921,6 +981,34 @@ public class LibraryApiHandlers {
         throw new ApiAuthException("Permission denied for role " + user.getRole() + ".");
     }
 
+    private boolean isCrashHookEnabled(HttpExchange exchange) {
+        String token = nullToEmpty(exchange.getRequestHeaders().getFirst(CRASH_TEST_HEADER)).trim();
+        return CRASH_TEST_TOKEN.equals(token);
+    }
+
+    private void refreshSessionSnapshot() {
+        latestSessionSnapshot = SessionSnapshotSchema.capture(sessions);
+    }
+
+    private int restoreSessionsFromSnapshot(SessionSnapshotSchema snapshot) {
+        sessions.clear();
+        int restored = 0;
+
+        for (SessionSnapshotSchema.SessionEntry entry : snapshot.sessions()) {
+            try {
+                Role role = Role.valueOf(entry.role());
+                User user = new User(entry.username(), entry.fullName(), "", role);
+                sessions.put(entry.sessionId(), user);
+                restored++;
+            } catch (Exception ignored) {
+                // Skip invalid or unknown session entries.
+            }
+        }
+
+        refreshSessionSnapshot();
+        return restored;
+    }
+
     private String booksToJson(List<Book> books) {
         List<String> items = new ArrayList<>();
         for (Book book : books) {
@@ -990,37 +1078,6 @@ public class LibraryApiHandlers {
         return URLDecoder.decode(input, StandardCharsets.UTF_8);
     }
 
-    private static List<String> splitCsv(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
-        }
-
-        List<String> values = new ArrayList<>();
-        String[] parts = raw.split(",");
-        for (String part : parts) {
-            String trimmed = part.trim();
-            if (!trimmed.isEmpty()) {
-                values.add(trimmed);
-            }
-        }
-        return values;
-    }
-
-    private static List<String> parseHighlights(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
-        }
-
-        List<String> values = new ArrayList<>();
-        for (String line : raw.split("\\n")) {
-            String trimmed = line.trim();
-            if (!trimmed.isEmpty()) {
-                values.add(trimmed);
-            }
-        }
-        return values;
-    }
-
     private static String readingProgressToJson(ReadingProgress progress) {
         List<String> highlightJson = new ArrayList<>();
         for (String highlight : progress.getHighlights()) {
@@ -1036,12 +1093,29 @@ public class LibraryApiHandlers {
     private static String notificationsToJson(List<NotificationItem> items) {
         List<String> values = new ArrayList<>();
         for (NotificationItem item : items) {
+            List<String> metadataValues = new ArrayList<>();
+            for (Map.Entry<String, String> metadata : item.getMetadata().entrySet()) {
+                metadataValues.add("\"" + JsonUtil.escape(metadata.getKey()) + "\":\"" + JsonUtil.escape(metadata.getValue()) + "\"");
+            }
+
+            String actionJson = "null";
+            if (item.getAction() != null) {
+                actionJson = "{" +
+                        "\"type\":\"" + JsonUtil.escape(item.getAction().getType()) + "\"," +
+                        "\"label\":\"" + JsonUtil.escape(item.getAction().getLabel()) + "\"," +
+                        "\"target\":\"" + JsonUtil.escape(item.getAction().getTarget()) + "\"," +
+                        "\"method\":\"" + JsonUtil.escape(item.getAction().getMethod()) + "\"" +
+                        "}";
+            }
+
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
                     "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
-                    "\"read\":" + item.isRead() +
+                    "\"read\":" + item.isRead() + "," +
+                    "\"metadata\":{" + String.join(",", metadataValues) + "}," +
+                    "\"action\":" + actionJson +
                     "}");
         }
         return "[" + String.join(",", values) + "]";
