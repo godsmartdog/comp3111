@@ -346,6 +346,37 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/borrow/bulk", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+                if (bookIds.isEmpty()) {
+                    throw new IllegalArgumentException("Missing required field: bookIds");
+                }
+                int days = RequestFilters.parseIntInRange(form, "days", 14, 1, 14);
+
+                List<BorrowRecord> records = borrowService.borrowBooks(user.getUsername(), bookIds, days);
+                BorrowRecord sample = records.get(0);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Books Borrowed",
+                        "You borrowed " + records.size() + " books. Due date: " + sample.getDueDate()
+                );
+
+                sendText(exchange, 200, "Borrowed " + records.size() + " books successfully. Due date: " + sample.getDueDate());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/recommendations", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");

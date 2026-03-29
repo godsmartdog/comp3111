@@ -7,10 +7,37 @@ if (currentUser) {
 }
 
 let selectedBookId = null;
+const selectedBookIds = new Set();
 let selectedBorrowedBookId = null;
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
+
+function updateSelectedBookLabel() {
+    const selectedBookLabel = document.getElementById("selectedBook");
+    const totalSelected = selectedBookIds.size;
+    if (!selectedBookId) {
+        selectedBookLabel.textContent = `Selected book: none | Multi-selected: ${totalSelected}`;
+        return;
+    }
+
+    const selected = allBooks.find((book) => book.id === selectedBookId);
+    const title = selected?.title || selectedBookId;
+    selectedBookLabel.textContent = `Selected book: ${title} | Multi-selected: ${totalSelected}`;
+}
+
+function syncMultiSelectionWithVisibleBooks() {
+    const visibleIds = new Set(allBooks.map((book) => book.id));
+    Array.from(selectedBookIds).forEach((bookId) => {
+        if (!visibleIds.has(bookId)) {
+            selectedBookIds.delete(bookId);
+        }
+    });
+
+    if (selectedBookId && !visibleIds.has(selectedBookId)) {
+        selectedBookId = null;
+    }
+}
 
 function getTotalPages() {
     return Math.max(1, Math.ceil(allBooks.length / pageSize));
@@ -46,12 +73,28 @@ function renderBooks(books) {
             <td>${book.title}</td>
             <td>${book.author}</td>
             <td class="${statusClass}">${book.available ? "Available" : "Unavailable"}</td>
-            <td><button class="secondary">Select</button></td>
+            <td>
+                <label>
+                    <input class="book-multi-select" type="checkbox" ${selectedBookIds.has(book.id) ? "checked" : ""}>
+                    Multi
+                </label>
+                <button class="secondary" type="button">Select</button>
+            </td>
         `;
+
+        const checkbox = row.querySelector(".book-multi-select");
+        checkbox.addEventListener("change", () => {
+            if (checkbox.checked) {
+                selectedBookIds.add(book.id);
+            } else {
+                selectedBookIds.delete(book.id);
+            }
+            updateSelectedBookLabel();
+        });
 
         row.querySelector("button").addEventListener("click", () => {
             selectedBookId = book.id;
-            document.getElementById("selectedBook").textContent = `Selected book: ${book.title}`;
+            updateSelectedBookLabel();
         });
 
         tbody.appendChild(row);
@@ -73,8 +116,10 @@ async function refreshBooks(keyword = "") {
     const url = query ? `/api/books?${query}` : "/api/books";
     const books = await api(url);
     allBooks = [...books].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+    syncMultiSelectionWithVisibleBooks();
     currentPage = 1;
     renderCurrentPageBooks();
+    updateSelectedBookLabel();
 }
 
 async function refreshRecommendations() {
@@ -307,6 +352,33 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
         }, false);
 
         showToast(text, false);
+        await refreshBooks();
+        await refreshRecommendations();
+        await refreshBorrows();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
+
+document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => {
+    try {
+        if (selectedBookIds.size === 0) {
+            showToast("Please multi-select at least one book first.", true);
+            return;
+        }
+
+        const days = Number(document.getElementById("borrowDays").value);
+        const text = await api("/api/borrow/bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                bookIds: Array.from(selectedBookIds).join(","),
+                days
+            })
+        }, false);
+
+        showToast(text, false);
+        selectedBookIds.clear();
         await refreshBooks();
         await refreshRecommendations();
         await refreshBorrows();
