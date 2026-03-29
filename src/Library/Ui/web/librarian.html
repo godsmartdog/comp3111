@@ -22,6 +22,26 @@
 
 <main class="layout single-col" data-role="LIBRARIAN">
     <section class="panel glass-panel">
+        <h2>Manage Profile</h2>
+        <div class="split">
+            <div>
+                <div class="inline-row">
+                    <label for="librarianProfileFullName">Full Name</label>
+                    <input id="librarianProfileFullName" type="text" placeholder="Your full name">
+                </div>
+                <div class="inline-row">
+                    <label for="librarianProfileEmployeeId">Employee ID</label>
+                    <input id="librarianProfileEmployeeId" type="text" placeholder="EMP-001">
+                </div>
+                <div class="inline-row">
+                    <label for="librarianProfilePassword">New Password</label>
+                    <input id="librarianProfilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <button id="saveLibrarianProfileBtn" class="secondary" type="button">Save Profile</button>
+                <p id="librarianProfileFeedback"></p>
+            </div>
+        </div>
+
         <h2>Pending Submissions</h2>
         <button id="refreshPendingBtn" class="secondary">Refresh Pending Submissions</button>
 

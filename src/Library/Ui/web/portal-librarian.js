@@ -4,6 +4,54 @@ if (currentUser) {
     attachLogout("logoutBtn");
 }
 
+async function loadLibrarianProfile() {
+    const payload = await api("/api/librarian/profile");
+    document.getElementById("librarianProfileFullName").value = payload.fullName || "";
+    document.getElementById("librarianProfileEmployeeId").value = payload.employeeId || "";
+}
+
+async function saveLibrarianProfile() {
+    const feedback = document.getElementById("librarianProfileFeedback");
+    const fullName = document.getElementById("librarianProfileFullName").value.trim();
+    const employeeId = document.getElementById("librarianProfileEmployeeId").value.trim();
+    const password = document.getElementById("librarianProfilePassword").value;
+
+    if (!fullName) {
+        feedback.textContent = "Full Name cannot be empty.";
+        showToast(feedback.textContent, true);
+        return;
+    }
+    if (!employeeId) {
+        feedback.textContent = "Employee ID cannot be empty.";
+        showToast(feedback.textContent, true);
+        return;
+    }
+
+    if (password.trim()) {
+        const issues = getPasswordPolicyViolations(password);
+        if (issues.length > 0) {
+            feedback.textContent = issues[0];
+            showToast(feedback.textContent, true);
+            return;
+        }
+    }
+
+    const text = await api("/api/librarian/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({ fullName, employeeId, password })
+    }, false);
+
+    feedback.textContent = text;
+    document.getElementById("librarianProfilePassword").value = "";
+    if (currentUser) {
+        currentUser.fullName = fullName;
+        saveCurrentUser(currentUser);
+        document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
+    }
+    showToast(text, false);
+}
+
 function renderPending(items) {
     const tbody = document.getElementById("pendingBody");
     tbody.innerHTML = "";
@@ -107,11 +155,28 @@ document.getElementById("refreshPendingBtn").addEventListener("click", () => {
     refreshPending().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("saveLibrarianProfileBtn")?.addEventListener("click", () => {
+    saveLibrarianProfile().catch((e) => {
+        const feedback = document.getElementById("librarianProfileFeedback");
+        if (feedback) {
+            feedback.textContent = e.message;
+        }
+        showToast(e.message, true);
+    });
+});
+
 document.getElementById("refreshApprovedBooksBtn")?.addEventListener("click", () => {
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
 });
 
 if (currentUser) {
+    loadLibrarianProfile().catch((e) => {
+        const feedback = document.getElementById("librarianProfileFeedback");
+        if (feedback) {
+            feedback.textContent = "Failed to load librarian profile.";
+        }
+        showToast(e.message, true);
+    });
     refreshPending().catch((e) => showToast(e.message, true));
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
 }

@@ -12,6 +12,7 @@ import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
 import Library.Model.AuthorProfile2;
+import Library.Model.LibrarianProfile3;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
@@ -69,6 +70,9 @@ public final class LibraryIntegrationTest {
         runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
         runner.run("librarian can view approved books endpoint", LibraryIntegrationTest::testLibrarianCanViewApprovedBooksEndpoint);
         runner.run("non-librarian cannot access approved books endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessApprovedBooksEndpoint);
+        runner.run("librarian profile update success", LibraryIntegrationTest::testLibrarianProfileUpdateSuccess);
+        runner.run("librarian profile validation failures", LibraryIntegrationTest::testLibrarianProfileValidationFailures);
+        runner.run("librarian profile ownership boundary", LibraryIntegrationTest::testLibrarianProfileOwnershipBoundary);
         runner.finish();
     }
 
@@ -566,6 +570,59 @@ public final class LibraryIntegrationTest {
         }
         return body.substring(from, end);
     }
+
+        private static void testLibrarianProfileUpdateSuccess() {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-profile", "Old Lib", "Password1!", "EMP-OLD");
+
+        LibrarianService3.LibrarianProfileSnapshot before = context.librarianService.getLibrarianProfile("lib-profile");
+        assertEquals("Old Lib", before.fullName(), "initial librarian full name should match");
+        assertEquals("EMP-OLD", before.employeeId(), "initial employee id should match");
+
+        LibrarianService3.LibrarianProfileSnapshot updated = context.librarianService.updateLibrarianProfile(
+            "lib-profile",
+            "lib-profile",
+            "New Lib",
+            "EMP-NEW",
+            "NewPass1!"
+        );
+        assertEquals("New Lib", updated.fullName(), "librarian full name should update");
+        assertEquals("EMP-NEW", updated.employeeId(), "employee id should update");
+
+        context.librarianService.loginLibrarian("lib-profile", "NewPass1!");
+        expectThrows(AuthenticationException.class,
+            () -> context.librarianService.loginLibrarian("lib-profile", "Password1!"),
+            "Invalid username or password");
+        }
+
+        private static void testLibrarianProfileValidationFailures() {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-validate", "Valid Librarian", "Password1!", "EMP-VALID");
+
+        expectThrows(ValidationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "", "EMP-VALID", ""),
+            "Full Name cannot be empty");
+        expectThrows(ValidationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "", ""),
+            "Employee ID cannot be empty");
+        expectThrows(ValidationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-validate", "lib-validate", "Valid Librarian", "EMP-VALID", "short"),
+            "Password must be between 8 and 64 characters");
+        }
+
+        private static void testLibrarianProfileOwnershipBoundary() {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("lib-a", "Lib A", "Password1!", "EMP-A");
+        context.librarianService.registerLibrarian("lib-b", "Lib B", "Password1!", "EMP-B");
+
+        expectThrows(ValidationException.class,
+            () -> context.librarianService.updateLibrarianProfile("lib-a", "lib-b", "Changed", "EMP-CHANGED", ""),
+            "Cannot update another librarian's profile");
+
+        LibrarianProfile3 profileB = context.librarianProfileRepository.findByUsername("lib-b")
+            .orElseThrow(() -> new AssertionError("expected lib-b profile to exist"));
+        assertEquals("EMP-B", profileB.getEmployeeId(), "ownership boundary should keep target profile unchanged");
+        }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
         Path path = Files.createTempFile(prefix, suffix);
