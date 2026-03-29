@@ -135,6 +135,15 @@
         <h3>Notification Board</h3>
         <div id="notificationBox" class="panel-subtle">
             <p id="notificationStatus">Loading notifications...</p>
+            <div class="inline-row">
+                <label for="notificationScopeFilter">View</label>
+                <select id="notificationScopeFilter">
+                    <option value="active" selected>Active</option>
+                    <option value="archived">Archived</option>
+                    <option value="all">All</option>
+                </select>
+                <button id="applyNotificationScopeBtn" class="secondary" type="button">Apply View</button>
+            </div>
             <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
             <ul id="notificationsList"></ul>
         </div>

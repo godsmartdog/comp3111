@@ -295,7 +295,10 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                List<NotificationItem> items = notificationService.listByUser(user.getUsername());
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String scopeRaw = RequestFilters.getTrimmed(query, "scope", "active");
+                NotificationService.NotificationScope scope = NotificationService.NotificationScope.fromString(scopeRaw);
+                List<NotificationItem> items = notificationService.listByUser(user.getUsername(), scope);
                 sendJson(exchange, 200, notificationsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -345,6 +348,56 @@ public class LibraryApiHandlers {
                         "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                         "\"status\":\"deleted\"," +
                         "\"message\":\"Notification deleted.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications/archive", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.archiveNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"archived\"," +
+                        "\"message\":\"Notification archived.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications/unarchive", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.unarchiveNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"active\"," +
+                        "\"message\":\"Notification unarchived.\"" +
                         "}";
                 sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
@@ -1543,6 +1596,8 @@ public class LibraryApiHandlers {
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() + "," +
                     "\"readAt\":\"" + JsonUtil.escape(item.getReadAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getReadAt())) + "\"," +
+                    "\"archived\":" + item.isArchived() + "," +
+                    "\"archivedAt\":\"" + JsonUtil.escape(item.getArchivedAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getArchivedAt())) + "\"," +
                     "\"metadata\":{" + String.join(",", metadataValues) + "}," +
                     "\"action\":" + actionJson +
                     "}");

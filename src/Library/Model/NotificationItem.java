@@ -17,6 +17,8 @@ public class NotificationItem {
     private final Map<String, String> metadata;
     private boolean read;
     private LocalDateTime readAt;
+    private boolean archived;
+    private LocalDateTime archivedAt;
 
     public NotificationItem(String username, String title, String message, LocalDateTime createdAt) {
         this(username, title, message, createdAt, NotificationPriority.NORMAL, null, Map.of());
@@ -48,6 +50,8 @@ public class NotificationItem {
         this.metadata = Collections.unmodifiableMap(copyMetadata(metadata));
         this.read = false;
         this.readAt = null;
+        this.archived = false;
+        this.archivedAt = null;
     }
 
     public String getId() { return id; }
@@ -60,12 +64,26 @@ public class NotificationItem {
     public Map<String, String> getMetadata() { return metadata; }
     public boolean isRead() { return read; }
     public LocalDateTime getReadAt() { return readAt; }
+    public boolean isArchived() { return archived; }
+    public LocalDateTime getArchivedAt() { return archivedAt; }
 
     public void markRead() {
         this.read = true;
         if (this.readAt == null) {
             this.readAt = LocalDateTime.now();
         }
+    }
+
+    public void archive() {
+        this.archived = true;
+        if (this.archivedAt == null) {
+            this.archivedAt = LocalDateTime.now();
+        }
+    }
+
+    public void unarchive() {
+        this.archived = false;
+        this.archivedAt = null;
     }
 
     private static Map<String, String> copyMetadata(Map<String, String> source) {
