@@ -329,6 +329,31 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/notifications/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.deleteNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"deleted\"," +
+                        "\"message\":\"Notification deleted.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrow", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1514,8 +1539,10 @@ public class LibraryApiHandlers {
                     "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
                     "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
+                    "\"priority\":\"" + item.getPriority() + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() + "," +
+                    "\"readAt\":\"" + JsonUtil.escape(item.getReadAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getReadAt())) + "\"," +
                     "\"metadata\":{" + String.join(",", metadataValues) + "}," +
                     "\"action\":" + actionJson +
                     "}");

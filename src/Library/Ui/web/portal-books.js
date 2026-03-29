@@ -326,18 +326,30 @@ async function refreshNotifications() {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             const created = item.createdAt || "";
+            const priority = (item.priority || "NORMAL").toUpperCase();
+            const priorityClass = `priority-${priority.toLowerCase()}`;
+
+            li.style.padding = "10px";
+            li.style.borderRadius = "8px";
+            li.style.marginBottom = "8px";
+            li.style.background = item.read ? "rgba(60, 80, 120, 0.12)" : "rgba(32, 53, 79, 0.2)";
+            li.style.border = item.read ? "1px solid rgba(120, 140, 180, 0.35)" : "1px solid rgba(74, 116, 173, 0.45)";
 
             li.innerHTML = `
                 <div>
                     <strong>[${readLabel}] ${item.title}</strong>
+                    <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                     <div>${item.message || ""}</div>
-                    <small>${created}</small>
+                    <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}</small>
                 </div>
-                <button class="secondary" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                <div>
+                    <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                    <button class="danger notification-delete-btn" type="button">Delete</button>
+                </div>
             `;
 
-            const button = li.querySelector("button");
-            button.addEventListener("click", async () => {
+            const markReadButton = li.querySelector(".notification-read-btn");
+            markReadButton.addEventListener("click", async () => {
                 try {
                     const payload = await api("/api/notifications/read", {
                         method: "POST",
@@ -345,6 +357,21 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification marked as read.", false);
+                    await refreshNotifications();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            const deleteButton = li.querySelector(".notification-delete-btn");
+            deleteButton.addEventListener("click", async () => {
+                try {
+                    const payload = await api("/api/notifications/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || "Notification deleted.", false);
                     await refreshNotifications();
                 } catch (error) {
                     showToast(error.message, true);
