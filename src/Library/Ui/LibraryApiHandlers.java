@@ -646,6 +646,23 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/notifications/summary", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<NotificationItem> items = notificationService.listByUser(user.getUsername());
+                sendJson(exchange, 200, notificationsSummaryToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/notifications/read", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1132,6 +1149,20 @@ public class LibraryApiHandlers {
                     "}");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private static String notificationsSummaryToJson(List<NotificationItem> items) {
+        int unreadCount = 0;
+        for (NotificationItem item : items) {
+            if (!item.isRead()) {
+                unreadCount++;
+            }
+        }
+
+        return "{" +
+                "\"total\":" + items.size() + "," +
+                "\"unreadCount\":" + unreadCount +
+                "}";
     }
 
     private static String authorPublishedBooksToJson(List<Book> books) {
