@@ -638,6 +638,8 @@ public final class LibraryIntegrationTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("expected marked notification to exist"));
         assertTrue(updated.isRead(), "notification should be marked as read");
+        assertEquals("NORMAL", updated.getPriority().name(), "default notification priority should be NORMAL");
+        assertTrue(updated.getReadAt() != null, "read timestamp should be set after marking read");
     }
 
     private static void testNotificationOwnershipValidation() {
@@ -652,6 +654,10 @@ public final class LibraryIntegrationTest {
         expectThrows(BusinessException.class,
                 () -> context.notificationService.markAsRead("owner-b", foreignItem.getId()),
                 "does not belong to this user");
+
+        expectThrows(BusinessException.class,
+            () -> context.notificationService.deleteNotification("owner-b", foreignItem.getId()),
+            "does not belong to this user");
     }
 
     private static void testAuthorPublishedBooksOwnOnly() throws Exception {
@@ -1981,6 +1987,8 @@ public final class LibraryIntegrationTest {
             assertTrue(listResponse.body().contains("\"message\":\"Your profile details were updated successfully.\""), "response should include notification message");
             assertTrue(listResponse.body().contains("\"createdAt\":"), "response should include createdAt");
             assertTrue(listResponse.body().contains("\"read\":false"), "notification should initially be unread");
+            assertTrue(listResponse.body().contains("\"priority\":"), "response should include priority field");
+            int unreadBeforeRead = countOccurrences(listResponse.body(), "\"read\":false");
 
             HttpRequest markReadRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/api/notifications/read"))
@@ -1996,6 +2004,38 @@ public final class LibraryIntegrationTest {
             assertEquals(200, afterReadListResponse.statusCode(), "notifications list after read should return HTTP 200");
             assertTrue(afterReadListResponse.body().contains("\"id\":\"" + notificationId + "\""), "same notification should still exist");
             assertTrue(afterReadListResponse.body().contains("\"read\":true"), "notification should become read");
+            int unreadAfterRead = countOccurrences(afterReadListResponse.body(), "\"read\":false");
+            assertTrue(unreadAfterRead <= unreadBeforeRead, "unread counter should not increase after mark-read");
+
+                HttpRequest secondProfileUpdateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/profile"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("fullName=Staff+Notify+Updated+Again&password="))
+                    .build();
+                HttpResponse<String> secondProfileUpdateResponse = client.send(secondProfileUpdateRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, secondProfileUpdateResponse.statusCode(), "second profile update should generate another notification");
+
+                HttpResponse<String> beforeDeleteListResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, beforeDeleteListResponse.statusCode(), "notifications list before delete should return HTTP 200");
+                int unreadBeforeDelete = countOccurrences(beforeDeleteListResponse.body(), "\"read\":false");
+                String unreadNotificationId = extractJsonField(beforeDeleteListResponse.body(), "id");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + unreadNotificationId))
+                    .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, deleteResponse.statusCode(), "delete notification should return HTTP 200");
+            assertTrue(deleteResponse.body().contains("\"status\":\"deleted\""), "delete response should confirm deleted status");
+
+            HttpResponse<String> afterDeleteListResponse = client.send(listRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, afterDeleteListResponse.statusCode(), "notifications list after delete should return HTTP 200");
+                assertFalse(afterDeleteListResponse.body().contains("\"id\":\"" + unreadNotificationId + "\""), "deleted notification should be removed from list");
+            int unreadAfterDelete = countOccurrences(afterDeleteListResponse.body(), "\"read\":false");
+                assertTrue(unreadAfterDelete <= unreadBeforeDelete, "unread counter should not increase after delete");
         } finally {
             server.stop(0);
         }
@@ -2042,6 +2082,16 @@ public final class LibraryIntegrationTest {
 
             assertEquals(400, markReadResponse.statusCode(), "student/staff cannot mark another user's notification");
             assertTrue(markReadResponse.body().contains("does not belong to this user"), "response should explain ownership boundary");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerBSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("notificationId=" + foreignNotificationId))
+                    .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteResponse.statusCode(), "student/staff cannot delete another user's notification");
+            assertTrue(deleteResponse.body().contains("does not belong to this user"), "delete response should explain ownership boundary");
         } finally {
             server.stop(0);
         }
@@ -2874,6 +2924,20 @@ public final class LibraryIntegrationTest {
             throw new AssertionError(fieldName + " terminator not found in response: " + body);
         }
         return body.substring(from, end);
+    }
+
+    private static int countOccurrences(String text, String token) {
+        if (text == null || text.isEmpty() || token == null || token.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(token, index)) >= 0) {
+            count++;
+            index += token.length();
+        }
+        return count;
     }
 
     private static String extractBorrowRecordObject(String responseBody, String borrowId) {

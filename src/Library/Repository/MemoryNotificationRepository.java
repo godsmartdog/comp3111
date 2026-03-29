@@ -34,4 +34,9 @@ public class MemoryNotificationRepository implements NotificationRepository {
         }
         return result;
     }
+
+    @Override
+    public boolean deleteById(String id) {
+        return items.removeIf(item -> item.getId().equals(id));
+    }
 }

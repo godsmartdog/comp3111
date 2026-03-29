@@ -12,12 +12,14 @@ public class NotificationItem {
     private final String title;
     private final String message;
     private final LocalDateTime createdAt;
+    private final NotificationPriority priority;
     private final NotificationAction action;
     private final Map<String, String> metadata;
     private boolean read;
+    private LocalDateTime readAt;
 
     public NotificationItem(String username, String title, String message, LocalDateTime createdAt) {
-        this(username, title, message, createdAt, null, Map.of());
+        this(username, title, message, createdAt, NotificationPriority.NORMAL, null, Map.of());
     }
 
     public NotificationItem(String username,
@@ -26,14 +28,26 @@ public class NotificationItem {
                             LocalDateTime createdAt,
                             NotificationAction action,
                             Map<String, String> metadata) {
+        this(username, title, message, createdAt, NotificationPriority.NORMAL, action, metadata);
+    }
+
+    public NotificationItem(String username,
+                            String title,
+                            String message,
+                            LocalDateTime createdAt,
+                            NotificationPriority priority,
+                            NotificationAction action,
+                            Map<String, String> metadata) {
         this.id = UUID.randomUUID().toString();
         this.username = username;
         this.title = title;
         this.message = message;
         this.createdAt = createdAt == null ? LocalDateTime.now() : createdAt;
+        this.priority = priority == null ? NotificationPriority.NORMAL : priority;
         this.action = action;
         this.metadata = Collections.unmodifiableMap(copyMetadata(metadata));
         this.read = false;
+        this.readAt = null;
     }
 
     public String getId() { return id; }
@@ -41,12 +55,17 @@ public class NotificationItem {
     public String getTitle() { return title; }
     public String getMessage() { return message; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public NotificationPriority getPriority() { return priority; }
     public NotificationAction getAction() { return action; }
     public Map<String, String> getMetadata() { return metadata; }
     public boolean isRead() { return read; }
+    public LocalDateTime getReadAt() { return readAt; }
 
     public void markRead() {
         this.read = true;
+        if (this.readAt == null) {
+            this.readAt = LocalDateTime.now();
+        }
     }
 
     private static Map<String, String> copyMetadata(Map<String, String> source) {
