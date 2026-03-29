@@ -247,6 +247,20 @@ async function refreshSubmittedBooks() {
             <td>${item.fileName || ""}</td>
         `;
 
+        const readBtn = document.createElement("button");
+        readBtn.className = "secondary";
+        readBtn.type = "button";
+        readBtn.textContent = "Read";
+        readBtn.addEventListener("click", async () => {
+            try {
+                const payload = await api(`/api/author/submission/read?submissionId=${encodeURIComponent(item.id)}`);
+                renderServerFilePreview(payload, `Submission: ${item.title || item.id}`);
+                showToast("Submission preview loaded.", false);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
         if (item.status === "PENDING") {
             const editBtn = document.createElement("button");
             editBtn.className = "secondary";
@@ -321,8 +335,11 @@ async function refreshSubmittedBooks() {
             actionCell.appendChild(document.createTextNode(" "));
             actionCell.appendChild(deleteBtn);
         } else {
-            actionCell.textContent = "Locked";
+            actionCell.textContent = "Locked ";
         }
+
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(readBtn);
 
         row.appendChild(actionCell);
         body.appendChild(row);
@@ -424,12 +441,46 @@ async function refreshPublishedBooks() {
             }
         });
 
+        const readBtn = document.createElement("button");
+        readBtn.className = "secondary";
+        readBtn.type = "button";
+        readBtn.textContent = "Read";
+        readBtn.addEventListener("click", async () => {
+            try {
+                const payload = await api(`/api/author/published-book/read?bookId=${encodeURIComponent(item.id)}`);
+                renderServerFilePreview(payload, `Published: ${item.title || item.id}`);
+                showToast("Published book preview loaded.", false);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
         actionCell.appendChild(editBtn);
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(deleteBtn);
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(readBtn);
         row.appendChild(actionCell);
         body.appendChild(row);
     });
+}
+
+function renderServerFilePreview(payload, heading) {
+    const previewBox = document.getElementById("authorPreview");
+    if (!previewBox) {
+        return;
+    }
+
+    const filePath = payload?.filePath || "";
+    const sizeBytes = payload?.sizeBytes ?? "";
+    const text = payload?.previewText || "";
+    previewBox.textContent =
+        `=== ${heading} ===\n` +
+        `File: ${filePath}\n` +
+        `Size: ${sizeBytes} bytes\n` +
+        `--- Text Preview ---\n` +
+        `${text}\n` +
+        `--- End Preview ---`;
 }
 
 async function refreshAuthorNotifications() {

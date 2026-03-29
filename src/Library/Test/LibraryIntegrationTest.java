@@ -84,6 +84,11 @@ public final class LibraryIntegrationTest {
         runner.run("author owner can delete pending submission", LibraryIntegrationTest::testAuthorOwnerCanDeletePendingSubmission);
         runner.run("author non-owner cannot update or delete submission", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeleteSubmission);
         runner.run("approved or rejected submission cannot be updated or deleted", LibraryIntegrationTest::testApprovedOrRejectedSubmissionCannotBeUpdatedOrDeleted);
+        runner.run("author owner can read own pending submission file preview", LibraryIntegrationTest::testAuthorOwnerCanReadOwnPendingSubmissionFilePreview);
+        runner.run("author non-owner cannot read submission file preview", LibraryIntegrationTest::testAuthorNonOwnerCannotReadSubmissionFilePreview);
+        runner.run("author read submission rejects invalid submission id", LibraryIntegrationTest::testAuthorReadSubmissionRejectsInvalidSubmissionId);
+        runner.run("author read submission handles missing file safely", LibraryIntegrationTest::testAuthorReadSubmissionHandlesMissingFileSafely);
+        runner.run("author delete rule messages remain consistent", LibraryIntegrationTest::testAuthorDeleteRuleMessagesRemainConsistent);
         runner.run("author notifications list and mark read", LibraryIntegrationTest::testAuthorNotificationListAndRead);
         runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
         runner.run("author notifications summary unread count", LibraryIntegrationTest::testAuthorNotificationSummaryUnreadCount);
@@ -1117,6 +1122,186 @@ public final class LibraryIntegrationTest {
             Files.deleteIfExists(rejectedFile);
         }
         }
+
+    private static void testAuthorOwnerCanReadOwnPendingSubmissionFilePreview() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("author-read-own", ".txt", List.of("line-1", "line-2"));
+
+        context.authorService.registerAuthor("author-read-own", "Author Read Own", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-read-own",
+                "Readable Pending",
+                List.of("Technology"),
+                "Description",
+                file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-read-own", "Password1!", "AUTHOR");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/read?submissionId=" + submission.getId()))
+                    .header("X-Session-Id", authorSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "owner read submission preview should return HTTP 200");
+            assertTrue(response.body().contains("\"itemId\":\"" + submission.getId() + "\""), "response should include submission id");
+            assertTrue(response.body().contains("\"sourceType\":\"submission\""), "response should include submission source type");
+            assertTrue(response.body().contains("line-1"), "response should include text preview content");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+    }
+
+    private static void testAuthorNonOwnerCannotReadSubmissionFilePreview() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("author-read-non-owner", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-read-owner", "Author Read Owner", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-read-other", "Author Read Other", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-read-owner",
+                "Owner Only Read",
+                List.of("Technology"),
+                "Description",
+                file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String nonOwnerSession = loginAndGetSessionId(client, baseUrl, "author-read-other", "Password1!", "AUTHOR");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/read?submissionId=" + submission.getId()))
+                    .header("X-Session-Id", nonOwnerSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, response.statusCode(), "non-owner read submission preview should be rejected");
+            assertTrue(response.body().contains("Cannot read another author's submission."), "ownership rejection should be clear for read endpoint");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+    }
+
+    private static void testAuthorReadSubmissionRejectsInvalidSubmissionId() throws Exception {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-read-invalid", "Author Read Invalid", "Password1!", "Bio");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-read-invalid", "Password1!", "AUTHOR");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/read?submissionId=missing-id"))
+                    .header("X-Session-Id", authorSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, response.statusCode(), "invalid submission id should be rejected");
+            assertTrue(response.body().contains("Submission not found."), "invalid id rejection should explain not found");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testAuthorReadSubmissionHandlesMissingFileSafely() throws Exception {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-read-missing", "Author Read Missing", "Password1!", "Bio");
+
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-read-missing",
+                "Missing File Submission",
+                List.of("Technology"),
+                "Description",
+                "/tmp/non-existent-preview-file.txt"
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-read-missing", "Password1!", "AUTHOR");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/read?submissionId=" + submission.getId()))
+                    .header("X-Session-Id", authorSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, response.statusCode(), "missing file should be rejected safely");
+            assertTrue(response.body().contains("Uploaded file does not exist"), "missing-file response should be clear and safe");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testAuthorDeleteRuleMessagesRemainConsistent() throws Exception {
+        TestContext context = new TestContext();
+        Path ownedFile = createTempTextFile("author-delete-consistent-owned", ".txt", List.of("content"));
+        Path foreignFile = createTempTextFile("author-delete-consistent-foreign", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-delete-consistent-owner", "Owner", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-delete-consistent-other", "Other", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-delete-consistent", "Lib", "Password1!", "EMP-DEL-C");
+
+        BookSubmission2 ownerSubmission = context.authorService.publishBook(
+                "author-delete-consistent-owner",
+                "Owner Submission",
+                List.of("Technology"),
+                "Description",
+                ownedFile.toString()
+        );
+        BookSubmission2 foreignSubmission = context.authorService.publishBook(
+                "author-delete-consistent-other",
+                "Foreign Submission",
+                List.of("Technology"),
+                "Description",
+                foreignFile.toString()
+        );
+        context.librarianService.approveSubmission(ownerSubmission.getId(), "Approved");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String ownerSession = loginAndGetSessionId(client, baseUrl, "author-delete-consistent-owner", "Password1!", "AUTHOR");
+
+            HttpRequest deleteApprovedRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("submissionId=" + ownerSubmission.getId()))
+                    .build();
+            HttpResponse<String> deleteApprovedResponse = client.send(deleteApprovedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteApprovedResponse.statusCode(), "approved submission delete should be blocked");
+            assertTrue(deleteApprovedResponse.body().contains("Only pending submissions can be deleted."), "approved-delete message should stay consistent");
+
+            HttpRequest deleteForeignRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", ownerSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("submissionId=" + foreignSubmission.getId()))
+                    .build();
+            HttpResponse<String> deleteForeignResponse = client.send(deleteForeignRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteForeignResponse.statusCode(), "foreign submission delete should be blocked");
+            assertTrue(deleteForeignResponse.body().contains("Cannot delete another author's submission."), "foreign-delete message should stay consistent");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(ownedFile);
+            Files.deleteIfExists(foreignFile);
+        }
+    }
 
     private static void testAuthorNotificationListAndRead() {
         TestContext context = new TestContext();
@@ -2421,7 +2606,8 @@ public final class LibraryIntegrationTest {
             authorProfileRepository,
             submissionRepository,
             bookRepository,
-            borrowRepository
+            borrowRepository,
+            new FileService()
         );
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();

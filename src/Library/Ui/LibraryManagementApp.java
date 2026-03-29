@@ -80,15 +80,16 @@ public class LibraryManagementApp {
         BookService bookService = new BookService(bookRepository);
         BorrowService borrowService = new BorrowService(bookRepository, borrowRepository);
         RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
+        FileService fileService = new FileService();
         AuthorService2 authorService = new AuthorService2(
             userRepository,
             authorProfileRepository,
             submissionRepository,
             bookRepository,
-            borrowRepository
+            borrowRepository,
+            fileService
         );
         AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
-        FileService fileService = new FileService();
         LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
 
         authService.registerStudentOrStaff("student1", "Student Demo", "Password1!", Library.Model.Role.STUDENT);

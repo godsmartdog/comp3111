@@ -46,18 +46,21 @@ public class AuthorService2 {
     private final BookSubmissionRepository2 submissionRepository;
     private final BookRepository bookRepository;
     private final BorrowRepository borrowRepository;
+    private final FileService fileService;
 
     // Constructor to initialize the service with required repositories, allowing for dependency injection and easier testing.
     public AuthorService2(UserRepository userRepository,
                          AuthorProfileRepository2 authorProfileRepository,
                          BookSubmissionRepository2 submissionRepository,
                          BookRepository bookRepository,
-                         BorrowRepository borrowRepository) {
+                         BorrowRepository borrowRepository,
+                         FileService fileService) {
         this.userRepository = userRepository;
         this.authorProfileRepository = authorProfileRepository;
         this.submissionRepository = submissionRepository;
         this.bookRepository = bookRepository;
         this.borrowRepository = borrowRepository;
+        this.fileService = fileService;
     }
 
     // Method to register a new author, validating input and ensuring unique usernames, while also creating an associated author profile.
@@ -229,6 +232,31 @@ public class AuthorService2 {
         bookRepository.deleteById(existing.getId());
     }
 
+    public FilePreview readOwnedSubmissionFilePreview(String actingUsername, String submissionId) {
+        BookSubmission2 submission = requireOwnedSubmission(actingUsername, submissionId, "read");
+        FileService.TextPreview preview = fileService.readSafeTextPreview(submission.getFileName());
+        return new FilePreview(
+                submission.getId(),
+                "submission",
+                preview.absolutePath(),
+                preview.sizeBytes(),
+                preview.previewText()
+        );
+    }
+
+    public FilePreview readOwnedPublishedBookFilePreview(String actingUsername, String bookId) {
+        Book book = requireOwnedPublishedBook(actingUsername, bookId, "read");
+        String filePath = normalizeRequired(book.getFilePath(), "Published book file path is not available.");
+        FileService.TextPreview preview = fileService.readSafeTextPreview(filePath);
+        return new FilePreview(
+                book.getId(),
+                "published",
+                preview.absolutePath(),
+                preview.sizeBytes(),
+                preview.previewText()
+        );
+    }
+
     public BookSubmission2 updatePendingSubmission(String actingUsername,
                                                    String submissionId,
                                                    String title,
@@ -317,17 +345,23 @@ public class AuthorService2 {
                                                           String submissionId,
                                                           String ownershipVerb,
                                                           String pendingVerb) {
+        BookSubmission2 existing = requireOwnedSubmission(actingUsername, submissionId, ownershipVerb);
+        if (existing.getStatus() != SubmissionState.PENDING) {
+            throw new ValidationException("Only pending submissions can be " + pendingVerb + ".");
+        }
+        return existing;
+    }
+
+    private BookSubmission2 requireOwnedSubmission(String actingUsername,
+                                                   String submissionId,
+                                                   String ownershipVerb) {
         String normalizedActor = normalizeRequired(actingUsername, "Author username cannot be empty.");
         String normalizedSubmissionId = normalizeRequired(submissionId, "Submission ID cannot be empty.");
 
         BookSubmission2 existing = submissionRepository.findById(normalizedSubmissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found."));
-
         if (!existing.getAuthorUsername().equals(normalizedActor)) {
             throw new ValidationException("Cannot " + ownershipVerb + " another author's submission.");
-        }
-        if (existing.getStatus() != SubmissionState.PENDING) {
-            throw new ValidationException("Only pending submissions can be " + pendingVerb + ".");
         }
         return existing;
     }
@@ -358,5 +392,12 @@ public class AuthorService2 {
     }
 
     public record AuthorProfileSnapshot(String username, String fullName, String bio) {
+    }
+
+    public record FilePreview(String itemId,
+                              String sourceType,
+                              String filePath,
+                              long sizeBytes,
+                              String previewText) {
     }
 }
