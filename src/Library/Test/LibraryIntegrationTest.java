@@ -11,6 +11,7 @@ import Library.Model.NotificationAction;
 import Library.Model.NotificationItem;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
+import Library.Model.SubmissionState;
 import Library.Model.AuthorProfile2;
 import Library.Model.LibrarianProfile3;
 import Library.Repository.MemoryNotificationRepository;
@@ -82,6 +83,9 @@ public final class LibraryIntegrationTest {
         runner.run("author and librarian forbidden from student/staff notification APIs", LibraryIntegrationTest::testAuthorAndLibrarianForbiddenFromStudentStaffNotificationApis);
         runner.run("librarian can view borrowed-books records", LibraryIntegrationTest::testLibrarianCanViewBorrowedBooksRecords);
         runner.run("non-librarian cannot access borrowed-books records endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessBorrowedBooksRecordsEndpoint);
+        runner.run("librarian reject with reason persists and notifies author", LibraryIntegrationTest::testLibrarianRejectWithReasonPersistsAndNotifiesAuthor);
+        runner.run("non-librarian cannot reject submissions endpoint", LibraryIntegrationTest::testNonLibrarianCannotRejectSubmissionsEndpoint);
+        runner.run("reject reason length validation", LibraryIntegrationTest::testRejectReasonLengthValidation);
         runner.run("notification foundation supports metadata and action", LibraryIntegrationTest::testNotificationMetadataAndActionFoundation);
         runner.run("shared filters reject invalid recommendation limits", LibraryIntegrationTest::testSharedFilterParsingForRecommendationLimit);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
@@ -231,6 +235,10 @@ public final class LibraryIntegrationTest {
 
         assertEquals(0, context.librarianService.getPendingSubmissions().size(), "all processed submissions should leave pending queue");
         assertEquals(2, context.bookService.listApprovedBooksWithAvailability().size(), "bulk approved submissions should create books");
+        BookSubmission2 rejectedSaved = context.submissionRepository.findById(rejected.getId())
+            .orElseThrow(() -> new AssertionError("rejected submission should be stored"));
+        assertEquals(SubmissionState.REJECTED, rejectedSaved.getStatus(), "rejected submission should remain rejected");
+        assertEquals("Insufficient quality.", rejectedSaved.getRejectionReason(), "rejection reason should persist on submission");
 
         Files.deleteIfExists(fileOne);
         Files.deleteIfExists(fileTwo);
@@ -775,6 +783,136 @@ public final class LibraryIntegrationTest {
             server.stop(0);
         }
     }
+
+        private static void testLibrarianRejectWithReasonPersistsAndNotifiesAuthor() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("rejection-reason", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-reject", "Author Reject", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-reject", "Lib Reject", "Password1!", "EMP-REJECT");
+
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-reject",
+            "Rejected With Reason",
+            List.of("Technology"),
+            "Description",
+            file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "lib-reject", "Password1!", "LIBRARIAN");
+
+            HttpRequest rejectRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/review"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", librarianSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + submission.getId() +
+                        "&action=reject&comment=Rejected&reason=Insufficient+references"
+                ))
+                .build();
+            HttpResponse<String> rejectResponse = client.send(rejectRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, rejectResponse.statusCode(), "librarian reject endpoint should return HTTP 200");
+
+            BookSubmission2 updated = context.submissionRepository.findById(submission.getId())
+                .orElseThrow(() -> new AssertionError("submission should still exist after reject"));
+            assertEquals(SubmissionState.REJECTED, updated.getStatus(), "submission should be rejected");
+            assertEquals("Insufficient references", updated.getRejectionReason(), "reject endpoint should persist rejection reason");
+
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-reject", "Password1!", "AUTHOR");
+            HttpRequest notificationsRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/notifications"))
+                .header("X-Session-Id", authorSession)
+                .GET()
+                .build();
+            HttpResponse<String> notificationsResponse = client.send(notificationsRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, notificationsResponse.statusCode(), "author notifications endpoint should return HTTP 200");
+            assertTrue(notificationsResponse.body().contains("\"title\":\"Submission Rejected\""), "notification should include rejection title");
+            assertTrue(notificationsResponse.body().contains("Insufficient references"), "notification should include rejection reason");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
+
+        private static void testNonLibrarianCannotRejectSubmissionsEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("reject-guard", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-guard", "Author Guard", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-guard",
+            "Guarded Submission",
+            List.of("Technology"),
+            "Description",
+            file.toString()
+        );
+        context.authService.registerStudentOrStaff("stu-reject-no", "Stu Reject", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String studentSession = loginAndGetSessionId(client, baseUrl, "stu-reject-no", "Password1!", "STUDENT");
+
+            HttpRequest rejectRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/review"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", studentSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + submission.getId() + "&action=reject&comment=Rejected&reason=Not+allowed"
+                ))
+                .build();
+            HttpResponse<String> rejectResponse = client.send(rejectRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, rejectResponse.statusCode(), "non-librarian reject request should be forbidden");
+            assertTrue(rejectResponse.body().contains("Permission denied"), "response should explain permission denied");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
+
+        private static void testRejectReasonLengthValidation() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("reject-length", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-length", "Author Length", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-length", "Lib Length", "Password1!", "EMP-LENGTH");
+
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-length",
+            "Length Checked Submission",
+            List.of("Technology"),
+            "Description",
+            file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "lib-length", "Password1!", "LIBRARIAN");
+
+            String longReason = "x".repeat(501);
+            HttpRequest rejectRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/review"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", librarianSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + submission.getId() + "&action=reject&comment=Rejected&reason=" + longReason
+                ))
+                .build();
+            HttpResponse<String> rejectResponse = client.send(rejectRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, rejectResponse.statusCode(), "too-long rejection reason should be rejected");
+            assertTrue(rejectResponse.body().contains("Rejection reason must be at most 500 characters."), "response should describe reason length limit");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
 
     private static void testLibrarianNotificationsListAndReadSuccess() throws Exception {
         TestContext context = new TestContext();

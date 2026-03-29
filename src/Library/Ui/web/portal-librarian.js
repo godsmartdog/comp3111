@@ -252,11 +252,24 @@ async function refreshLibrarianNotifications() {
 
 async function review(submissionId, action) {
     try {
-        const comment = prompt(`Comment for ${action}`) || "";
+        let comment = "";
+        let reason = "";
+
+        if (action === "reject") {
+            reason = (prompt("Rejection reason (optional, max 500 characters)") || "").trim();
+            if (reason.length > 500) {
+                showToast("Rejection reason must be at most 500 characters.", true);
+                return;
+            }
+            comment = reason ? "Rejected" : "Rejected";
+        } else {
+            comment = prompt(`Comment for ${action}`) || "";
+        }
+
         const text = await api("/api/librarian/review", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({ submissionId, action, comment })
+            body: formBody({ submissionId, action, comment, reason })
         }, false);
 
         showToast(text, false);
