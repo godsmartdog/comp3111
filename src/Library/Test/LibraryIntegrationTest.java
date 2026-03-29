@@ -76,6 +76,10 @@ public final class LibraryIntegrationTest {
         runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
         runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
+        runner.run("author owner can update pending submission", LibraryIntegrationTest::testAuthorOwnerCanUpdatePendingSubmission);
+        runner.run("author owner can delete pending submission", LibraryIntegrationTest::testAuthorOwnerCanDeletePendingSubmission);
+        runner.run("author non-owner cannot update or delete submission", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeleteSubmission);
+        runner.run("approved or rejected submission cannot be updated or deleted", LibraryIntegrationTest::testApprovedOrRejectedSubmissionCannotBeUpdatedOrDeleted);
         runner.run("author notifications list and mark read", LibraryIntegrationTest::testAuthorNotificationListAndRead);
         runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
         runner.run("author notifications summary unread count", LibraryIntegrationTest::testAuthorNotificationSummaryUnreadCount);
@@ -721,6 +725,203 @@ public final class LibraryIntegrationTest {
             .orElseThrow(() -> new AssertionError("expected author-b profile to exist"));
         assertEquals("Bio B", profileB.getBio(), "owner boundary should keep original profile unchanged");
     }
+
+        private static void testAuthorOwnerCanUpdatePendingSubmission() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("author-update-own", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-update-own", "Author Update Own", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-update-own",
+            "Original Pending Title",
+            List.of("Technology"),
+            "Original Description",
+            file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-update-own", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/update"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", authorSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + submission.getId()
+                        + "&title=Updated+Pending+Title"
+                        + "&genres=Science"
+                        + "&description=Updated+Description"
+                        + "&filePath=" + file
+                ))
+                .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "owner should be able to update pending submission");
+            assertTrue(updateResponse.body().contains("Submission updated"), "update response should confirm success");
+
+            BookSubmission2 updated = context.submissionRepository.findById(submission.getId())
+                .orElseThrow(() -> new AssertionError("submission should still exist after update"));
+            assertEquals("Updated Pending Title", updated.getTitle(), "pending submission title should update");
+            assertEquals(List.of("Science"), updated.getGenres(), "pending submission genres should update");
+            assertEquals("Updated Description", updated.getDescription(), "pending submission description should update");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
+
+        private static void testAuthorOwnerCanDeletePendingSubmission() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("author-delete-own", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-delete-own", "Author Delete Own", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-delete-own",
+            "Pending Delete Title",
+            List.of("Technology"),
+            "Delete Description",
+            file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-delete-own", "Password1!", "AUTHOR");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/delete"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", authorSession)
+                .POST(HttpRequest.BodyPublishers.ofString("submissionId=" + submission.getId()))
+                .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, deleteResponse.statusCode(), "owner should be able to delete pending submission");
+            assertTrue(deleteResponse.body().contains("Submission deleted"), "delete response should confirm success");
+
+            assertTrue(context.submissionRepository.findById(submission.getId()).isEmpty(), "pending submission should be removed after owner delete");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
+
+        private static void testAuthorNonOwnerCannotUpdateOrDeleteSubmission() throws Exception {
+        TestContext context = new TestContext();
+        Path file = createTempTextFile("author-non-owner", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-owner", "Author Owner", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-other", "Author Other", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+            "author-owner",
+            "Owner Pending Title",
+            List.of("Technology"),
+            "Owner Description",
+            file.toString()
+        );
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String nonOwnerSession = loginAndGetSessionId(client, baseUrl, "author-other", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/update"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", nonOwnerSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + submission.getId()
+                        + "&title=Hacked"
+                        + "&genres=Science"
+                        + "&description=Hacked"
+                        + "&filePath=" + file
+                ))
+                .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, updateResponse.statusCode(), "non-owner update should be rejected");
+            assertTrue(updateResponse.body().contains("Cannot update another author's submission."), "update rejection should explain ownership boundary");
+
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/delete"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", nonOwnerSession)
+                .POST(HttpRequest.BodyPublishers.ofString("submissionId=" + submission.getId()))
+                .build();
+            HttpResponse<String> deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteResponse.statusCode(), "non-owner delete should be rejected");
+            assertTrue(deleteResponse.body().contains("Cannot delete another author's submission."), "delete rejection should explain ownership boundary");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(file);
+        }
+        }
+
+        private static void testApprovedOrRejectedSubmissionCannotBeUpdatedOrDeleted() throws Exception {
+        TestContext context = new TestContext();
+        Path approvedFile = createTempTextFile("author-approved-lock", ".txt", List.of("content"));
+        Path rejectedFile = createTempTextFile("author-rejected-lock", ".txt", List.of("content"));
+
+        context.authorService.registerAuthor("author-locked", "Author Locked", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-locked", "Lib Locked", "Password1!", "EMP-LOCKED");
+
+        BookSubmission2 approvedSubmission = context.authorService.publishBook(
+            "author-locked",
+            "Approved Lock Title",
+            List.of("Technology"),
+            "Approved lock description",
+            approvedFile.toString()
+        );
+        BookSubmission2 rejectedSubmission = context.authorService.publishBook(
+            "author-locked",
+            "Rejected Lock Title",
+            List.of("Technology"),
+            "Rejected lock description",
+            rejectedFile.toString()
+        );
+
+        context.librarianService.approveSubmission(approvedSubmission.getId(), "Approved");
+        context.librarianService.rejectSubmission(rejectedSubmission.getId(), "Rejected");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-locked", "Password1!", "AUTHOR");
+
+            HttpRequest updateApprovedRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/update"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", authorSession)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "submissionId=" + approvedSubmission.getId()
+                        + "&title=Should+Not+Update"
+                        + "&genres=Science"
+                        + "&description=Should+Not+Update"
+                        + "&filePath=" + approvedFile
+                ))
+                .build();
+            HttpResponse<String> updateApprovedResponse = client.send(updateApprovedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, updateApprovedResponse.statusCode(), "approved submission update should be rejected");
+            assertTrue(updateApprovedResponse.body().contains("Only pending submissions can be updated."), "approved update rejection should explain pending-only policy");
+
+            HttpRequest deleteRejectedRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/submission/delete"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", authorSession)
+                .POST(HttpRequest.BodyPublishers.ofString("submissionId=" + rejectedSubmission.getId()))
+                .build();
+            HttpResponse<String> deleteRejectedResponse = client.send(deleteRejectedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, deleteRejectedResponse.statusCode(), "rejected submission delete should be rejected");
+            assertTrue(deleteRejectedResponse.body().contains("Only pending submissions can be deleted."), "rejected delete rejection should explain pending-only policy");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(approvedFile);
+            Files.deleteIfExists(rejectedFile);
+        }
+        }
 
     private static void testAuthorNotificationListAndRead() {
         TestContext context = new TestContext();

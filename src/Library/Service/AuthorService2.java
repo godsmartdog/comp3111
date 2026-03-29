@@ -1,10 +1,12 @@
 package Library.Service;
 
 import Library.Exception.AuthenticationException;
+import Library.Exception.NotFoundException;
 import Library.Exception.ValidationException;
 import Library.Model.AuthorProfile2;
 import Library.Model.BookSubmission2;
 import Library.Model.Role;
+import Library.Model.SubmissionState;
 import Library.Model.User;
 import Library.Repository.AuthorProfileRepository2;
 import Library.Repository.BookSubmissionRepository2;
@@ -13,6 +15,7 @@ import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -175,6 +178,49 @@ public class AuthorService2 {
         return new AuthorProfileSnapshot(user.getUsername(), user.getFullName(), profile.getBio());
     }
 
+    public List<BookSubmission2> listSubmissionsByAuthor(String authorUsername) {
+        String normalizedAuthorUsername = normalizeRequired(authorUsername, "Author username cannot be empty.");
+        return submissionRepository.findByAuthorUsername(normalizedAuthorUsername).stream()
+                .sorted(Comparator.comparing(BookSubmission2::getSubmittedDate, Comparator.reverseOrder())
+                        .thenComparing(BookSubmission2::getId))
+                .toList();
+    }
+
+    public BookSubmission2 updatePendingSubmission(String actingUsername,
+                                                   String submissionId,
+                                                   String title,
+                                                   List<String> genres,
+                                                   String description,
+                                                   String fileName) {
+        BookSubmission2 existing = requireOwnedPendingSubmission(actingUsername, submissionId, "update", "updated");
+        String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
+        List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
+        String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
+
+        String normalizedFileName = fileName == null || fileName.isBlank()
+                ? existing.getFileName()
+                : normalizeRequired(fileName, "Book file is required.");
+        validateFileFormat(normalizedFileName);
+
+        BookSubmission2 updated = new BookSubmission2(
+                existing.getId(),
+                normalizedTitle,
+                existing.getAuthorUsername(),
+                existing.getAuthorFullName(),
+                normalizedGenres,
+                normalizedDescription,
+                normalizedFileName,
+                existing.getSubmittedDate()
+        );
+        submissionRepository.save(updated);
+        return updated;
+    }
+
+    public void deletePendingSubmission(String actingUsername, String submissionId) {
+        BookSubmission2 existing = requireOwnedPendingSubmission(actingUsername, submissionId, "delete", "deleted");
+        submissionRepository.deleteById(existing.getId());
+    }
+
     // Private helper method to validate that the provided genres are all supported, throwing a ValidationException if any unsupported genres are found.
     private List<String> normalizeGenres(List<String> genres, String emptyMessage) {
         if (genres == null) {
@@ -222,6 +268,25 @@ public class AuthorService2 {
             throw new ValidationException(errorMessage);
         }
         return value.trim();
+    }
+
+    private BookSubmission2 requireOwnedPendingSubmission(String actingUsername,
+                                                          String submissionId,
+                                                          String ownershipVerb,
+                                                          String pendingVerb) {
+        String normalizedActor = normalizeRequired(actingUsername, "Author username cannot be empty.");
+        String normalizedSubmissionId = normalizeRequired(submissionId, "Submission ID cannot be empty.");
+
+        BookSubmission2 existing = submissionRepository.findById(normalizedSubmissionId)
+                .orElseThrow(() -> new NotFoundException("Submission not found."));
+
+        if (!existing.getAuthorUsername().equals(normalizedActor)) {
+            throw new ValidationException("Cannot " + ownershipVerb + " another author's submission.");
+        }
+        if (existing.getStatus() != SubmissionState.PENDING) {
+            throw new ValidationException("Only pending submissions can be " + pendingVerb + ".");
+        }
+        return existing;
     }
 
     public record AuthorProfileSnapshot(String username, String fullName, String bio) {

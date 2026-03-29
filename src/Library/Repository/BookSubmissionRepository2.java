@@ -13,6 +13,7 @@ import java.util.Optional;
 
 public interface BookSubmissionRepository2 {
     void save(BookSubmission2 submission);
+    void deleteById(String id);
     Optional<BookSubmission2> findById(String id);
     List<BookSubmission2> findAll();
     List<BookSubmission2> findByStatus(SubmissionState status);
