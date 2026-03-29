@@ -955,6 +955,50 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/submission/read", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> values = "POST".equalsIgnoreCase(exchange.getRequestMethod())
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String submissionId = required(values, "submissionId");
+
+                AuthorService2.FilePreview preview = authorService.readOwnedSubmissionFilePreview(user.getUsername(), submissionId);
+                sendJson(exchange, 200, filePreviewToJson(preview));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/read", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> values = "POST".equalsIgnoreCase(exchange.getRequestMethod())
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String bookId = required(values, "bookId");
+
+                AuthorService2.FilePreview preview = authorService.readOwnedPublishedBookFilePreview(user.getUsername(), bookId);
+                sendJson(exchange, 200, filePreviewToJson(preview));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/pending", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1526,6 +1570,16 @@ public class LibraryApiHandlers {
                     "}");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private static String filePreviewToJson(AuthorService2.FilePreview preview) {
+        return "{" +
+                "\"itemId\":\"" + JsonUtil.escape(preview.itemId()) + "\"," +
+                "\"sourceType\":\"" + JsonUtil.escape(preview.sourceType()) + "\"," +
+                "\"filePath\":\"" + JsonUtil.escape(preview.filePath()) + "\"," +
+                "\"sizeBytes\":" + preview.sizeBytes() + "," +
+                "\"previewText\":\"" + JsonUtil.escape(preview.previewText()) + "\"" +
+                "}";
     }
 
     private static MultipartData readMultipartForm(HttpExchange exchange) throws IOException {
