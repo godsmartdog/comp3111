@@ -4,6 +4,8 @@ if (currentUser) {
     attachLogout("logoutBtn");
 }
 
+let submissionSortEnabled = false;
+
 async function loadLibrarianProfile() {
     const payload = await api("/api/librarian/profile");
     document.getElementById("librarianProfileFullName").value = payload.fullName || "";
@@ -61,6 +63,7 @@ function renderPending(items) {
         row.innerHTML = `
             <td>${item.title}</td>
             <td>${item.authorFullName}</td>
+            <td>${item.status || ""}</td>
             <td>${item.submittedDate}</td>
             <td>${item.fileName}</td>
             <td></td>
@@ -87,8 +90,45 @@ function renderPending(items) {
 }
 
 async function refreshPending() {
-    const items = await api("/api/librarian/pending");
+    const searchInput = document.getElementById("submissionSearchInput");
+    const statusFilter = document.getElementById("submissionStatusFilter");
+    const sortDirFilter = document.getElementById("submissionSortDirFilter");
+
+    const query = new URLSearchParams();
+    const keyword = searchInput ? searchInput.value.trim() : "";
+    const status = statusFilter ? statusFilter.value : "pending";
+    const sortDir = sortDirFilter ? sortDirFilter.value : "asc";
+
+    if (keyword) {
+        query.set("q", keyword);
+    }
+    if (status) {
+        query.set("status", status);
+    }
+    if (submissionSortEnabled) {
+        query.set("sortBy", "submittedDate");
+        query.set("sortDir", sortDir || "asc");
+    }
+
+    const path = `/api/librarian/pending?${query.toString()}`;
+    const items = await api(path);
     renderPending(items);
+}
+
+function resetSubmissionFilters() {
+    const searchInput = document.getElementById("submissionSearchInput");
+    const statusFilter = document.getElementById("submissionStatusFilter");
+    const sortDirFilter = document.getElementById("submissionSortDirFilter");
+
+    if (searchInput) {
+        searchInput.value = "";
+    }
+    if (statusFilter) {
+        statusFilter.value = "pending";
+    }
+    if (sortDirFilter) {
+        sortDirFilter.value = "asc";
+    }
 }
 
 function renderApprovedBooks(items) {
@@ -280,6 +320,17 @@ async function review(submissionId, action) {
 }
 
 document.getElementById("refreshPendingBtn").addEventListener("click", () => {
+    refreshPending().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applySubmissionFiltersBtn")?.addEventListener("click", () => {
+    submissionSortEnabled = true;
+    refreshPending().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetSubmissionFiltersBtn")?.addEventListener("click", () => {
+    submissionSortEnabled = false;
+    resetSubmissionFilters();
     refreshPending().catch((e) => showToast(e.message, true));
 });
 

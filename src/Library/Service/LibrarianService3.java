@@ -12,6 +12,7 @@ import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -135,6 +136,62 @@ public class LibrarianService3 {
     // Method to retrieve a list of pending book submissions, allowing librarians to view and manage submissions that are awaiting approval or rejection, which is essential for maintaining the quality and relevance of the library's collection.
     public List<BookSubmission2> getPendingSubmissions() {
         return submissionRepository.findByStatus(SubmissionState.PENDING);
+    }
+
+    public List<BookSubmission2> querySubmissionsForReview(String keyword,
+                                                           String status,
+                                                           String sortBy,
+                                                           String sortDir) {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        String normalizedStatus = status == null || status.isBlank() ? "pending" : status.trim().toLowerCase(Locale.ROOT);
+        String normalizedSortBy = sortBy == null ? "" : sortBy.trim();
+        String normalizedSortDir = sortDir == null || sortDir.isBlank() ? "asc" : sortDir.trim().toLowerCase(Locale.ROOT);
+
+        List<BookSubmission2> items = submissionRepository.findAll().stream()
+                .filter(submission -> matchesSubmissionStatus(submission, normalizedStatus))
+                .filter(submission -> matchesSubmissionKeyword(submission, normalizedKeyword))
+                .toList();
+
+        if (!"submittedDate".equalsIgnoreCase(normalizedSortBy)) {
+            return items;
+        }
+
+        Comparator<BookSubmission2> comparator = Comparator
+                .comparing(BookSubmission2::getSubmittedDate)
+                .thenComparing(BookSubmission2::getId);
+        if ("desc".equals(normalizedSortDir)) {
+            comparator = comparator.reversed();
+        }
+        return items.stream().sorted(comparator).toList();
+    }
+
+    private boolean matchesSubmissionKeyword(BookSubmission2 submission, String normalizedKeyword) {
+        if (normalizedKeyword.isEmpty()) {
+            return true;
+        }
+
+        String title = submission.getTitle() == null ? "" : submission.getTitle().toLowerCase(Locale.ROOT);
+        String author = submission.getAuthorFullName() == null ? "" : submission.getAuthorFullName().toLowerCase(Locale.ROOT);
+        String authorUsername = submission.getAuthorUsername() == null ? "" : submission.getAuthorUsername().toLowerCase(Locale.ROOT);
+        return title.contains(normalizedKeyword)
+                || author.contains(normalizedKeyword)
+                || authorUsername.contains(normalizedKeyword);
+    }
+
+    private boolean matchesSubmissionStatus(BookSubmission2 submission, String normalizedStatus) {
+        if ("all".equals(normalizedStatus)) {
+            return true;
+        }
+        if ("pending".equals(normalizedStatus)) {
+            return submission.getStatus() == SubmissionState.PENDING;
+        }
+        if ("approved".equals(normalizedStatus)) {
+            return submission.getStatus() == SubmissionState.APPROVED;
+        }
+        if ("rejected".equals(normalizedStatus)) {
+            return submission.getStatus() == SubmissionState.REJECTED;
+        }
+        return false;
     }
 
     // Method to approve a book submission, validating the submission's existence and status before marking it as approved, saving the updated submission, and converting it into a published book in the system, which allows approved submissions to become part of the library's collection.

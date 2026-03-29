@@ -90,6 +90,12 @@ public final class LibraryIntegrationTest {
         runner.run("non-author forbidden from author notification APIs", LibraryIntegrationTest::testNonAuthorForbiddenFromAuthorNotificationApis);
         runner.run("librarian can view approved books endpoint", LibraryIntegrationTest::testLibrarianCanViewApprovedBooksEndpoint);
         runner.run("non-librarian cannot access approved books endpoint", LibraryIntegrationTest::testNonLibrarianCannotAccessApprovedBooksEndpoint);
+        runner.run("librarian pending queue keyword search by title", LibraryIntegrationTest::testLibrarianPendingQueueKeywordSearchByTitle);
+        runner.run("librarian pending queue keyword search by author", LibraryIntegrationTest::testLibrarianPendingQueueKeywordSearchByAuthor);
+        runner.run("librarian pending queue status filter", LibraryIntegrationTest::testLibrarianPendingQueueStatusFilter);
+        runner.run("librarian pending queue sort by submitted date desc", LibraryIntegrationTest::testLibrarianPendingQueueSortBySubmittedDateDesc);
+        runner.run("librarian pending queue no-filter compatibility baseline", LibraryIntegrationTest::testLibrarianPendingQueueNoFilterCompatibilityBaseline);
+        runner.run("non-librarian forbidden from pending queue endpoint", LibraryIntegrationTest::testNonLibrarianForbiddenFromPendingQueueEndpoint);
         runner.run("librarian profile update success", LibraryIntegrationTest::testLibrarianProfileUpdateSuccess);
         runner.run("librarian profile validation failures", LibraryIntegrationTest::testLibrarianProfileValidationFailures);
         runner.run("librarian profile ownership boundary", LibraryIntegrationTest::testLibrarianProfileOwnershipBoundary);
@@ -1297,6 +1303,245 @@ public final class LibraryIntegrationTest {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
             assertEquals(401, response.statusCode(), "non-librarian should receive HTTP 401");
+            assertTrue(response.body().contains("Permission denied"), "response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianPendingQueueKeywordSearchByTitle() throws Exception {
+        TestContext context = new TestContext();
+        Path titleA = createTempTextFile("queue-title-a", ".txt", List.of("A"));
+        Path titleB = createTempTextFile("queue-title-b", ".txt", List.of("B"));
+
+        context.authorService.registerAuthor("queue-title-author-a", "Queue Title Author A", "Password1!", "Bio");
+        context.authorService.registerAuthor("queue-title-author-b", "Queue Title Author B", "Password1!", "Bio");
+        context.authorService.publishBook("queue-title-author-a", "Neural Systems Design", List.of("Technology"), "Desc", titleA.toString());
+        context.authorService.publishBook("queue-title-author-b", "Classic Literature", List.of("Technology"), "Desc", titleB.toString());
+        context.librarianService.registerLibrarian("queue-lib-title", "Queue Lib Title", "Password1!", "EMP-QT");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "queue-lib-title", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?q=neural"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "keyword title search should return HTTP 200");
+            assertTrue(response.body().contains("\"title\":\"Neural Systems Design\""), "title keyword search should include matching submission");
+            assertFalse(response.body().contains("\"title\":\"Classic Literature\""), "title keyword search should exclude non-matching submission");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(titleA);
+            Files.deleteIfExists(titleB);
+        }
+    }
+
+    private static void testLibrarianPendingQueueKeywordSearchByAuthor() throws Exception {
+        TestContext context = new TestContext();
+        Path authorAFile = createTempTextFile("queue-author-a", ".txt", List.of("A"));
+        Path authorBFile = createTempTextFile("queue-author-b", ".txt", List.of("B"));
+
+        context.authorService.registerAuthor("queue-author-a", "Alice Queue", "Password1!", "Bio");
+        context.authorService.registerAuthor("queue-author-b", "Bob Queue", "Password1!", "Bio");
+        context.authorService.publishBook("queue-author-a", "Queue Book A", List.of("Technology"), "Desc", authorAFile.toString());
+        context.authorService.publishBook("queue-author-b", "Queue Book B", List.of("Technology"), "Desc", authorBFile.toString());
+        context.librarianService.registerLibrarian("queue-lib-author", "Queue Lib Author", "Password1!", "EMP-QA");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "queue-lib-author", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?q=alice"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "keyword author search should return HTTP 200");
+            assertTrue(response.body().contains("\"authorFullName\":\"Alice Queue\""), "author keyword search should include matching author");
+            assertFalse(response.body().contains("\"authorFullName\":\"Bob Queue\""), "author keyword search should exclude non-matching author");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(authorAFile);
+            Files.deleteIfExists(authorBFile);
+        }
+    }
+
+    private static void testLibrarianPendingQueueStatusFilter() throws Exception {
+        TestContext context = new TestContext();
+        Path pendingFile = createTempTextFile("queue-status-pending", ".txt", List.of("P"));
+        Path approvedFile = createTempTextFile("queue-status-approved", ".txt", List.of("A"));
+        Path rejectedFile = createTempTextFile("queue-status-rejected", ".txt", List.of("R"));
+
+        context.authorService.registerAuthor("queue-status-author", "Queue Status Author", "Password1!", "Bio");
+        BookSubmission2 pending = context.authorService.publishBook("queue-status-author", "Status Pending", List.of("Technology"), "Desc", pendingFile.toString());
+        BookSubmission2 approved = context.authorService.publishBook("queue-status-author", "Status Approved", List.of("Technology"), "Desc", approvedFile.toString());
+        BookSubmission2 rejected = context.authorService.publishBook("queue-status-author", "Status Rejected", List.of("Technology"), "Desc", rejectedFile.toString());
+
+        context.librarianService.registerLibrarian("queue-lib-status", "Queue Lib Status", "Password1!", "EMP-QS");
+        context.librarianService.approveSubmission(approved.getId(), "approved");
+        context.librarianService.rejectSubmission(rejected.getId(), "rejected", "reason");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "queue-lib-status", "Password1!", "LIBRARIAN");
+
+            HttpRequest pendingRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=pending"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> pendingResponse = client.send(pendingRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, pendingResponse.statusCode(), "pending status filter should return HTTP 200");
+            assertTrue(pendingResponse.body().contains("\"id\":\"" + pending.getId() + "\""), "pending status filter should include pending submission");
+            assertFalse(pendingResponse.body().contains("\"id\":\"" + approved.getId() + "\""), "pending status filter should exclude approved submission");
+            assertFalse(pendingResponse.body().contains("\"id\":\"" + rejected.getId() + "\""), "pending status filter should exclude rejected submission");
+
+            HttpRequest approvedRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=approved"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> approvedResponse = client.send(approvedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, approvedResponse.statusCode(), "approved status filter should return HTTP 200");
+            assertTrue(approvedResponse.body().contains("\"id\":\"" + approved.getId() + "\""), "approved status filter should include approved submission");
+
+            HttpRequest rejectedRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=rejected"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> rejectedResponse = client.send(rejectedRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, rejectedResponse.statusCode(), "rejected status filter should return HTTP 200");
+            assertTrue(rejectedResponse.body().contains("\"id\":\"" + rejected.getId() + "\""), "rejected status filter should include rejected submission");
+
+            HttpRequest allRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=all"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> allResponse = client.send(allRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, allResponse.statusCode(), "all status filter should return HTTP 200");
+            assertTrue(allResponse.body().contains("\"id\":\"" + pending.getId() + "\""), "all status filter should include pending submission");
+            assertTrue(allResponse.body().contains("\"id\":\"" + approved.getId() + "\""), "all status filter should include approved submission");
+            assertTrue(allResponse.body().contains("\"id\":\"" + rejected.getId() + "\""), "all status filter should include rejected submission");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(pendingFile);
+            Files.deleteIfExists(approvedFile);
+            Files.deleteIfExists(rejectedFile);
+        }
+    }
+
+    private static void testLibrarianPendingQueueSortBySubmittedDateDesc() throws Exception {
+        TestContext context = new TestContext();
+        context.librarianService.registerLibrarian("queue-lib-sort", "Queue Lib Sort", "Password1!", "EMP-QD");
+
+        BookSubmission2 older = new BookSubmission2(
+                "queue-old-id",
+                "Queue Older",
+                "queue-old-author",
+                "Queue Old Author",
+                List.of("Technology"),
+                "Old",
+                "old.txt",
+                LocalDate.now().minusDays(5)
+        );
+        BookSubmission2 newer = new BookSubmission2(
+                "queue-new-id",
+                "Queue Newer",
+                "queue-new-author",
+                "Queue New Author",
+                List.of("Technology"),
+                "New",
+                "new.txt",
+                LocalDate.now().minusDays(1)
+        );
+        context.submissionRepository.save(older);
+        context.submissionRepository.save(newer);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "queue-lib-sort", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=all&sortBy=submittedDate&sortDir=desc"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "submitted date desc sort should return HTTP 200");
+
+            String firstId = extractJsonField(response.body(), "id");
+            assertEquals(newer.getId(), firstId, "submitted date desc sort should place newer submission first");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testLibrarianPendingQueueNoFilterCompatibilityBaseline() throws Exception {
+        TestContext context = new TestContext();
+        Path baselinePendingFile = createTempTextFile("queue-baseline-pending", ".txt", List.of("P"));
+        Path baselineApprovedFile = createTempTextFile("queue-baseline-approved", ".txt", List.of("A"));
+
+        context.authorService.registerAuthor("queue-baseline-author", "Queue Baseline Author", "Password1!", "Bio");
+        BookSubmission2 pending = context.authorService.publishBook("queue-baseline-author", "Baseline Pending", List.of("Technology"), "Desc", baselinePendingFile.toString());
+        BookSubmission2 approved = context.authorService.publishBook("queue-baseline-author", "Baseline Approved", List.of("Technology"), "Desc", baselineApprovedFile.toString());
+        context.librarianService.registerLibrarian("queue-lib-baseline", "Queue Lib Baseline", "Password1!", "EMP-QB");
+        context.librarianService.approveSubmission(approved.getId(), "approved");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String librarianSession = loginAndGetSessionId(client, baseUrl, "queue-lib-baseline", "Password1!", "LIBRARIAN");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending"))
+                    .header("X-Session-Id", librarianSession)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode(), "no-filter baseline should return HTTP 200");
+            assertTrue(response.body().contains("\"id\":\"" + pending.getId() + "\""), "no-filter baseline should include pending submission");
+            assertFalse(response.body().contains("\"id\":\"" + approved.getId() + "\""), "no-filter baseline should keep pending-only behavior");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(baselinePendingFile);
+            Files.deleteIfExists(baselineApprovedFile);
+        }
+    }
+
+    private static void testNonLibrarianForbiddenFromPendingQueueEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("queue-non-lib", "Queue Non Lib", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "queue-non-lib", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/librarian/pending?status=all&q=queue"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(401, response.statusCode(), "non-librarian should be forbidden from pending queue endpoint");
             assertTrue(response.body().contains("Permission denied"), "response should explain permission denied");
         } finally {
             server.stop(0);
