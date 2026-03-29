@@ -135,6 +135,62 @@ async function refreshApprovedBooks() {
     }
 }
 
+async function refreshLibrarianNotifications() {
+    const status = document.getElementById("librarianNotificationStatus");
+    const list = document.getElementById("librarianNotificationsList");
+    if (!status || !list) {
+        return;
+    }
+
+    status.textContent = "Loading notifications...";
+
+    try {
+        const items = await api("/api/librarian/notifications");
+        list.innerHTML = "";
+
+        if (!Array.isArray(items) || items.length === 0) {
+            status.textContent = "No notifications.";
+            return;
+        }
+
+        const unreadCount = items.filter((item) => !item.read).length;
+        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
+
+        items.forEach((item) => {
+            const li = document.createElement("li");
+            const readLabel = item.read ? "Read" : "Unread";
+            li.innerHTML = `
+                <div>
+                    <strong>[${readLabel}] ${item.title}</strong>
+                    <div>${item.message || ""}</div>
+                    <small>${item.createdAt || ""}</small>
+                </div>
+                <button class="secondary" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+            `;
+
+            const readBtn = li.querySelector("button");
+            readBtn.addEventListener("click", async () => {
+                try {
+                    const payload = await api("/api/librarian/notifications/read", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || "Notification marked as read.", false);
+                    await refreshLibrarianNotifications();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            list.appendChild(li);
+        });
+    } catch (error) {
+        status.textContent = "Failed to load notifications.";
+        throw error;
+    }
+}
+
 async function review(submissionId, action) {
     try {
         const comment = prompt(`Comment for ${action}`) || "";
@@ -169,6 +225,10 @@ document.getElementById("refreshApprovedBooksBtn")?.addEventListener("click", ()
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("refreshLibrarianNotificationsBtn")?.addEventListener("click", () => {
+    refreshLibrarianNotifications().catch((e) => showToast(e.message, true));
+});
+
 if (currentUser) {
     loadLibrarianProfile().catch((e) => {
         const feedback = document.getElementById("librarianProfileFeedback");
@@ -179,4 +239,5 @@ if (currentUser) {
     });
     refreshPending().catch((e) => showToast(e.message, true));
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
+    refreshLibrarianNotifications().catch((e) => showToast(e.message, true));
 }
