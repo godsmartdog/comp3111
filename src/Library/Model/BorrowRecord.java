@@ -16,6 +16,8 @@ public class BorrowRecord {
     private final LocalDate borrowDate;
     private final LocalDate dueDate;
     private boolean returned;
+    private LocalDate returnedDate;
+    private boolean autoReturned;
 
     // Constructor
     public BorrowRecord(String username, String bookId, LocalDate borrowDate, LocalDate dueDate) {
@@ -25,6 +27,8 @@ public class BorrowRecord {
         this.borrowDate = borrowDate;
         this.dueDate = dueDate;
         this.returned = false; // when library lend the book - book is held by borrower - library awaiting return
+        this.returnedDate = null;
+        this.autoReturned = false;
     }
 
     // Accessor
@@ -34,7 +38,20 @@ public class BorrowRecord {
     public LocalDate getBorrowDate() { return borrowDate; }
     public LocalDate getDueDate() { return dueDate; }
     public boolean isReturned() { return returned; }
+    public LocalDate getReturnedDate() { return returnedDate; }
+    public boolean isAutoReturned() { return autoReturned; }
+    public boolean isOverdue(LocalDate date) {
+        return !returned && dueDate.isBefore(date);
+    }
 
     // Mutator - library received the book - since borrower returned the book
-    public void markReturned() { this.returned = true; }
+    public void markReturned() {
+        markReturned(LocalDate.now(), false);
+    }
+
+    public void markReturned(LocalDate date, boolean autoReturned) {
+        this.returned = true;
+        this.returnedDate = date;
+        this.autoReturned = autoReturned;
+    }
 }

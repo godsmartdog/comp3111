@@ -8,6 +8,7 @@ import Library.Repository.BookRepository;
 import Library.Repository.BorrowRepository;
 import Library.Security.SecurityConfig;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -33,6 +34,8 @@ public class BorrowService {
 
     // Overloaded method to borrow a book with a specified number of days, allowing for more flexible borrowing durations while still enforcing validation rules for book availability and user borrowing limits.
     public BorrowRecord borrowBook(String username, String bookId, int borrowDays) {
+        autoReturnOverdueBooks(username);
+
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new NotFoundException("Book not found."));
 
@@ -68,6 +71,8 @@ public class BorrowService {
 
     // Method to return a borrowed book for a user, validating the existence of an active borrow record for the specified user and book, marking the record as returned, and updating the book's availability status to true.
     public BorrowRecord returnBook(String username, String bookId) {
+        autoReturnOverdueBooks(username);
+
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new NotFoundException("Book not found."));
 
@@ -81,8 +86,26 @@ public class BorrowService {
 
     // Method to list all active borrows for a specific user, filtering the borrow records to include only those that have not been marked as returned and returning the list of active borrow records.
     public List<BorrowRecord> listActiveBorrowsByUser(String username) {
+        autoReturnOverdueBooks(username);
         return borrowRepository.findByUsername(username).stream()
                 .filter(r -> !r.isReturned())
                 .collect(Collectors.toList());
+    }
+
+    public int autoReturnOverdueBooks(String username) {
+        LocalDate today = LocalDate.now();
+        List<BorrowRecord> candidates = borrowRepository.findByUsername(username);
+        List<BorrowRecord> overdue = new ArrayList<>();
+        for (BorrowRecord record : candidates) {
+            if (record.isOverdue(today)) {
+                overdue.add(record);
+            }
+        }
+
+        for (BorrowRecord record : overdue) {
+            record.markReturned(today, true);
+            bookRepository.findById(record.getBookId()).ifPresent(book -> book.setAvailable(true));
+        }
+        return overdue.size();
     }
 }

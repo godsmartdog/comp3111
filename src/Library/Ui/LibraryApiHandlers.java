@@ -4,8 +4,10 @@ import Library.Model.Book;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
+import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
+import Library.Repository.MemoryReadingProgressRepository;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
@@ -13,6 +15,7 @@ import Library.Service.BookService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -24,6 +27,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,6 +49,7 @@ public class LibraryApiHandlers {
     private final AuthorDraftService authorDraftService;
     private final FileService fileService;
     private final LibrarianService3 librarianService;
+    private final ReadingProgressService readingProgressService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
 
@@ -64,6 +69,7 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
+        this.readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
     }
 
     public void register(HttpServer server) {
@@ -204,6 +210,25 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/return", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                BorrowRecord record = borrowService.returnBook(user.getUsername(), bookId);
+                sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrows", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -223,10 +248,119 @@ public class LibraryApiHandlers {
                             "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
                             "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
                             "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
-                            "\"dueDate\":\"" + record.getDueDate() + "\"" +
+                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
+                            "\"overdue\":" + record.isOverdue(java.time.LocalDate.now()) +
                             "}");
                 }
                 sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/borrow/content", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = required(query, "bookId");
+
+                borrowService.listActiveBorrowsByUser(user.getUsername()).stream()
+                        .filter(record -> record.getBookId().equals(bookId))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Book is not currently borrowed by this user."));
+
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+
+                String filePath = nullToEmpty(book.getFilePath()).trim();
+                boolean hasPdf = !filePath.isEmpty() && filePath.toLowerCase().endsWith(".pdf") && Files.isRegularFile(Paths.get(filePath));
+                if (hasPdf) {
+                    sendJson(exchange, 200, "{" +
+                            "\"type\":\"pdf\"," +
+                            "\"url\":\"/api/borrow/file?bookId=" + JsonUtil.escape(bookId) + "\"" +
+                            "}");
+                    return;
+                }
+
+                String fallback = nullToEmpty(book.getSummary()).isBlank()
+                        ? "No readable content attached for this borrowed book yet."
+                        : book.getSummary();
+                sendJson(exchange, 200, "{" +
+                        "\"type\":\"text\"," +
+                        "\"content\":\"" + JsonUtil.escape(fallback) + "\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/borrow/file", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = required(query, "bookId");
+
+                borrowService.listActiveBorrowsByUser(user.getUsername()).stream()
+                        .filter(record -> record.getBookId().equals(bookId))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Book is not currently borrowed by this user."));
+
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                String filePath = required(Map.of("filePath", nullToEmpty(book.getFilePath()).trim()), "filePath");
+                Path file = Paths.get(filePath);
+                if (!Files.isRegularFile(file)) {
+                    throw new IllegalArgumentException("Book file not found on server.");
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                exchange.getResponseHeaders().set("Content-Type", "application/pdf");
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/reading-progress", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
+                    String bookId = required(query, "bookId");
+                    ReadingProgress progress = readingProgressService.getProgress(user.getUsername(), bookId);
+                    sendJson(exchange, 200, readingProgressToJson(progress));
+                    return;
+                }
+
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                int bookmark = Integer.parseInt(form.getOrDefault("bookmark", "1"));
+                List<String> highlights = parseHighlights(form.getOrDefault("highlights", ""));
+                ReadingProgress updated = readingProgressService.updateProgress(user.getUsername(), bookId, bookmark, highlights);
+                sendJson(exchange, 200, readingProgressToJson(updated));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -513,6 +647,33 @@ public class LibraryApiHandlers {
             }
         }
         return values;
+    }
+
+    private static List<String> parseHighlights(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+
+        List<String> values = new ArrayList<>();
+        for (String line : raw.split("\\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) {
+                values.add(trimmed);
+            }
+        }
+        return values;
+    }
+
+    private static String readingProgressToJson(ReadingProgress progress) {
+        List<String> highlightJson = new ArrayList<>();
+        for (String highlight : progress.getHighlights()) {
+            highlightJson.add("\"" + JsonUtil.escape(highlight) + "\"");
+        }
+        return "{" +
+                "\"bookId\":\"" + JsonUtil.escape(progress.getBookId()) + "\"," +
+                "\"bookmark\":" + progress.getBookmarkPage() + "," +
+                "\"highlights\":[" + String.join(",", highlightJson) + "]" +
+                "}";
     }
 
     private static MultipartData readMultipartForm(HttpExchange exchange) throws IOException {

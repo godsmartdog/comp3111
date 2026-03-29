@@ -82,6 +82,20 @@
 
         <h3>My Active Borrows</h3>
         <ul id="borrows"></ul>
+
+        <h3>Borrowed Book Reader</h3>
+        <div id="readerBox" class="panel-subtle">
+            <p id="readerStatus">Select a borrowed book and click Read.</p>
+            <iframe id="readerPdf" style="display:none;width:100%;height:360px;border:1px solid #d9d9d9;border-radius:8px;"></iframe>
+            <pre id="readerText" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
+            <div class="inline-row" style="margin-top:10px;">
+                <label for="bookmarkPage">Bookmark Page</label>
+                <input id="bookmarkPage" type="number" min="1" value="1">
+            </div>
+            <label for="highlightsInput">Highlights (one line per highlight)</label>
+            <textarea id="highlightsInput" rows="4" placeholder="Important quote on line 1&#10;Important quote on line 2"></textarea>
+            <button id="saveProgressBtn" class="secondary" type="button">Save Bookmark/Highlights</button>
+        </div>
     </section>
 </main>
 

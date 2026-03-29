@@ -14,6 +14,8 @@ public class Book {
     private boolean approved;
     private boolean available;
     private String summary;
+    private String filePath;
+    private String contentType;
 
     // Constructor
     public Book(String title, String authorFullName, String summary) {
@@ -23,6 +25,8 @@ public class Book {
         this.summary = summary;
         this.approved = false; // initially not permitted to publish before review
         this.available = false; // initially not available to borrow (not on the shelves before official approval)
+        this.filePath = "";
+        this.contentType = "";
     }
 
     // Accessor
@@ -33,6 +37,8 @@ public class Book {
     public boolean isApproved() { return approved; }
     public boolean isAvailable() { return available; }
     public String getSummary() { return summary; }
+    public String getFilePath() { return filePath; }
+    public String getContentType() { return contentType; }
 
     // Mutator - change boolean to true to list permitted/ legally published books
     public void approve(LocalDate publishDate) {
@@ -44,5 +50,10 @@ public class Book {
     // Mutator - indicate availability for someone to borrow
     public void setAvailable(boolean available) {
         this.available = available;
+    }
+
+    public void setFileMetadata(String filePath, String contentType) {
+        this.filePath = filePath == null ? "" : filePath;
+        this.contentType = contentType == null ? "" : contentType;
     }
 }
