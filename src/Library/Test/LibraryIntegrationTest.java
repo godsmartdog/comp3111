@@ -11,6 +11,7 @@ import Library.Model.NotificationItem;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
+import Library.Model.AuthorProfile2;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
@@ -54,6 +55,9 @@ public final class LibraryIntegrationTest {
         runner.run("cannot mark another user's notification", LibraryIntegrationTest::testNotificationOwnershipValidation);
         runner.run("author can view own published books", LibraryIntegrationTest::testAuthorPublishedBooksOwnOnly);
         runner.run("author published books enforce ownership boundary", LibraryIntegrationTest::testAuthorPublishedBooksOwnershipBoundary);
+        runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
+        runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
+        runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
         runner.finish();
     }
 
@@ -358,6 +362,59 @@ public final class LibraryIntegrationTest {
 
         Files.deleteIfExists(ownerFile);
     }
+
+        private static void testAuthorProfileUpdateSuccess() {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-profile", "Old Name", "Password1!", "Old bio");
+
+        AuthorService2.AuthorProfileSnapshot before = context.authorService.getAuthorProfile("author-profile");
+        assertEquals("Old Name", before.fullName(), "initial full name should match");
+        assertEquals("Old bio", before.bio(), "initial bio should match");
+
+        AuthorService2.AuthorProfileSnapshot updated = context.authorService.updateAuthorProfile(
+            "author-profile",
+            "author-profile",
+            "New Name",
+            "New bio",
+            "NewPass1!"
+        );
+        assertEquals("New Name", updated.fullName(), "full name should update");
+        assertEquals("New bio", updated.bio(), "bio should update");
+
+        context.authorService.loginAuthor("author-profile", "NewPass1!");
+        expectThrows(AuthenticationException.class,
+            () -> context.authorService.loginAuthor("author-profile", "Password1!"),
+            "Invalid username or password");
+        }
+
+        private static void testAuthorProfileUpdateValidation() {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-validate", "Valid Name", "Password1!", "Valid bio");
+
+        expectThrows(ValidationException.class,
+            () -> context.authorService.updateAuthorProfile("author-validate", "author-validate", "", "Valid bio", ""),
+            "Full Name cannot be empty");
+        expectThrows(ValidationException.class,
+            () -> context.authorService.updateAuthorProfile("author-validate", "author-validate", "Valid Name", "", ""),
+            "Bio cannot be empty");
+        expectThrows(ValidationException.class,
+            () -> context.authorService.updateAuthorProfile("author-validate", "author-validate", "Valid Name", "Valid bio", "short"),
+            "Password must be between 8 and 64 characters");
+        }
+
+        private static void testAuthorProfileOwnershipBoundary() {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-a", "Author A", "Password1!", "Bio A");
+        context.authorService.registerAuthor("author-b", "Author B", "Password1!", "Bio B");
+
+        expectThrows(ValidationException.class,
+            () -> context.authorService.updateAuthorProfile("author-a", "author-b", "Changed", "Changed bio", ""),
+            "Cannot update another author's profile");
+
+        AuthorProfile2 profileB = context.authorProfileRepository.findByUsername("author-b")
+            .orElseThrow(() -> new AssertionError("expected author-b profile to exist"));
+        assertEquals("Bio B", profileB.getBio(), "owner boundary should keep original profile unchanged");
+        }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
         Path path = Files.createTempFile(prefix, suffix);

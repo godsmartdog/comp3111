@@ -18,6 +18,56 @@ function clearFilePreviewUrl() {
     }
 }
 
+async function loadAuthorProfile() {
+    const payload = await api("/api/author/profile");
+    document.getElementById("authorProfileFullName").value = payload.fullName || "";
+    document.getElementById("authorProfileBio").value = payload.bio || "";
+}
+
+async function saveAuthorProfile() {
+    const feedback = document.getElementById("authorProfileFeedback");
+    const fullName = document.getElementById("authorProfileFullName").value.trim();
+    const bio = document.getElementById("authorProfileBio").value.trim();
+    const password = document.getElementById("authorProfilePassword").value;
+
+    if (!fullName) {
+        feedback.textContent = "Full Name cannot be empty.";
+        showToast(feedback.textContent, true);
+        return;
+    }
+    if (!bio) {
+        feedback.textContent = "Bio cannot be empty.";
+        showToast(feedback.textContent, true);
+        return;
+    }
+
+    if (password.trim()) {
+        const issues = getPasswordPolicyViolations(password);
+        if (issues.length > 0) {
+            feedback.textContent = issues[0];
+            showToast(feedback.textContent, true);
+            return;
+        }
+    }
+
+    const text = await api("/api/author/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({ fullName, bio, password })
+    }, false);
+
+    feedback.textContent = text;
+    document.getElementById("authorProfilePassword").value = "";
+
+    if (currentUser) {
+        currentUser.fullName = fullName;
+        saveCurrentUser(currentUser);
+        document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
+    }
+
+    showToast(text, false);
+}
+
 async function renderLocalFilePreview(file) {
     clearFilePreviewUrl();
     filePreview.innerHTML = "";
@@ -170,6 +220,16 @@ document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
     });
 });
 
+document.getElementById("saveAuthorProfileBtn")?.addEventListener("click", () => {
+    saveAuthorProfile().catch((e) => {
+        const feedback = document.getElementById("authorProfileFeedback");
+        if (feedback) {
+            feedback.textContent = e.message;
+        }
+        showToast(e.message, true);
+    });
+});
+
 document.getElementById("previewBtn").addEventListener("click", async () => {
     try {
         const preview = await api("/api/author/preview", {
@@ -222,6 +282,13 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 });
 
 if (currentUser) {
+    loadAuthorProfile().catch((e) => {
+        const feedback = document.getElementById("authorProfileFeedback");
+        if (feedback) {
+            feedback.textContent = "Failed to load author profile.";
+        }
+        showToast(e.message, true);
+    });
     refreshDrafts().catch((e) => showToast(e.message, true));
     refreshPublishedBooks().catch((e) => {
         const status = document.getElementById("publishedStatus");
