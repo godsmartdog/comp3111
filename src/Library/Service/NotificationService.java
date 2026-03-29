@@ -30,6 +30,53 @@ public class NotificationService {
         }
     }
 
+    public enum NotificationReadFilter {
+        ALL,
+        READ,
+        UNREAD;
+
+        public static NotificationReadFilter fromString(String raw) {
+            if (raw == null || raw.isBlank() || "all".equalsIgnoreCase(raw.trim())) {
+                return ALL;
+            }
+            return switch (raw.trim().toLowerCase()) {
+                case "read" -> READ;
+                case "unread" -> UNREAD;
+                default -> throw new BusinessException("Invalid read filter. Use all, read, or unread.");
+            };
+        }
+    }
+
+    public enum NotificationSortBy {
+        CREATED_AT,
+        PRIORITY;
+
+        public static NotificationSortBy fromString(String raw) {
+            if (raw == null || raw.isBlank() || "createdat".equalsIgnoreCase(raw.trim())) {
+                return CREATED_AT;
+            }
+            return switch (raw.trim().toLowerCase()) {
+                case "priority" -> PRIORITY;
+                default -> throw new BusinessException("Invalid sortBy. Use createdAt or priority.");
+            };
+        }
+    }
+
+    public enum NotificationSortDirection {
+        ASC,
+        DESC;
+
+        public static NotificationSortDirection fromString(String raw) {
+            if (raw == null || raw.isBlank() || "desc".equalsIgnoreCase(raw.trim())) {
+                return DESC;
+            }
+            return switch (raw.trim().toLowerCase()) {
+                case "asc" -> ASC;
+                default -> throw new BusinessException("Invalid sortDir. Use asc or desc.");
+            };
+        }
+    }
+
     private final NotificationRepository notificationRepository;
 
     public NotificationService(NotificationRepository notificationRepository) {
@@ -41,15 +88,32 @@ public class NotificationService {
     }
 
     public List<NotificationItem> listByUser(String username, NotificationScope scope) {
+        return listByUser(username, scope, null, NotificationReadFilter.ALL, null, NotificationSortBy.CREATED_AT, NotificationSortDirection.DESC);
+    }
+
+    public List<NotificationItem> listByUser(String username,
+                                             NotificationScope scope,
+                                             String keyword,
+                                             NotificationReadFilter readFilter,
+                                             NotificationPriority priorityFilter,
+                                             NotificationSortBy sortBy,
+                                             NotificationSortDirection sortDirection) {
         ensureDefaultNotification(username);
         NotificationScope effectiveScope = scope == null ? NotificationScope.ACTIVE : scope;
+        NotificationReadFilter effectiveReadFilter = readFilter == null ? NotificationReadFilter.ALL : readFilter;
+        NotificationSortBy effectiveSortBy = sortBy == null ? NotificationSortBy.CREATED_AT : sortBy;
+        NotificationSortDirection effectiveSortDirection = sortDirection == null ? NotificationSortDirection.DESC : sortDirection;
+        String normalizedKeyword = normalizeKeyword(keyword);
         List<NotificationItem> items = new ArrayList<>();
         for (NotificationItem item : notificationRepository.findByUsername(username)) {
-            if (matchesScope(item, effectiveScope)) {
+            if (matchesScope(item, effectiveScope)
+                    && matchesKeyword(item, normalizedKeyword)
+                    && matchesReadFilter(item, effectiveReadFilter)
+                    && matchesPriority(item, priorityFilter)) {
                 items.add(item);
             }
         }
-        items.sort(Comparator.comparing(NotificationItem::getCreatedAt).reversed());
+        items.sort(buildComparator(effectiveSortBy, effectiveSortDirection));
         return items;
     }
 
@@ -139,6 +203,66 @@ public class NotificationService {
             case ARCHIVED -> item.isArchived();
             case ALL -> true;
         };
+    }
+
+    private static boolean matchesKeyword(NotificationItem item, String normalizedKeyword) {
+        if (normalizedKeyword == null) {
+            return true;
+        }
+        String title = safeLower(item.getTitle());
+        String message = safeLower(item.getMessage());
+        return title.contains(normalizedKeyword) || message.contains(normalizedKeyword);
+    }
+
+    private static boolean matchesReadFilter(NotificationItem item, NotificationReadFilter readFilter) {
+        return switch (readFilter) {
+            case ALL -> true;
+            case READ -> item.isRead();
+            case UNREAD -> !item.isRead();
+        };
+    }
+
+    private static boolean matchesPriority(NotificationItem item, NotificationPriority priorityFilter) {
+        return priorityFilter == null || item.getPriority() == priorityFilter;
+    }
+
+    private static Comparator<NotificationItem> buildComparator(NotificationSortBy sortBy,
+                                                                NotificationSortDirection direction) {
+        Comparator<NotificationItem> primary;
+        if (sortBy == NotificationSortBy.PRIORITY) {
+            primary = Comparator.comparingInt(item -> priorityWeight(item.getPriority()));
+        } else {
+            primary = Comparator.comparing(NotificationItem::getCreatedAt);
+        }
+
+        if (direction == NotificationSortDirection.DESC) {
+            primary = primary.reversed();
+        }
+
+        Comparator<NotificationItem> tieBreaker = Comparator
+                .comparing(NotificationItem::getCreatedAt, Comparator.reverseOrder())
+                .thenComparing(NotificationItem::getId);
+        return primary.thenComparing(tieBreaker);
+    }
+
+    private static int priorityWeight(NotificationPriority priority) {
+        return switch (priority == null ? NotificationPriority.NORMAL : priority) {
+            case LOW -> 1;
+            case NORMAL -> 2;
+            case HIGH -> 3;
+        };
+    }
+
+    private static String normalizeKeyword(String keyword) {
+        if (keyword == null) {
+            return null;
+        }
+        String trimmed = keyword.trim().toLowerCase();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String safeLower(String value) {
+        return value == null ? "" : value.toLowerCase();
     }
 
     private void ensureDefaultNotification(String username) {

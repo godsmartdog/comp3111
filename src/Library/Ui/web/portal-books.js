@@ -306,14 +306,35 @@ async function refreshNotifications() {
     const list = document.getElementById("notificationsList");
     const status = document.getElementById("notificationStatus");
     const scopeFilter = document.getElementById("notificationScopeFilter");
+    const readFilter = document.getElementById("notificationReadFilter");
+    const priorityFilter = document.getElementById("notificationPriorityFilter");
+    const sortByFilter = document.getElementById("notificationSortBy");
+    const sortDirFilter = document.getElementById("notificationSortDir");
+    const searchInput = document.getElementById("notificationSearchInput");
     if (!list || !status) {
         return;
     }
 
     const selectedScope = scopeFilter?.value || "active";
+    const selectedRead = readFilter?.value || "all";
+    const selectedPriority = priorityFilter?.value || "all";
+    const selectedSortBy = sortByFilter?.value || "createdAt";
+    const selectedSortDir = sortDirFilter?.value || "desc";
+    const selectedQuery = (searchInput?.value || "").trim();
+
+    const params = new URLSearchParams();
+    params.set("scope", selectedScope);
+    params.set("read", selectedRead);
+    params.set("priority", selectedPriority);
+    params.set("sortBy", selectedSortBy);
+    params.set("sortDir", selectedSortDir);
+    if (selectedQuery) {
+        params.set("q", selectedQuery);
+    }
+
     status.textContent = "Loading notifications...";
     try {
-        const items = await api(`/api/notifications?scope=${encodeURIComponent(selectedScope)}`);
+        const items = await api(`/api/notifications?${params.toString()}`);
         const activeItems = selectedScope === "active"
             ? items
             : await api("/api/notifications?scope=active");
@@ -330,7 +351,8 @@ async function refreshNotifications() {
         const unreadCount = Array.isArray(activeItems)
             ? activeItems.filter((item) => !item.read).length
             : 0;
-        status.textContent = `View: ${selectedScope} | Total: ${items.length} | Active Unread: ${unreadCount}`;
+        const queryLabel = selectedQuery ? ` | Search: ${selectedQuery}` : "";
+        status.textContent = `View: ${selectedScope} | Total: ${items.length} | Active Unread: ${unreadCount}${queryLabel}`;
 
         items.forEach((item) => {
             const li = document.createElement("li");
@@ -577,7 +599,37 @@ document.getElementById("refreshNotificationsBtn")?.addEventListener("click", ()
     refreshNotifications().catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("applyNotificationScopeBtn")?.addEventListener("click", () => {
+document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
+    refreshNotifications().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetNotificationFiltersBtn")?.addEventListener("click", () => {
+    const scope = document.getElementById("notificationScopeFilter");
+    const read = document.getElementById("notificationReadFilter");
+    const priority = document.getElementById("notificationPriorityFilter");
+    const sortBy = document.getElementById("notificationSortBy");
+    const sortDir = document.getElementById("notificationSortDir");
+    const search = document.getElementById("notificationSearchInput");
+
+    if (scope) {
+        scope.value = "active";
+    }
+    if (read) {
+        read.value = "all";
+    }
+    if (priority) {
+        priority.value = "all";
+    }
+    if (sortBy) {
+        sortBy.value = "createdAt";
+    }
+    if (sortDir) {
+        sortDir.value = "desc";
+    }
+    if (search) {
+        search.value = "";
+    }
+
     refreshNotifications().catch((e) => showToast(e.message, true));
 });
 

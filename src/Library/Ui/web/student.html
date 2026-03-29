@@ -142,7 +142,34 @@
                     <option value="archived">Archived</option>
                     <option value="all">All</option>
                 </select>
-                <button id="applyNotificationScopeBtn" class="secondary" type="button">Apply View</button>
+                <label for="notificationReadFilter">Read</label>
+                <select id="notificationReadFilter">
+                    <option value="all" selected>All</option>
+                    <option value="read">Read</option>
+                    <option value="unread">Unread</option>
+                </select>
+                <label for="notificationPriorityFilter">Priority</label>
+                <select id="notificationPriorityFilter">
+                    <option value="all" selected>All</option>
+                    <option value="high">High</option>
+                    <option value="normal">Normal</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+            <div class="inline-row">
+                <label for="notificationSortBy">Sort By</label>
+                <select id="notificationSortBy">
+                    <option value="createdAt" selected>Created At</option>
+                    <option value="priority">Priority</option>
+                </select>
+                <label for="notificationSortDir">Direction</label>
+                <select id="notificationSortDir">
+                    <option value="desc" selected>Desc</option>
+                    <option value="asc">Asc</option>
+                </select>
+                <input id="notificationSearchInput" type="text" placeholder="Search title or message" aria-label="Search notifications">
+                <button id="applyNotificationFiltersBtn" class="secondary" type="button">Apply Filters</button>
+                <button id="resetNotificationFiltersBtn" class="secondary" type="button">Reset Filters</button>
             </div>
             <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
             <ul id="notificationsList"></ul>

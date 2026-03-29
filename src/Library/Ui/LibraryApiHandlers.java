@@ -5,6 +5,7 @@ import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
 import Library.Model.NotificationItem;
+import Library.Model.NotificationPriority;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
@@ -74,6 +75,30 @@ public class LibraryApiHandlers {
                               AuthorDraftService authorDraftService,
                               FileService fileService,
                               LibrarianService3 librarianService) {
+                    this(
+                        authService,
+                        bookService,
+                        borrowService,
+                        recommendationService,
+                        authorService,
+                        authorDraftService,
+                        fileService,
+                        librarianService,
+                        new NotificationService(new MemoryNotificationRepository()),
+                        new ReadingProgressService(new MemoryReadingProgressRepository())
+                    );
+                    }
+
+                    public LibraryApiHandlers(AuthService authService,
+                                  BookService bookService,
+                                  BorrowService borrowService,
+                                  RecommendationService recommendationService,
+                                  AuthorService2 authorService,
+                                  AuthorDraftService authorDraftService,
+                                  FileService fileService,
+                                  LibrarianService3 librarianService,
+                                  NotificationService notificationService,
+                                  ReadingProgressService readingProgressService) {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
@@ -82,8 +107,12 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
-        this.notificationService = new NotificationService(new MemoryNotificationRepository());
-        this.readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+                    this.notificationService = notificationService == null
+                        ? new NotificationService(new MemoryNotificationRepository())
+                        : notificationService;
+                    this.readingProgressService = readingProgressService == null
+                        ? new ReadingProgressService(new MemoryReadingProgressRepository())
+                        : readingProgressService;
         this.latestSessionSnapshot = SessionSnapshotSchema.empty();
     }
 
@@ -298,7 +327,20 @@ public class LibraryApiHandlers {
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String scopeRaw = RequestFilters.getTrimmed(query, "scope", "active");
                 NotificationService.NotificationScope scope = NotificationService.NotificationScope.fromString(scopeRaw);
-                List<NotificationItem> items = notificationService.listByUser(user.getUsername(), scope);
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                NotificationService.NotificationReadFilter readFilter = parseNotificationReadFilter(query);
+                NotificationPriority priorityFilter = parseNotificationPriorityFilter(query);
+                NotificationService.NotificationSortBy sortBy = parseNotificationSortBy(query);
+                NotificationService.NotificationSortDirection sortDir = parseNotificationSortDir(query);
+                List<NotificationItem> items = notificationService.listByUser(
+                        user.getUsername(),
+                        scope,
+                        keyword,
+                        readFilter,
+                        priorityFilter,
+                        sortBy,
+                        sortDir
+                );
                 sendJson(exchange, 200, notificationsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1488,6 +1530,34 @@ public class LibraryApiHandlers {
             return raw.toLowerCase();
         }
         throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
+    private static NotificationService.NotificationReadFilter parseNotificationReadFilter(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "read", "all");
+        return NotificationService.NotificationReadFilter.fromString(raw);
+    }
+
+    private static NotificationPriority parseNotificationPriorityFilter(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "priority", "all");
+        if (raw.isEmpty() || "all".equalsIgnoreCase(raw)) {
+            return null;
+        }
+
+        try {
+            return NotificationPriority.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("priority must be one of: all, high, normal, low.");
+        }
+    }
+
+    private static NotificationService.NotificationSortBy parseNotificationSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "createdAt");
+        return NotificationService.NotificationSortBy.fromString(raw);
+    }
+
+    private static NotificationService.NotificationSortDirection parseNotificationSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "desc");
+        return NotificationService.NotificationSortDirection.fromString(raw);
     }
 
     private static String parseLibrarianSubmissionStatus(Map<String, String> values) {
