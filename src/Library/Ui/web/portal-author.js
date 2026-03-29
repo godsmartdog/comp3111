@@ -187,6 +187,60 @@ async function refreshPublishedBooks() {
     });
 }
 
+async function refreshAuthorNotifications() {
+    const status = document.getElementById("authorNotificationStatus");
+    const list = document.getElementById("authorNotificationsList");
+    if (!status || !list) {
+        return;
+    }
+
+    try {
+        const items = await api("/api/author/notifications");
+        list.innerHTML = "";
+
+        if (!Array.isArray(items) || items.length === 0) {
+            status.textContent = "No notifications.";
+            return;
+        }
+
+        const unreadCount = items.filter((item) => !item.read).length;
+        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
+
+        items.forEach((item) => {
+            const li = document.createElement("li");
+            const readLabel = item.read ? "Read" : "Unread";
+            li.innerHTML = `
+                <div>
+                    <strong>[${readLabel}] ${item.title}</strong>
+                    <div>${item.message || ""}</div>
+                    <small>${item.createdAt || ""}</small>
+                </div>
+                <button class="secondary" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+            `;
+
+            const readBtn = li.querySelector("button");
+            readBtn.addEventListener("click", async () => {
+                try {
+                    const payload = await api("/api/author/notifications/read", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || "Notification marked as read.", false);
+                    await refreshAuthorNotifications();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            list.appendChild(li);
+        });
+    } catch (error) {
+        status.textContent = "Failed to load notifications.";
+        throw error;
+    }
+}
+
 document.getElementById("autoSaveBtn").addEventListener("click", async () => {
     try {
         const text = await api("/api/author/draft", {
@@ -218,6 +272,10 @@ document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
         }
         showToast(e.message, true);
     });
+});
+
+document.getElementById("loadAuthorNotificationsBtn")?.addEventListener("click", () => {
+    refreshAuthorNotifications().catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("saveAuthorProfileBtn")?.addEventListener("click", () => {
@@ -297,4 +355,5 @@ if (currentUser) {
         }
         showToast(e.message, true);
     });
+    refreshAuthorNotifications().catch((e) => showToast(e.message, true));
 }

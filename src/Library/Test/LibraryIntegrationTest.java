@@ -58,6 +58,8 @@ public final class LibraryIntegrationTest {
         runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
         runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
+        runner.run("author notifications list and mark read", LibraryIntegrationTest::testAuthorNotificationListAndRead);
+        runner.run("author notifications ownership boundary", LibraryIntegrationTest::testAuthorNotificationOwnershipBoundary);
         runner.finish();
     }
 
@@ -363,7 +365,7 @@ public final class LibraryIntegrationTest {
         Files.deleteIfExists(ownerFile);
     }
 
-        private static void testAuthorProfileUpdateSuccess() {
+    private static void testAuthorProfileUpdateSuccess() {
         TestContext context = new TestContext();
         context.authorService.registerAuthor("author-profile", "Old Name", "Password1!", "Old bio");
 
@@ -385,9 +387,9 @@ public final class LibraryIntegrationTest {
         expectThrows(AuthenticationException.class,
             () -> context.authorService.loginAuthor("author-profile", "Password1!"),
             "Invalid username or password");
-        }
+    }
 
-        private static void testAuthorProfileUpdateValidation() {
+    private static void testAuthorProfileUpdateValidation() {
         TestContext context = new TestContext();
         context.authorService.registerAuthor("author-validate", "Valid Name", "Password1!", "Valid bio");
 
@@ -400,9 +402,9 @@ public final class LibraryIntegrationTest {
         expectThrows(ValidationException.class,
             () -> context.authorService.updateAuthorProfile("author-validate", "author-validate", "Valid Name", "Valid bio", "short"),
             "Password must be between 8 and 64 characters");
-        }
+    }
 
-        private static void testAuthorProfileOwnershipBoundary() {
+    private static void testAuthorProfileOwnershipBoundary() {
         TestContext context = new TestContext();
         context.authorService.registerAuthor("author-a", "Author A", "Password1!", "Bio A");
         context.authorService.registerAuthor("author-b", "Author B", "Password1!", "Bio B");
@@ -414,7 +416,45 @@ public final class LibraryIntegrationTest {
         AuthorProfile2 profileB = context.authorProfileRepository.findByUsername("author-b")
             .orElseThrow(() -> new AssertionError("expected author-b profile to exist"));
         assertEquals("Bio B", profileB.getBio(), "owner boundary should keep original profile unchanged");
-        }
+    }
+
+    private static void testAuthorNotificationListAndRead() {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-notify", "Author Notify", "Password1!", "Bio");
+
+        context.notificationService.addNotification("author-notify", "Submission Update", "Your submission is pending review.");
+        context.notificationService.addNotification("author-notify", "Review Result", "Your submission was approved.");
+
+        List<NotificationItem> items = context.notificationService.listByUser("author-notify");
+        assertEquals(2, items.size(), "author should see personal notifications");
+        assertTrue(items.stream().allMatch(item -> "author-notify".equals(item.getUsername())), "all notifications should belong to author-notify");
+
+        NotificationItem target = items.get(0);
+        assertFalse(target.isRead(), "notification should start unread");
+        context.notificationService.markAsRead("author-notify", target.getId());
+
+        NotificationItem updated = context.notificationService.listByUser("author-notify").stream()
+                .filter(item -> item.getId().equals(target.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected notification to exist"));
+        assertTrue(updated.isRead(), "author notification should be marked read");
+    }
+
+    private static void testAuthorNotificationOwnershipBoundary() {
+        TestContext context = new TestContext();
+        context.authorService.registerAuthor("author-owner-a", "Owner A", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-owner-b", "Owner B", "Password1!", "Bio");
+
+        NotificationItem foreign = context.notificationService.addNotification(
+                "author-owner-a",
+                "Private Notification",
+                "Only owner A can mark this as read."
+        );
+
+        expectThrows(BusinessException.class,
+                () -> context.notificationService.markAsRead("author-owner-b", foreign.getId()),
+                "does not belong to this user");
+    }
 
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
         Path path = Files.createTempFile(prefix, suffix);
