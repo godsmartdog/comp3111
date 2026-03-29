@@ -52,6 +52,10 @@ public final class LibraryIntegrationTest {
         TestRunner runner = new TestRunner();
         runner.run("student/staff borrow and return flow", LibraryIntegrationTest::testStudentBorrowAndReturnFlow);
         runner.run("borrow duration cannot exceed fourteen days", LibraryIntegrationTest::testBorrowDurationLimit);
+        runner.run("bulk borrow endpoint supports multiple selection", LibraryIntegrationTest::testBulkBorrowEndpointSupportsMultipleSelection);
+        runner.run("bulk borrow endpoint validates duration bounds", LibraryIntegrationTest::testBulkBorrowEndpointValidatesDurationBounds);
+        runner.run("non student/staff cannot use bulk borrow endpoint", LibraryIntegrationTest::testNonStudentStaffCannotUseBulkBorrowEndpoint);
+        runner.run("single borrow endpoint remains compatible", LibraryIntegrationTest::testSingleBorrowEndpointRemainsCompatible);
         runner.run("borrow limit and recommendation ranking", LibraryIntegrationTest::testBorrowLimitAndRecommendations);
         runner.run("author draft publish and librarian approval", LibraryIntegrationTest::testAuthorDraftPublishAndApproval);
         runner.run("author publish accepts normalized genres", LibraryIntegrationTest::testAuthorPublishAcceptsNormalizedGenres);
@@ -156,6 +160,130 @@ public final class LibraryIntegrationTest {
         expectThrows(BusinessException.class,
                 () -> context.borrowService.borrowBook("duration-user", cleanArchitecture.getId(), 15),
                 "Borrow duration must be between 1 and 14 days");
+    }
+
+    private static void testBulkBorrowEndpointSupportsMultipleSelection() throws Exception {
+        TestContext context = new TestContext();
+        Book first = context.addApprovedBook("Bulk Book One", "Bulk Author", "First bulk candidate.");
+        Book second = context.addApprovedBook("Bulk Book Two", "Bulk Author", "Second bulk candidate.");
+        context.authService.registerStudentOrStaff("bulk-user", "Bulk User", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "bulk-user", "Password1!", "STUDENT");
+
+            HttpRequest bulkBorrowRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/bulk"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + first.getId() + "," + second.getId() + "&days=7"))
+                    .build();
+            HttpResponse<String> bulkBorrowResponse = client.send(bulkBorrowRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, bulkBorrowResponse.statusCode(), "bulk borrow endpoint should return HTTP 200 for valid request");
+            assertTrue(bulkBorrowResponse.body().contains("Borrowed 2 books successfully"), "bulk borrow response should include borrowed count");
+
+            assertFalse(first.isAvailable(), "first borrowed book should become unavailable");
+            assertFalse(second.isAvailable(), "second borrowed book should become unavailable");
+            assertEquals(2, context.borrowService.listActiveBorrowsByUser("bulk-user").size(), "bulk borrow should create two active records");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testBulkBorrowEndpointValidatesDurationBounds() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Duration Guard Book", "Duration Guard", "Used for duration guard checks.");
+        context.authService.registerStudentOrStaff("bulk-duration-user", "Bulk Duration User", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "bulk-duration-user", "Password1!", "STUDENT");
+
+            HttpRequest zeroDaysRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/bulk"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + book.getId() + "&days=0"))
+                    .build();
+            HttpResponse<String> zeroDaysResponse = client.send(zeroDaysRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, zeroDaysResponse.statusCode(), "days=0 should be rejected for bulk borrow");
+            assertTrue(zeroDaysResponse.body().contains("days must be between 1 and 14"), "days=0 response should explain allowed range");
+
+            HttpRequest tooManyDaysRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/bulk"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + book.getId() + "&days=15"))
+                    .build();
+            HttpResponse<String> tooManyDaysResponse = client.send(tooManyDaysRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, tooManyDaysResponse.statusCode(), "days>14 should be rejected for bulk borrow");
+            assertTrue(tooManyDaysResponse.body().contains("days must be between 1 and 14"), "days>14 response should explain allowed range");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testNonStudentStaffCannotUseBulkBorrowEndpoint() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Role Guard Book", "Role Guard", "Role boundary test book.");
+        context.authorService.registerAuthor("author-bulk-block", "Author Bulk Block", "Password1!", "Bio");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "author-bulk-block", "Password1!", "AUTHOR");
+
+            HttpRequest bulkBorrowRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow/bulk"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + book.getId() + "&days=7"))
+                    .build();
+            HttpResponse<String> bulkBorrowResponse = client.send(bulkBorrowRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, bulkBorrowResponse.statusCode(), "non student/staff should be forbidden from bulk borrow endpoint");
+            assertTrue(bulkBorrowResponse.body().contains("Permission denied"), "forbidden response should explain permission denied");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testSingleBorrowEndpointRemainsCompatible() throws Exception {
+        TestContext context = new TestContext();
+        Book book = context.addApprovedBook("Single Borrow Compatible", "Compatibility Author", "Compatibility borrow check.");
+        context.authService.registerStudentOrStaff("single-borrow-user", "Single Borrow User", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "single-borrow-user", "Password1!", "STUDENT");
+
+            HttpRequest borrowRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrow"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookId=" + book.getId() + "&days=5"))
+                    .build();
+            HttpResponse<String> borrowResponse = client.send(borrowRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, borrowResponse.statusCode(), "single borrow endpoint should remain functional");
+            assertTrue(borrowResponse.body().contains("Borrowed successfully"), "single borrow response should keep existing success wording");
+
+            HttpRequest borrowsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> borrowsResponse = client.send(borrowsRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, borrowsResponse.statusCode(), "borrows endpoint should still work after single borrow");
+            assertTrue(borrowsResponse.body().contains("\"bookId\":\"" + book.getId() + "\""), "single-borrowed book should appear in active borrows");
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static void testAuthorDraftPublishAndApproval() throws Exception {
