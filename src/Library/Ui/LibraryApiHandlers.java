@@ -739,6 +739,52 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/profile", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    LibrarianService3.LibrarianProfileSnapshot profile = librarianService.getLibrarianProfile(user.getUsername());
+                    String payload = "{" +
+                            "\"username\":\"" + JsonUtil.escape(profile.username()) + "\"," +
+                            "\"fullName\":\"" + JsonUtil.escape(profile.fullName()) + "\"," +
+                            "\"employeeId\":\"" + JsonUtil.escape(profile.employeeId()) + "\"" +
+                            "}";
+                    sendJson(exchange, 200, payload);
+                    return;
+                }
+
+                Map<String, String> form = readForm(exchange);
+                String fullName = required(form, "fullName");
+                String employeeId = required(form, "employeeId");
+                String password = form.getOrDefault("password", "");
+
+                LibrarianService3.LibrarianProfileSnapshot updated = librarianService.updateLibrarianProfile(
+                        user.getUsername(),
+                        user.getUsername(),
+                        fullName,
+                        employeeId,
+                        password
+                );
+
+                String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+                if (!sessionId.isEmpty()) {
+                    user.updateFullName(updated.fullName());
+                    sessions.put(sessionId, user);
+                }
+
+                sendText(exchange, 200, "Librarian profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/review", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");

@@ -64,6 +64,72 @@ public class LibrarianService3 {
         return user;
     }
 
+    public LibrarianProfileSnapshot getLibrarianProfile(String username) {
+        if (username == null || username.isBlank()) {
+            throw new ValidationException("Username cannot be empty.");
+        }
+
+        String normalizedUsername = username.trim();
+        User user = userRepository.findByUsername(normalizedUsername)
+                .orElseThrow(() -> new ValidationException("Librarian user not found."));
+        if (user.getRole() != Role.LIBRARIAN) {
+            throw new ValidationException("User is not a librarian.");
+        }
+
+        LibrarianProfile3 profile = librarianProfileRepository.findByUsername(normalizedUsername)
+                .orElseGet(() -> {
+                    LibrarianProfile3 created = new LibrarianProfile3(normalizedUsername, "");
+                    librarianProfileRepository.save(created);
+                    return created;
+                });
+
+        return new LibrarianProfileSnapshot(user.getUsername(), user.getFullName(), profile.getEmployeeId());
+    }
+
+    public LibrarianProfileSnapshot updateLibrarianProfile(String actingUsername,
+                                                           String targetUsername,
+                                                           String fullName,
+                                                           String employeeId,
+                                                           String newPassword) {
+        if (actingUsername == null || actingUsername.isBlank()) {
+            throw new ValidationException("Username cannot be empty.");
+        }
+        if (targetUsername == null || targetUsername.isBlank()) {
+            throw new ValidationException("Username cannot be empty.");
+        }
+
+        String normalizedActor = actingUsername.trim();
+        String normalizedTarget = targetUsername.trim();
+        if (!normalizedActor.equals(normalizedTarget)) {
+            throw new ValidationException("Cannot update another librarian's profile.");
+        }
+
+        if (fullName == null || fullName.isBlank()) {
+            throw new ValidationException("Full Name cannot be empty.");
+        }
+        if (employeeId == null || employeeId.isBlank()) {
+            throw new ValidationException("Employee ID cannot be empty.");
+        }
+
+        User user = userRepository.findByUsername(normalizedTarget)
+                .orElseThrow(() -> new ValidationException("Librarian user not found."));
+        if (user.getRole() != Role.LIBRARIAN) {
+            throw new ValidationException("User is not a librarian.");
+        }
+
+        user.updateFullName(fullName.trim());
+        if (newPassword != null && !newPassword.isBlank()) {
+            PasswordPolicy.validate(newPassword);
+            user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+        userRepository.save(user);
+
+        LibrarianProfile3 profile = new LibrarianProfile3(user.getUsername(), employeeId.trim());
+        librarianProfileRepository.save(profile);
+
+        return new LibrarianProfileSnapshot(user.getUsername(), user.getFullName(), profile.getEmployeeId());
+    }
+
     // Method to retrieve a list of pending book submissions, allowing librarians to view and manage submissions that are awaiting approval or rejection, which is essential for maintaining the quality and relevance of the library's collection.
     public List<BookSubmission2> getPendingSubmissions() {
         return submissionRepository.findByStatus(SubmissionState.PENDING);
@@ -128,5 +194,8 @@ public class LibrarianService3 {
     // Method to bulk reject multiple book submissions, iterating through the list of submission IDs and calling the rejectSubmission method for each ID, which allows librarians to efficiently manage and reject multiple submissions at once.
     public void bulkReject(List<String> submissionIds, String comment) {
         for (String id : submissionIds) rejectSubmission(id, comment);
+    }
+
+    public record LibrarianProfileSnapshot(String username, String fullName, String employeeId) {
     }
 }
