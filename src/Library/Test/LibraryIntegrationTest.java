@@ -9,6 +9,7 @@ import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
 import Library.Model.NotificationAction;
 import Library.Model.NotificationItem;
+import Library.Model.NotificationPriority;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.SubmissionState;
@@ -117,6 +118,13 @@ public final class LibraryIntegrationTest {
         runner.run("student/staff notification ownership boundary endpoint", LibraryIntegrationTest::testStudentStaffNotificationOwnershipBoundaryEndpoint);
         runner.run("student/staff notification archive and unarchive success", LibraryIntegrationTest::testStudentStaffNotificationArchiveAndUnarchiveSuccess);
         runner.run("student/staff notification archive scope filtering and unread consistency", LibraryIntegrationTest::testStudentStaffNotificationArchiveScopeFilteringAndUnreadConsistency);
+        runner.run("student/staff notifications keyword search filter", LibraryIntegrationTest::testStudentStaffNotificationKeywordSearchFilter);
+        runner.run("student/staff notifications read filter", LibraryIntegrationTest::testStudentStaffNotificationReadFilter);
+        runner.run("student/staff notifications priority filter", LibraryIntegrationTest::testStudentStaffNotificationPriorityFilter);
+        runner.run("student/staff notifications scope and filter combo", LibraryIntegrationTest::testStudentStaffNotificationScopeAndFilterCombo);
+        runner.run("student/staff notifications sort by createdAt desc", LibraryIntegrationTest::testStudentStaffNotificationSortByCreatedAtDesc);
+        runner.run("student/staff notifications invalid filter values return bad request", LibraryIntegrationTest::testStudentStaffNotificationInvalidFilterValuesReturnBadRequest);
+        runner.run("student/staff notifications filters keep ownership scoping", LibraryIntegrationTest::testStudentStaffNotificationFiltersKeepOwnershipScoping);
         runner.run("student/staff profile password change requires current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRequiresCurrentPassword);
         runner.run("student/staff profile password change rejects wrong current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeRejectsWrongCurrentPassword);
         runner.run("student/staff profile password change succeeds with correct current password", LibraryIntegrationTest::testStudentStaffProfilePasswordChangeSucceedsWithCorrectCurrentPassword);
@@ -2260,6 +2268,321 @@ public final class LibraryIntegrationTest {
             }
             }
 
+            private static void testStudentStaffNotificationKeywordSearchFilter() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-search", "Notify Search", "Password1!", Role.STUDENT);
+
+            context.notificationService.addNotification(
+                "notify-search",
+                "Alpha Notice",
+                "General update",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+            context.notificationService.addNotification(
+                "notify-search",
+                "Other",
+                "Contains keywordToken",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-search", "Password1!", "STUDENT");
+
+                HttpRequest titleSearch = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&q=alpha"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> titleSearchResponse = client.send(titleSearch, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, titleSearchResponse.statusCode(), "keyword title search should return HTTP 200");
+                assertTrue(titleSearchResponse.body().contains("\"title\":\"Alpha Notice\""), "title search should include matching title");
+                assertFalse(titleSearchResponse.body().contains("\"title\":\"Other\""), "title search should exclude non-matching notification");
+
+                HttpRequest messageSearch = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&q=KEYWORDTOKEN"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> messageSearchResponse = client.send(messageSearch, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, messageSearchResponse.statusCode(), "keyword message search should return HTTP 200");
+                assertTrue(messageSearchResponse.body().contains("\"title\":\"Other\""), "message search should include matching notification");
+                assertFalse(messageSearchResponse.body().contains("\"title\":\"Alpha Notice\""), "message search should exclude non-matching notification");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationReadFilter() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-read", "Notify Read", "Password1!", Role.STAFF);
+
+            NotificationItem readTarget = context.notificationService.addNotification(
+                "notify-read",
+                "Read Target",
+                "Read me",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+            context.notificationService.addNotification(
+                "notify-read",
+                "Unread Target",
+                "Unread me",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+            context.notificationService.markAsRead("notify-read", readTarget.getId());
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-read", "Password1!", "STAFF");
+
+                HttpRequest readOnly = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&read=read"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> readOnlyResponse = client.send(readOnly, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, readOnlyResponse.statusCode(), "read filter should return HTTP 200");
+                assertTrue(readOnlyResponse.body().contains("\"title\":\"Read Target\""), "read filter should include read notification");
+                assertFalse(readOnlyResponse.body().contains("\"title\":\"Unread Target\""), "read filter should exclude unread notification");
+
+                HttpRequest unreadOnly = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&read=unread"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> unreadOnlyResponse = client.send(unreadOnly, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, unreadOnlyResponse.statusCode(), "unread filter should return HTTP 200");
+                assertTrue(unreadOnlyResponse.body().contains("\"title\":\"Unread Target\""), "unread filter should include unread notification");
+                assertFalse(unreadOnlyResponse.body().contains("\"title\":\"Read Target\""), "unread filter should exclude read notification");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationPriorityFilter() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-priority", "Notify Priority", "Password1!", Role.STUDENT);
+
+            context.notificationService.addNotification(
+                "notify-priority",
+                "Priority High",
+                "High priority",
+                NotificationPriority.HIGH,
+                null,
+                Map.of()
+            );
+            context.notificationService.addNotification(
+                "notify-priority",
+                "Priority Low",
+                "Low priority",
+                NotificationPriority.LOW,
+                null,
+                Map.of()
+            );
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-priority", "Password1!", "STUDENT");
+
+                HttpRequest highOnly = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&priority=high"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> highOnlyResponse = client.send(highOnly, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, highOnlyResponse.statusCode(), "priority filter should return HTTP 200");
+                assertTrue(highOnlyResponse.body().contains("\"title\":\"Priority High\""), "high priority filter should include high notification");
+                assertFalse(highOnlyResponse.body().contains("\"title\":\"Priority Low\""), "high priority filter should exclude low notification");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationScopeAndFilterCombo() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-combo", "Notify Combo", "Password1!", Role.STAFF);
+
+            NotificationItem archivedHighUnread = context.notificationService.addNotification(
+                "notify-combo",
+                "Archived High",
+                "Archived and unread",
+                NotificationPriority.HIGH,
+                null,
+                Map.of()
+            );
+            context.notificationService.addNotification(
+                "notify-combo",
+                "Active High",
+                "Active and unread",
+                NotificationPriority.HIGH,
+                null,
+                Map.of()
+            );
+            context.notificationService.archiveNotification("notify-combo", archivedHighUnread.getId());
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-combo", "Password1!", "STAFF");
+
+                HttpRequest comboRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=archived&read=unread&priority=high"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> comboResponse = client.send(comboRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, comboResponse.statusCode(), "scope and filter combo should return HTTP 200");
+                assertTrue(comboResponse.body().contains("\"title\":\"Archived High\""), "combo filter should include archived high unread notification");
+                assertFalse(comboResponse.body().contains("\"title\":\"Active High\""), "combo filter should exclude active high unread notification");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationSortByCreatedAtDesc() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-sort", "Notify Sort", "Password1!", Role.STUDENT);
+
+            context.notificationService.addNotification(
+                "notify-sort",
+                "Sort Old",
+                "Older item",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+            Thread.sleep(10);
+            context.notificationService.addNotification(
+                "notify-sort",
+                "Sort New",
+                "Newer item",
+                NotificationPriority.NORMAL,
+                null,
+                Map.of()
+            );
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-sort", "Password1!", "STUDENT");
+
+                HttpRequest sortedRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&sortBy=createdAt&sortDir=desc"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> sortedResponse = client.send(sortedRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, sortedResponse.statusCode(), "sortBy createdAt desc should return HTTP 200");
+
+                int newIndex = sortedResponse.body().indexOf("\"title\":\"Sort New\"");
+                int oldIndex = sortedResponse.body().indexOf("\"title\":\"Sort Old\"");
+                assertTrue(newIndex >= 0 && oldIndex >= 0, "sorted response should include both notifications");
+                assertTrue(newIndex < oldIndex, "newer notification should appear before older notification for createdAt desc");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationInvalidFilterValuesReturnBadRequest() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-invalid", "Notify Invalid", "Password1!", Role.STAFF);
+            context.notificationService.addNotification("notify-invalid", "Seed", "Seed", NotificationPriority.NORMAL, null, Map.of());
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String sessionId = loginAndGetSessionId(client, baseUrl, "notify-invalid", "Password1!", "STAFF");
+
+                HttpRequest invalidRead = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?read=maybe"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> invalidReadResponse = client.send(invalidRead, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, invalidReadResponse.statusCode(), "invalid read filter should return HTTP 400");
+                assertTrue(invalidReadResponse.body().contains("Invalid read filter"), "invalid read response should explain allowed values");
+
+                HttpRequest invalidPriority = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?priority=urgent"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> invalidPriorityResponse = client.send(invalidPriority, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, invalidPriorityResponse.statusCode(), "invalid priority filter should return HTTP 400");
+                assertTrue(invalidPriorityResponse.body().contains("priority must be one of"), "invalid priority response should explain allowed values");
+
+                HttpRequest invalidSort = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?sortBy=title"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+                HttpResponse<String> invalidSortResponse = client.send(invalidSort, HttpResponse.BodyHandlers.ofString());
+                assertEquals(400, invalidSortResponse.statusCode(), "invalid sortBy should return HTTP 400");
+                assertTrue(invalidSortResponse.body().contains("Invalid sortBy"), "invalid sortBy response should explain allowed values");
+            } finally {
+                server.stop(0);
+            }
+            }
+
+            private static void testStudentStaffNotificationFiltersKeepOwnershipScoping() throws Exception {
+            TestContext context = new TestContext();
+            context.authService.registerStudentOrStaff("notify-owner-a", "Notify Owner A", "Password1!", Role.STUDENT);
+            context.authService.registerStudentOrStaff("notify-owner-b", "Notify Owner B", "Password1!", Role.STUDENT);
+
+            context.notificationService.addNotification(
+                "notify-owner-a",
+                "Owner A Secret",
+                "Only owner A should see this",
+                NotificationPriority.HIGH,
+                null,
+                Map.of()
+            );
+            context.notificationService.addNotification(
+                "notify-owner-b",
+                "Owner B Own",
+                "Only owner B should see this",
+                NotificationPriority.HIGH,
+                null,
+                Map.of()
+            );
+
+            HttpServer server = createApiServer(context);
+            try {
+                String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+                HttpClient client = HttpClient.newHttpClient();
+                String ownerBSession = loginAndGetSessionId(client, baseUrl, "notify-owner-b", "Password1!", "STUDENT");
+
+                HttpRequest filteredListRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/notifications?scope=all&priority=high&read=unread&q=secret"))
+                    .header("X-Session-Id", ownerBSession)
+                    .GET()
+                    .build();
+                HttpResponse<String> filteredListResponse = client.send(filteredListRequest, HttpResponse.BodyHandlers.ofString());
+                assertEquals(200, filteredListResponse.statusCode(), "filtered list request should return HTTP 200");
+                assertFalse(filteredListResponse.body().contains("Owner A Secret"), "filtered list should not leak other user's notifications");
+                assertFalse(filteredListResponse.body().contains("Owner B Own"), "owner B item should not match secret keyword");
+            } finally {
+                server.stop(0);
+            }
+            }
+
     private static void testStudentStaffProfilePasswordChangeRequiresCurrentPassword() throws Exception {
         TestContext context = new TestContext();
         context.authService.registerStudentOrStaff("profile-reauth-missing", "Profile Missing", "Password1!", Role.STUDENT);
@@ -3040,7 +3363,9 @@ public final class LibraryIntegrationTest {
                 context.authorService,
                 context.authorDraftService,
                 context.fileService,
-                context.librarianService
+            context.librarianService,
+            context.notificationService,
+            context.readingProgressService
         );
         handlers.register(server);
         server.start();
