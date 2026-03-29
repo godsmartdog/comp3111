@@ -7,9 +7,11 @@ import Library.Model.Book;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
+import Library.Model.NotificationItem;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
+import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
 import Library.Repository.MemoryBookRepository;
@@ -26,6 +28,7 @@ import Library.Service.BookService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 import java.nio.file.Files;
@@ -47,6 +50,8 @@ public final class LibraryIntegrationTest {
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
+        runner.run("personal notifications can be listed and marked read", LibraryIntegrationTest::testNotificationListAndMarkRead);
+        runner.run("cannot mark another user's notification", LibraryIntegrationTest::testNotificationOwnershipValidation);
         runner.finish();
     }
 
@@ -272,6 +277,40 @@ public final class LibraryIntegrationTest {
         Files.deleteIfExists(manuscript);
     }
 
+    private static void testNotificationListAndMarkRead() {
+        TestContext context = new TestContext();
+
+        context.notificationService.addNotification("notify-user", "Borrow Update", "You borrowed Clean Code.");
+        context.notificationService.addNotification("notify-user", "Return Reminder", "Please return by due date.");
+
+        List<NotificationItem> before = context.notificationService.listByUser("notify-user");
+        assertEquals(2, before.size(), "user should see personal notifications");
+        assertFalse(before.get(0).isRead(), "latest notification should start unread");
+
+        context.notificationService.markAsRead("notify-user", before.get(0).getId());
+
+        List<NotificationItem> after = context.notificationService.listByUser("notify-user");
+        NotificationItem updated = after.stream()
+                .filter(item -> item.getId().equals(before.get(0).getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("expected marked notification to exist"));
+        assertTrue(updated.isRead(), "notification should be marked as read");
+    }
+
+    private static void testNotificationOwnershipValidation() {
+        TestContext context = new TestContext();
+
+        NotificationItem foreignItem = context.notificationService.addNotification(
+                "owner-a",
+                "Private Message",
+                "This should not be editable by other users."
+        );
+
+        expectThrows(BusinessException.class,
+                () -> context.notificationService.markAsRead("owner-b", foreignItem.getId()),
+                "does not belong to this user");
+    }
+
     private static Path createTempTextFile(String prefix, String suffix, List<String> lines) throws Exception {
         Path path = Files.createTempFile(prefix, suffix);
         Files.write(path, lines);
@@ -335,6 +374,7 @@ public final class LibraryIntegrationTest {
         private final FileService fileService = new FileService();
         private final LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
         private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+        private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
 
         private TestContext() {
             SessionManager.getInstance().destroySession();

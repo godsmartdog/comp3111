@@ -4,9 +4,11 @@ import Library.Model.Book;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
+import Library.Model.NotificationItem;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
 import Library.Model.User;
+import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryReadingProgressRepository;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
@@ -15,6 +17,7 @@ import Library.Service.BookService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 
@@ -49,6 +52,7 @@ public class LibraryApiHandlers {
     private final AuthorDraftService authorDraftService;
     private final FileService fileService;
     private final LibrarianService3 librarianService;
+    private final NotificationService notificationService;
     private final ReadingProgressService readingProgressService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
@@ -69,6 +73,7 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
+        this.notificationService = new NotificationService(new MemoryNotificationRepository());
         this.readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
     }
 
@@ -198,7 +203,55 @@ public class LibraryApiHandlers {
                     sessions.put(sessionId, updated);
                 }
 
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Profile Updated",
+                        "Your profile details were updated successfully."
+                );
+
                 sendText(exchange, 200, "Profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                List<NotificationItem> items = notificationService.listByUser(user.getUsername());
+                sendJson(exchange, 200, notificationsToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications/read", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.markAsRead(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"read\"," +
+                        "\"message\":\"Notification marked as read.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -219,6 +272,11 @@ public class LibraryApiHandlers {
                 int days = Integer.parseInt(form.getOrDefault("days", "14"));
 
                 BorrowRecord record = borrowService.borrowBook(user.getUsername(), bookId, days);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Book Borrowed",
+                        "You borrowed this book. Due date: " + record.getDueDate()
+                );
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -257,6 +315,11 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
                 BorrowRecord record = borrowService.returnBook(user.getUsername(), bookId);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Book Returned",
+                        "You returned a book. Due date was: " + record.getDueDate()
+                );
                 sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -704,6 +767,20 @@ public class LibraryApiHandlers {
                 "\"bookmark\":" + progress.getBookmarkPage() + "," +
                 "\"highlights\":[" + String.join(",", highlightJson) + "]" +
                 "}";
+    }
+
+    private static String notificationsToJson(List<NotificationItem> items) {
+        List<String> values = new ArrayList<>();
+        for (NotificationItem item : items) {
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
+                    "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
+                    "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
+                    "\"read\":" + item.isRead() +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
     }
 
     private static MultipartData readMultipartForm(HttpExchange exchange) throws IOException {
