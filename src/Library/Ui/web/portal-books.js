@@ -135,12 +135,42 @@ async function refreshRecommendations() {
 
 async function refreshBorrows() {
     const list = document.getElementById("borrows");
-    const items = await api("/api/borrows");
+    const params = new URLSearchParams();
+    const status = document.getElementById("borrowStatusFilter")?.value || "active";
+    const sortBy = document.getElementById("borrowSortBy")?.value || "";
+    const sortDir = document.getElementById("borrowSortDir")?.value || "asc";
+    const borrowDateFrom = document.getElementById("borrowDateFrom")?.value || "";
+    const borrowDateTo = document.getElementById("borrowDateTo")?.value || "";
+    const dueDateFrom = document.getElementById("dueDateFrom")?.value || "";
+    const dueDateTo = document.getElementById("dueDateTo")?.value || "";
+
+    if (status) {
+        params.set("status", status);
+    }
+    if (sortBy) {
+        params.set("sortBy", sortBy);
+        params.set("sortDir", sortDir);
+    }
+    if (borrowDateFrom) {
+        params.set("borrowDateFrom", borrowDateFrom);
+    }
+    if (borrowDateTo) {
+        params.set("borrowDateTo", borrowDateTo);
+    }
+    if (dueDateFrom) {
+        params.set("dueDateFrom", dueDateFrom);
+    }
+    if (dueDateTo) {
+        params.set("dueDateTo", dueDateTo);
+    }
+
+    const query = params.toString();
+    const items = await api(query ? `/api/borrows?${query}` : "/api/borrows");
     list.innerHTML = "";
     items.forEach((item) => {
         const li = document.createElement("li");
         li.innerHTML = `
-            <span>${item.bookTitle} (due ${item.dueDate})${item.overdue ? " [OVERDUE]" : ""}</span>
+            <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${item.overdue ? " [OVERDUE]" : ""}</span>
             <button class="secondary" type="button">Read</button>
             <button class="secondary" type="button">Return</button>
         `;
@@ -389,6 +419,44 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
     refreshNotifications().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyBorrowFiltersBtn")?.addEventListener("click", () => {
+    refreshBorrows().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetBorrowFiltersBtn")?.addEventListener("click", () => {
+    const status = document.getElementById("borrowStatusFilter");
+    const sortBy = document.getElementById("borrowSortBy");
+    const sortDir = document.getElementById("borrowSortDir");
+    const borrowDateFrom = document.getElementById("borrowDateFrom");
+    const borrowDateTo = document.getElementById("borrowDateTo");
+    const dueDateFrom = document.getElementById("dueDateFrom");
+    const dueDateTo = document.getElementById("dueDateTo");
+
+    if (status) {
+        status.value = "active";
+    }
+    if (sortBy) {
+        sortBy.value = "";
+    }
+    if (sortDir) {
+        sortDir.value = "asc";
+    }
+    if (borrowDateFrom) {
+        borrowDateFrom.value = "";
+    }
+    if (borrowDateTo) {
+        borrowDateTo.value = "";
+    }
+    if (dueDateFrom) {
+        dueDateFrom.value = "";
+    }
+    if (dueDateTo) {
+        dueDateTo.value = "";
+    }
+
+    refreshBorrows().catch((e) => showToast(e.message, true));
 });
 
 if (currentUser) {

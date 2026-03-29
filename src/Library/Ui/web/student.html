@@ -103,6 +103,29 @@
         </div>
 
         <h3>My Active Borrows</h3>
+        <div class="toolbar">
+            <select id="borrowStatusFilter" aria-label="Borrow status filter">
+                <option value="active" selected>Active Only</option>
+                <option value="all">All</option>
+                <option value="returned">Returned</option>
+                <option value="overdue">Overdue</option>
+            </select>
+            <select id="borrowSortBy" aria-label="Borrow sort by">
+                <option value="" selected>No Sort</option>
+                <option value="borrowDate">Borrow Date</option>
+                <option value="dueDate">Due Date</option>
+            </select>
+            <select id="borrowSortDir" aria-label="Borrow sort direction">
+                <option value="asc" selected>Asc</option>
+                <option value="desc">Desc</option>
+            </select>
+            <input id="borrowDateFrom" type="date" aria-label="Borrow date from">
+            <input id="borrowDateTo" type="date" aria-label="Borrow date to">
+            <input id="dueDateFrom" type="date" aria-label="Due date from">
+            <input id="dueDateTo" type="date" aria-label="Due date to">
+            <button id="applyBorrowFiltersBtn" type="button">Apply Borrow Filters</button>
+            <button id="resetBorrowFiltersBtn" class="secondary" type="button">Reset Borrow Filters</button>
+        </div>
         <ul id="borrows"></ul>
 
         <h3>Notification Board</h3>
