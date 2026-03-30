@@ -7,10 +7,36 @@ if (currentUser) {
 }
 
 let selectedBookId = null;
+let selectedBookSummary = null;
 let selectedBorrowedBookId = null;
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
+
+function animateSelectedBookState() {
+    const selectedBookElement = document.getElementById("selectedBook");
+    selectedBookElement.classList.remove("is-updated");
+    void selectedBookElement.offsetWidth;
+    selectedBookElement.classList.add("is-updated");
+}
+
+function updateSelectedBookUi(book) {
+    const selectedBookElement = document.getElementById("selectedBook");
+    if (!book) {
+        selectedBookElement.classList.remove("has-selection", "is-updated");
+        selectedBookElement.textContent = "Selected book: none";
+        return;
+    }
+
+    const days = Number(document.getElementById("borrowDays")?.value || "14");
+    selectedBookElement.classList.add("has-selection");
+    selectedBookElement.innerHTML = `
+        <span class="selected-book-label">Ready to borrow</span>
+        <strong class="selected-book-title">${book.title}</strong>
+        <span class="selected-book-meta">by ${book.author} · ${days} day${days === 1 ? "" : "s"}</span>
+    `;
+    animateSelectedBookState();
+}
 
 function getTotalPages() {
     return Math.max(1, Math.ceil(allBooks.length / pageSize));
@@ -38,20 +64,35 @@ function renderBooks(books) {
     const tbody = document.getElementById("booksBody");
     tbody.innerHTML = "";
 
+    if (!Array.isArray(books) || books.length === 0) {
+        const row = document.createElement("tr");
+        row.innerHTML = '<td colspan="4" class="muted">No books available for the current filter.</td>';
+        tbody.appendChild(row);
+        updatePagerUi();
+        return;
+    }
+
     books.forEach((book) => {
         const row = document.createElement("tr");
         const statusClass = book.available ? "status-available" : "status-unavailable";
+        const isSelected = selectedBookId === book.id;
+
+        if (isSelected) {
+            row.classList.add("book-row-selected");
+        }
 
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
             <td class="${statusClass}">${book.available ? "Available" : "Unavailable"}</td>
-            <td><button class="secondary">Select</button></td>
+            <td><button type="button" class="secondary book-select-btn ${isSelected ? "is-selected" : ""}">${isSelected ? "Selected" : "Select"}</button></td>
         `;
 
         row.querySelector("button").addEventListener("click", () => {
             selectedBookId = book.id;
-            document.getElementById("selectedBook").textContent = `Selected book: ${book.title}`;
+            selectedBookSummary = { id: book.id, title: book.title, author: book.author };
+            updateSelectedBookUi(selectedBookSummary);
+            renderCurrentPageBooks();
         });
 
         tbody.appendChild(row);
@@ -73,6 +114,19 @@ async function refreshBooks(keyword = "") {
     const url = query ? `/api/books?${query}` : "/api/books";
     const books = await api(url);
     allBooks = [...books].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+
+    if (selectedBookId) {
+        const latestSelected = allBooks.find((book) => book.id === selectedBookId);
+        if (latestSelected) {
+            selectedBookSummary = {
+                id: latestSelected.id,
+                title: latestSelected.title,
+                author: latestSelected.author
+            };
+        }
+        updateSelectedBookUi(selectedBookSummary);
+    }
+
     currentPage = 1;
     renderCurrentPageBooks();
 }
@@ -90,15 +144,37 @@ async function refreshRecommendations() {
 
 async function refreshBorrows() {
     const list = document.getElementById("borrows");
-    const items = await api("/api/borrows");
+    const items = await api("/api/borrows/history");
     list.innerHTML = "";
+
+    if (!Array.isArray(items) || items.length === 0) {
+        const li = document.createElement("li");
+        li.className = "muted";
+        li.textContent = "No borrow records yet.";
+        list.appendChild(li);
+        return;
+    }
+
     items.forEach((item) => {
         const li = document.createElement("li");
-        li.innerHTML = `
-            <span>${item.bookTitle} (due ${item.dueDate})${item.overdue ? " [OVERDUE]" : ""}</span>
-            <button class="secondary" type="button">Read</button>
-            <button class="secondary" type="button">Return</button>
-        `;
+        const isReturned = !!item.returned;
+        const statusText = isReturned
+            ? `Returned${item.returnedDate ? ` on ${item.returnedDate}` : ""}`
+            : `Due ${item.dueDate}${item.overdue ? " [OVERDUE]" : ""}`;
+
+        li.innerHTML = isReturned
+            ? `<span>${item.bookTitle} (${statusText})</span>`
+            : `
+                <span>${item.bookTitle} (${statusText})</span>
+                <button class="secondary" type="button">Read</button>
+                <button class="secondary" type="button">Return</button>
+            `;
+
+        if (isReturned) {
+            list.appendChild(li);
+            return;
+        }
+
         const buttons = li.querySelectorAll("button");
         const readBtn = buttons[0];
         const returnBtn = buttons[1];
@@ -146,17 +222,17 @@ async function refreshNotifications() {
     status.textContent = "Loading notifications...";
     try {
         const items = await api("/api/notifications");
+        const unreadItems = Array.isArray(items) ? items.filter((item) => !item.read) : [];
         list.innerHTML = "";
 
-        if (!Array.isArray(items) || items.length === 0) {
+        if (unreadItems.length === 0) {
             status.textContent = "No notifications.";
             return;
         }
 
-        const unreadCount = items.filter((item) => !item.read).length;
-        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
+        status.textContent = `Unread: ${unreadItems.length}`;
 
-        items.forEach((item) => {
+        unreadItems.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             const created = item.createdAt || "";
@@ -179,7 +255,10 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification marked as read.", false);
-                    await refreshNotifications();
+
+                    li.remove();
+                    const remaining = list.querySelectorAll("li").length;
+                    status.textContent = remaining === 0 ? "No notifications." : `Unread: ${remaining}`;
                 } catch (error) {
                     showToast(error.message, true);
                 }
@@ -292,6 +371,12 @@ document.getElementById("nextPageBtn").addEventListener("click", () => {
     }
 });
 
+document.getElementById("borrowDays").addEventListener("change", () => {
+    if (selectedBookSummary) {
+        updateSelectedBookUi(selectedBookSummary);
+    }
+});
+
 document.getElementById("borrowBtn").addEventListener("click", async () => {
     try {
         if (!selectedBookId) {
@@ -307,6 +392,9 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
         }, false);
 
         showToast(text, false);
+        selectedBookId = null;
+        selectedBookSummary = null;
+        updateSelectedBookUi(null);
         await refreshBooks();
         await refreshRecommendations();
         await refreshBorrows();

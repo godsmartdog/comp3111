@@ -259,7 +259,8 @@ async function refreshAuthorNotifications() {
     try {
         unreadLine.textContent = "Unread: --";
         const items = await api("/api/author/notifications");
-        let unreadCount = items.filter((item) => !item.read).length;
+        const unreadItems = Array.isArray(items) ? items.filter((item) => !item.read) : [];
+        let unreadCount = unreadItems.length;
 
         try {
             const summary = await api("/api/author/notifications/summary");
@@ -273,14 +274,14 @@ async function refreshAuthorNotifications() {
         list.innerHTML = "";
         unreadLine.textContent = `Unread: ${unreadCount}`;
 
-        if (!Array.isArray(items) || items.length === 0) {
+        if (unreadItems.length === 0) {
             status.textContent = "No notifications.";
             return;
         }
 
-        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
+        status.textContent = `Unread: ${unreadCount}`;
 
-        items.forEach((item) => {
+        unreadItems.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             li.innerHTML = `
@@ -301,7 +302,10 @@ async function refreshAuthorNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification marked as read.", false);
-                    await refreshAuthorNotifications();
+                    li.remove();
+                    const remaining = list.querySelectorAll("li").length;
+                    unreadLine.textContent = `Unread: ${remaining}`;
+                    status.textContent = remaining === 0 ? "No notifications." : `Unread: ${remaining}`;
                 } catch (error) {
                     showToast(error.message, true);
                 }
@@ -409,6 +413,17 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         }
 
         showToast(text, false);
+        document.getElementById("authorTitle").value = "";
+        document.getElementById("authorGenres").value = "";
+        document.getElementById("authorDescription").value = "";
+        document.getElementById("authorFilePath").value = "";
+        document.getElementById("authorPreview").textContent = "";
+        selectedFile = null;
+        fileInput.value = "";
+        clearFilePreviewUrl();
+        filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
+        await refreshDrafts();
+        await refreshAuthorNotifications();
     } catch (error) {
         showToast(error.message, true);
     }

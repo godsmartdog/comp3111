@@ -92,6 +92,16 @@ public class BorrowService {
                 .collect(Collectors.toList());
     }
 
+        public List<BorrowRecord> listBorrowsByUser(String username) {
+        autoReturnOverdueBooks(username);
+        return borrowRepository.findByUsername(username).stream()
+            .sorted(
+                Comparator.comparing(BorrowRecord::getBorrowDate, Comparator.reverseOrder())
+                    .thenComparing(BorrowRecord::getId)
+            )
+            .collect(Collectors.toList());
+        }
+
     public int autoReturnOverdueBooks(String username) {
         LocalDate today = LocalDate.now();
         List<BorrowRecord> candidates = borrowRepository.findByUsername(username);

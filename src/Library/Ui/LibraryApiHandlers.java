@@ -420,6 +420,41 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/borrows/history", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                List<BorrowRecord> records = borrowService.listBorrowsByUser(user.getUsername());
+
+                List<String> jsonItems = new ArrayList<>();
+                for (BorrowRecord record : records) {
+                    String title = bookService.findBookById(record.getBookId())
+                            .map(Book::getTitle)
+                            .orElse(record.getBookId());
+                    String returnedDate = record.getReturnedDate() == null ? "" : record.getReturnedDate().toString();
+                    jsonItems.add("{" +
+                            "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
+                            "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
+                            "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
+                            "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
+                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
+                            "\"returned\":" + record.isReturned() + "," +
+                            "\"returnedDate\":\"" + JsonUtil.escape(returnedDate) + "\"," +
+                            "\"overdue\":" + record.isOverdue(java.time.LocalDate.now()) +
+                            "}");
+                }
+                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrow/content", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -747,6 +782,7 @@ public class LibraryApiHandlers {
                 }
 
                 BookSubmission2 submission = authorService.publishBook(user.getUsername(), title, genres, description, submissionFileReference);
+                authorDraftService.clearDraft(user.getUsername(), title);
                 notificationService.addNotification(
                         user.getUsername(),
                         "Submission Created",
