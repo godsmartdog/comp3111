@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Author Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Author Profile</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="author.html">Back to Portal</a>
+        <a class="link-btn" href="index.html">Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col">
+    <section class="panel glass-panel">
+        <h2>Manage Profile</h2>
+        <div class="split">
+            <div>
+                <div class="inline-row">
+                    <label for="authorProfileFullName">Full Name</label>
+                    <input id="authorProfileFullName" type="text" placeholder="Your full name">
+                </div>
+                <label for="authorProfileBio">Bio</label>
+                <textarea id="authorProfileBio" rows="3" placeholder="Short author bio"></textarea>
+                <div class="inline-row">
+                    <label for="authorProfilePassword">New Password</label>
+                    <input id="authorProfilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <button id="saveAuthorProfileBtn" class="secondary" type="button">Save Profile</button>
+                <p id="authorProfileFeedback"></p>
+            </div>
+        </div>
+
+        <h2>Published Books History</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Book Name</th>
+                    <th>Publish Date</th>
+                </tr>
+                </thead>
+                <tbody id="authorPublishedHistoryBody"></tbody>
+            </table>
+        </div>
+        <div class="pager-row">
+            <button id="authorHistoryPrevBtn" type="button" class="secondary pager-btn">&lt;</button>
+            <span id="authorHistoryPageInfo">1/1</span>
+            <button id="authorHistoryNextBtn" type="button" class="secondary pager-btn">&gt;</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="profile-author.js"></script>
+</body>
+</html>

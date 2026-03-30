@@ -13,96 +13,16 @@ let selectedBorrowedBookId = null;
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
+let allNotifications = [];
+let currentNotificationPage = 1;
+const notificationPageSize = 5;
+let readerFileObjectUrl = null;
 
-async function loadProfile() {
-    const profile = await api("/api/profile");
-    const fullNameInput = document.getElementById("profileFullName");
-    const currentPasswordInput = document.getElementById("profileCurrentPassword");
-    const newPasswordInput = document.getElementById("profilePassword");
-    const profileFeedback = document.getElementById("profileFeedback");
-
-    if (fullNameInput) {
-        fullNameInput.value = profile.fullName || "";
+function clearReaderObjectUrl() {
+    if (readerFileObjectUrl) {
+        URL.revokeObjectURL(readerFileObjectUrl);
+        readerFileObjectUrl = null;
     }
-    if (currentPasswordInput) {
-        currentPasswordInput.value = "";
-    }
-    if (newPasswordInput) {
-        newPasswordInput.value = "";
-    }
-    if (profileFeedback) {
-        profileFeedback.textContent = "";
-    }
-}
-
-async function saveProfile() {
-    const fullNameInput = document.getElementById("profileFullName");
-    const currentPasswordInput = document.getElementById("profileCurrentPassword");
-    const newPasswordInput = document.getElementById("profilePassword");
-    const profileFeedback = document.getElementById("profileFeedback");
-
-    const fullName = (fullNameInput?.value || "").trim();
-    const currentPassword = (currentPasswordInput?.value || "").trim();
-    const newPassword = (newPasswordInput?.value || "").trim();
-
-    if (!fullName) {
-        showToast("Full Name cannot be empty.", true);
-        if (profileFeedback) {
-            profileFeedback.textContent = "Full Name cannot be empty.";
-        }
-        return;
-    }
-
-    if (newPassword) {
-        if (!currentPassword) {
-            showToast("Current password is required to change password.", true);
-            if (profileFeedback) {
-                profileFeedback.textContent = "Current password is required to change password.";
-            }
-            return;
-        }
-
-        const passwordIssues = getPasswordPolicyViolations(newPassword);
-        if (passwordIssues.length > 0) {
-            const message = passwordIssues[0];
-            showToast(message, true);
-            if (profileFeedback) {
-                profileFeedback.textContent = message;
-            }
-            return;
-        }
-    }
-
-    await api("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({
-            fullName,
-            password: newPassword,
-            currentPassword
-        })
-    }, false);
-
-    if (currentUser) {
-        currentUser.fullName = fullName;
-        saveCurrentUser(currentUser);
-    }
-
-    const welcomeLine = document.getElementById("welcomeLine");
-    if (welcomeLine && currentUser) {
-        welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
-    }
-
-    if (currentPasswordInput) {
-        currentPasswordInput.value = "";
-    }
-    if (newPasswordInput) {
-        newPasswordInput.value = "";
-    }
-    if (profileFeedback) {
-        profileFeedback.textContent = "Profile updated successfully.";
-    }
-    showToast("Profile updated successfully.", false);
 }
 
 function updateSelectedBookLabel() {
@@ -235,13 +155,9 @@ async function refreshRecommendations() {
 async function refreshBorrows() {
     const list = document.getElementById("borrows");
     const params = new URLSearchParams();
-    const status = document.getElementById("borrowStatusFilter")?.value || "all";
+    const status = document.getElementById("borrowStatusFilter")?.value || "active";
     const sortBy = document.getElementById("borrowSortBy")?.value || "";
     const sortDir = document.getElementById("borrowSortDir")?.value || "asc";
-    const borrowDateFrom = document.getElementById("borrowDateFrom")?.value || "";
-    const borrowDateTo = document.getElementById("borrowDateTo")?.value || "";
-    const dueDateFrom = document.getElementById("dueDateFrom")?.value || "";
-    const dueDateTo = document.getElementById("dueDateTo")?.value || "";
 
     if (status) {
         params.set("status", status);
@@ -249,18 +165,6 @@ async function refreshBorrows() {
     if (sortBy) {
         params.set("sortBy", sortBy);
         params.set("sortDir", sortDir);
-    }
-    if (borrowDateFrom) {
-        params.set("borrowDateFrom", borrowDateFrom);
-    }
-    if (borrowDateTo) {
-        params.set("borrowDateTo", borrowDateTo);
-    }
-    if (dueDateFrom) {
-        params.set("dueDateFrom", dueDateFrom);
-    }
-    if (dueDateTo) {
-        params.set("dueDateTo", dueDateTo);
     }
 
     const query = params.toString();
@@ -293,15 +197,19 @@ async function refreshBorrows() {
 
         if (isReturned) {
             const returnedDate = item.returnedDate ? ` on ${item.returnedDate}` : "";
-            li.innerHTML = `<span>${item.bookTitle} (Returned${returnedDate})</span>`;
+            li.innerHTML = `<div class="borrow-item-row"><span>${item.bookTitle} (Returned${returnedDate})</span></div>`;
             list.appendChild(li);
             return;
         }
 
         li.innerHTML = `
-            <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
-            <button class="secondary" type="button">Read</button>
-            <button class="secondary" type="button">Return</button>
+            <div class="borrow-item-row">
+                <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
+                <div class="borrow-item-actions">
+                    <button class="secondary" type="button">Read</button>
+                    <button class="secondary" type="button">Return</button>
+                </div>
+            </div>
         `;
         const buttons = li.querySelectorAll("button");
         const readBtn = buttons[0];
@@ -343,62 +251,71 @@ async function refreshBorrows() {
 async function refreshNotifications() {
     const list = document.getElementById("notificationsList");
     const status = document.getElementById("notificationStatus");
-    const scopeFilter = document.getElementById("notificationScopeFilter");
-    const readFilter = document.getElementById("notificationReadFilter");
-    const priorityFilter = document.getElementById("notificationPriorityFilter");
-    const sortByFilter = document.getElementById("notificationSortBy");
-    const sortDirFilter = document.getElementById("notificationSortDir");
-    const searchInput = document.getElementById("notificationSearchInput");
     if (!list || !status) {
         return;
     }
 
-    const selectedScope = scopeFilter?.value || "active";
-    const selectedRead = readFilter?.value || "all";
-    const selectedPriority = priorityFilter?.value || "all";
-    const selectedSortBy = sortByFilter?.value || "createdAt";
-    const selectedSortDir = sortDirFilter?.value || "desc";
-    const selectedQuery = (searchInput?.value || "").trim();
-
-    const params = new URLSearchParams();
-    params.set("scope", selectedScope);
-    params.set("read", selectedRead);
-    params.set("priority", selectedPriority);
-    params.set("sortBy", selectedSortBy);
-    params.set("sortDir", selectedSortDir);
-    if (selectedQuery) {
-        params.set("q", selectedQuery);
-    }
-
     status.textContent = "Loading notifications...";
     try {
-        const items = await api(`/api/notifications?${params.toString()}`);
-        const activeItems = selectedScope === "active"
-            ? items
-            : await api("/api/notifications?scope=active");
-        list.innerHTML = "";
+        const items = await api("/api/notifications?scope=active&sortBy=createdAt&sortDir=desc");
+        allNotifications = Array.isArray(items) ? items : [];
+        currentNotificationPage = 1;
+        renderCurrentNotificationPage();
+    } catch (error) {
+        status.textContent = "Failed to load notifications.";
+        throw error;
+    }
+}
 
-        if (!Array.isArray(items) || items.length === 0) {
-            const activeUnread = Array.isArray(activeItems)
-                ? activeItems.filter((item) => !item.read).length
-                : 0;
-            status.textContent = `No notifications in ${selectedScope} view. Active unread: ${activeUnread}`;
-            return;
-        }
+function getTotalNotificationPages() {
+    return Math.max(1, Math.ceil(allNotifications.length / notificationPageSize));
+}
 
-        const unreadCount = Array.isArray(activeItems)
-            ? activeItems.filter((item) => !item.read).length
-            : 0;
-        const queryLabel = selectedQuery ? ` | Search: ${selectedQuery}` : "";
-        status.textContent = `View: ${selectedScope} | Total: ${items.length} | Active Unread: ${unreadCount}${queryLabel}`;
+function updateNotificationPagerUi() {
+    const totalPages = getTotalNotificationPages();
+    const pageInfo = document.getElementById("notificationPageInfo");
+    const prevBtn = document.getElementById("notificationPrevPageBtn");
+    const nextBtn = document.getElementById("notificationNextPageBtn");
 
-        items.forEach((item) => {
+    if (pageInfo) {
+        pageInfo.textContent = `${currentNotificationPage}/${totalPages}`;
+    }
+    if (prevBtn) {
+        prevBtn.disabled = currentNotificationPage <= 1;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = currentNotificationPage >= totalPages;
+    }
+}
+
+function renderCurrentNotificationPage() {
+    const list = document.getElementById("notificationsList");
+    const status = document.getElementById("notificationStatus");
+    if (!list || !status) {
+        return;
+    }
+
+    list.innerHTML = "";
+
+    if (allNotifications.length === 0) {
+        status.textContent = "No notifications.";
+        updateNotificationPagerUi();
+        return;
+    }
+
+    const unreadCount = allNotifications.filter((item) => !item.read).length;
+    status.textContent = `Total: ${allNotifications.length}, Unread: ${unreadCount}`;
+
+    const start = (currentNotificationPage - 1) * notificationPageSize;
+    const end = start + notificationPageSize;
+    const currentItems = allNotifications.slice(start, end);
+
+    currentItems.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             const created = item.createdAt || "";
             const priority = (item.priority || "NORMAL").toUpperCase();
             const priorityClass = `priority-${priority.toLowerCase()}`;
-            const isArchived = item.archived === true;
 
             li.style.padding = "10px";
             li.style.borderRadius = "8px";
@@ -413,10 +330,9 @@ async function refreshNotifications() {
                     <div>${item.message || ""}</div>
                     <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
                 </div>
-                <div>
+                <div class="notification-actions">
                     <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
                     <button class="danger notification-delete-btn" type="button">Delete</button>
-                    <button class="secondary notification-archive-btn" type="button">${isArchived ? "Unarchive" : "Archive"}</button>
                 </div>
             `;
 
@@ -429,11 +345,11 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification marked as read.", false);
-                    li.remove();
-                    const remaining = list.querySelectorAll("li").length;
-                    status.textContent = remaining === 0
-                        ? `No notifications in ${selectedScope} view.`
-                        : `View: ${selectedScope} | Remaining: ${remaining}`;
+                    item.read = true;
+                    if (payload.readAt) {
+                        item.readAt = payload.readAt;
+                    }
+                    renderCurrentNotificationPage();
                 } catch (error) {
                     showToast(error.message, true);
                 }
@@ -448,80 +364,42 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification deleted.", false);
-                    await refreshNotifications();
-                } catch (error) {
-                    showToast(error.message, true);
-                }
-            });
-
-            const archiveButton = li.querySelector(".notification-archive-btn");
-            archiveButton.addEventListener("click", async () => {
-                try {
-                    const endpoint = isArchived ? "/api/notifications/unarchive" : "/api/notifications/archive";
-                    const payload = await api(endpoint, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: formBody({ notificationId: item.id })
-                    });
-                    showToast(payload.message || (isArchived ? "Notification unarchived." : "Notification archived."), false);
-                    await refreshNotifications();
+                    allNotifications = allNotifications.filter((notification) => notification.id !== item.id);
+                    if (currentNotificationPage > getTotalNotificationPages()) {
+                        currentNotificationPage = getTotalNotificationPages();
+                    }
+                    renderCurrentNotificationPage();
                 } catch (error) {
                     showToast(error.message, true);
                 }
             });
 
             list.appendChild(li);
-        });
-    } catch (error) {
-        status.textContent = "Failed to load notifications.";
-        throw error;
-    }
+    });
+
+    updateNotificationPagerUi();
 }
 
 function getNotificationSnapshotState() {
     return {
-        scope: document.getElementById("notificationScopeFilter")?.value || "active",
-        read: document.getElementById("notificationReadFilter")?.value || "all",
-        priority: document.getElementById("notificationPriorityFilter")?.value || "all",
-        sortBy: document.getElementById("notificationSortBy")?.value || "createdAt",
-        sortDir: document.getElementById("notificationSortDir")?.value || "desc",
-        query: document.getElementById("notificationSearchInput")?.value || ""
+        notificationPage: currentNotificationPage
     };
 }
 
 function applyNotificationSnapshotState(state) {
-    const values = state || {};
-    const scope = document.getElementById("notificationScopeFilter");
-    const read = document.getElementById("notificationReadFilter");
-    const priority = document.getElementById("notificationPriorityFilter");
-    const sortBy = document.getElementById("notificationSortBy");
-    const sortDir = document.getElementById("notificationSortDir");
-    const search = document.getElementById("notificationSearchInput");
-
-    if (scope && values.scope) {
-        scope.value = values.scope;
+    const targetPage = Number(state?.notificationPage || 1);
+    const maxPage = getTotalNotificationPages();
+    if (!Number.isNaN(targetPage)) {
+        currentNotificationPage = Math.min(Math.max(targetPage, 1), maxPage);
     }
-    if (read && values.read) {
-        read.value = values.read;
-    }
-    if (priority && values.priority) {
-        priority.value = values.priority;
-    }
-    if (sortBy && values.sortBy) {
-        sortBy.value = values.sortBy;
-    }
-    if (sortDir && values.sortDir) {
-        sortDir.value = values.sortDir;
-    }
-    if (search) {
-        search.value = values.query || "";
-    }
+    renderCurrentNotificationPage();
 }
 
 function resetReaderUi(statusText) {
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
+    clearReaderObjectUrl();
     status.textContent = statusText;
     readerPdf.style.display = "none";
     readerPdf.src = "";
@@ -535,18 +413,54 @@ async function loadBorrowedContent(bookId) {
     const payload = await api(`/api/borrow/content?bookId=${encodeURIComponent(bookId)}`);
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
+    const headers = {};
+    if (currentUser?.sessionId) {
+        headers["X-Session-Id"] = currentUser.sessionId;
+    }
 
     if (payload.type === "pdf") {
+        const response = await fetch(payload.url, { headers });
+        if (!response.ok) {
+            throw new Error("Failed to load PDF preview.");
+        }
+
+        clearReaderObjectUrl();
+        const blob = await response.blob();
+        readerFileObjectUrl = URL.createObjectURL(blob);
+
         readerText.style.display = "none";
         readerText.textContent = "";
         readerPdf.style.display = "block";
-        readerPdf.src = payload.url;
+        readerPdf.src = readerFileObjectUrl;
+        return;
+    }
+
+    if (payload.type === "docx") {
+        readerPdf.style.display = "none";
+        readerPdf.src = "";
+        readerText.style.display = "block";
+        readerText.style.whiteSpace = "normal";
+
+        if (typeof mammoth === "undefined") {
+            readerText.textContent = "DOCX preview dependency is missing.";
+            return;
+        }
+
+        const response = await fetch(payload.url, { headers });
+        if (!response.ok) {
+            throw new Error("Failed to load DOCX preview.");
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        readerText.innerHTML = result.value || "No readable DOCX content available.";
         return;
     }
 
     readerPdf.style.display = "none";
     readerPdf.src = "";
     readerText.style.display = "block";
+    readerText.style.whiteSpace = "pre-wrap";
     readerText.textContent = payload.content || "No content available.";
 }
 
@@ -601,16 +515,6 @@ document.getElementById("showAllBtn").addEventListener("click", () => {
         availabilityFilter.value = "all";
     }
     refreshBooks().catch((e) => showToast(e.message, true));
-});
-
-document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
-    saveProfile().catch((e) => {
-        const profileFeedback = document.getElementById("profileFeedback");
-        if (profileFeedback) {
-            profileFeedback.textContent = e.message;
-        }
-        showToast(e.message, true);
-    });
 });
 
 document.getElementById("prevPageBtn").addEventListener("click", () => {
@@ -683,42 +587,20 @@ document.getElementById("refreshNotificationsBtn")?.addEventListener("click", ()
         .catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
-    refreshNotifications()
-        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-apply"))
-        .catch((e) => showToast(e.message, true));
+document.getElementById("notificationPrevPageBtn")?.addEventListener("click", () => {
+    if (currentNotificationPage > 1) {
+        currentNotificationPage -= 1;
+        renderCurrentNotificationPage();
+        sessionSnapshotController?.persistSnapshot("notifications-page-prev");
+    }
 });
 
-document.getElementById("resetNotificationFiltersBtn")?.addEventListener("click", () => {
-    const scope = document.getElementById("notificationScopeFilter");
-    const read = document.getElementById("notificationReadFilter");
-    const priority = document.getElementById("notificationPriorityFilter");
-    const sortBy = document.getElementById("notificationSortBy");
-    const sortDir = document.getElementById("notificationSortDir");
-    const search = document.getElementById("notificationSearchInput");
-
-    if (scope) {
-        scope.value = "active";
+document.getElementById("notificationNextPageBtn")?.addEventListener("click", () => {
+    if (currentNotificationPage < getTotalNotificationPages()) {
+        currentNotificationPage += 1;
+        renderCurrentNotificationPage();
+        sessionSnapshotController?.persistSnapshot("notifications-page-next");
     }
-    if (read) {
-        read.value = "all";
-    }
-    if (priority) {
-        priority.value = "all";
-    }
-    if (sortBy) {
-        sortBy.value = "createdAt";
-    }
-    if (sortDir) {
-        sortDir.value = "desc";
-    }
-    if (search) {
-        search.value = "";
-    }
-
-    refreshNotifications()
-        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-reset"))
-        .catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("applyBorrowFiltersBtn")?.addEventListener("click", () => {
@@ -729,31 +611,15 @@ document.getElementById("resetBorrowFiltersBtn")?.addEventListener("click", () =
     const status = document.getElementById("borrowStatusFilter");
     const sortBy = document.getElementById("borrowSortBy");
     const sortDir = document.getElementById("borrowSortDir");
-    const borrowDateFrom = document.getElementById("borrowDateFrom");
-    const borrowDateTo = document.getElementById("borrowDateTo");
-    const dueDateFrom = document.getElementById("dueDateFrom");
-    const dueDateTo = document.getElementById("dueDateTo");
 
     if (status) {
-        status.value = "all";
+        status.value = "active";
     }
     if (sortBy) {
         sortBy.value = "";
     }
     if (sortDir) {
         sortDir.value = "asc";
-    }
-    if (borrowDateFrom) {
-        borrowDateFrom.value = "";
-    }
-    if (borrowDateTo) {
-        borrowDateTo.value = "";
-    }
-    if (dueDateFrom) {
-        dueDateFrom.value = "";
-    }
-    if (dueDateTo) {
-        dueDateTo.value = "";
     }
 
     refreshBorrows().catch((e) => showToast(e.message, true));
@@ -786,7 +652,6 @@ if (currentUser) {
         bannerMessage: "A previous notification view is available for this session."
     });
 
-    loadProfile().catch((e) => showToast(e.message, true));
     refreshBooks().catch((e) => showToast(e.message, true));
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Librarian Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Librarian Profile</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="librarian.html">Back to Portal</a>
+        <a class="link-btn" href="index.html">Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col">
+    <section class="panel glass-panel">
+        <h2>Manage Profile</h2>
+        <div class="split">
+            <div>
+                <div class="inline-row">
+                    <label for="librarianProfileFullName">Full Name</label>
+                    <input id="librarianProfileFullName" type="text" placeholder="Your full name">
+                </div>
+                <div class="inline-row">
+                    <label for="librarianProfileEmployeeId">Employee ID</label>
+                    <input id="librarianProfileEmployeeId" type="text" placeholder="EMP-001">
+                </div>
+                <div class="inline-row">
+                    <label for="librarianProfileCurrentPassword">Current Password</label>
+                    <input id="librarianProfileCurrentPassword" type="password" placeholder="Required only when changing password">
+                </div>
+                <div class="inline-row">
+                    <label for="librarianProfilePassword">New Password</label>
+                    <input id="librarianProfilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <button id="saveLibrarianProfileBtn" class="secondary" type="button">Save Profile</button>
+                <p id="librarianProfileFeedback"></p>
+            </div>
+        </div>
+
+        <h2>Approved Books History</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Book Name</th>
+                    <th>Publish Date</th>
+                </tr>
+                </thead>
+                <tbody id="librarianApprovedHistoryBody"></tbody>
+            </table>
+        </div>
+        <div class="pager-row">
+            <button id="librarianHistoryPrevBtn" type="button" class="secondary pager-btn">&lt;</button>
+            <span id="librarianHistoryPageInfo">1/1</span>
+            <button id="librarianHistoryNextBtn" type="button" class="secondary pager-btn">&gt;</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="profile-librarian.js"></script>
+</body>
+</html>

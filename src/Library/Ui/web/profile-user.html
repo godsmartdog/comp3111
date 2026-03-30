@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | User Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1 id="profilePageTitle">User Profile</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a id="backPortalLink" class="link-btn" href="student.html">Back to Portal</a>
+        <a class="link-btn" href="index.html">Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col">
+    <section class="panel glass-panel">
+        <h2>Manage Profile</h2>
+        <div class="split">
+            <div>
+                <div class="inline-row">
+                    <label for="profileFullName">Full Name</label>
+                    <input id="profileFullName" type="text" placeholder="Your full name">
+                </div>
+                <div class="inline-row">
+                    <label for="profileCurrentPassword">Current Password</label>
+                    <input id="profileCurrentPassword" type="password" placeholder="Required only when changing password">
+                </div>
+                <div class="inline-row">
+                    <label for="profilePassword">New Password</label>
+                    <input id="profilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <button id="saveProfileBtn" class="secondary" type="button">Save Profile</button>
+                <p id="profileFeedback"></p>
+            </div>
+        </div>
+
+        <h2>Borrow History</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Book</th>
+                    <th>Borrow Date</th>
+                    <th>Due Date</th>
+                    <th>Return Date</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody id="borrowHistoryBody"></tbody>
+            </table>
+        </div>
+
+        <div class="pager-row">
+            <button id="historyPrevBtn" type="button" class="secondary pager-btn">&lt;</button>
+            <span id="historyPageInfo">1/1</span>
+            <button id="historyNextBtn" type="button" class="secondary pager-btn">&gt;</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="profile-user.js"></script>
+</body>
+</html>

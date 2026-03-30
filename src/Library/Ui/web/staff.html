@@ -15,6 +15,7 @@
         <p id="welcomeLine"></p>
     </div>
     <div class="top-actions">
+        <a class="link-btn" href="profile-user.html">Profile</a>
         <a class="link-btn" href="index.html">Main</a>
         <button id="logoutBtn" class="secondary">Logout</button>
     </div>
@@ -22,26 +23,6 @@
 
 <main class="layout single-col" data-role="STAFF">
     <section class="panel glass-panel">
-        <h2>Manage Profile</h2>
-        <div class="split">
-            <div>
-                <div class="inline-row">
-                    <label for="profileFullName">Full Name</label>
-                    <input id="profileFullName" type="text" placeholder="Your full name">
-                </div>
-                <div class="inline-row">
-                    <label for="profileCurrentPassword">Current Password</label>
-                    <input id="profileCurrentPassword" type="password" placeholder="Required only when changing password">
-                </div>
-                <div class="inline-row">
-                    <label for="profilePassword">New Password</label>
-                    <input id="profilePassword" type="password" placeholder="Leave blank to keep current password">
-                </div>
-                <button id="saveProfileBtn" class="secondary" type="button">Save Profile</button>
-                <p id="profileFeedback"></p>
-            </div>
-        </div>
-
         <h2>Books</h2>
         <div class="toolbar">
             <input id="searchKeyword" type="text" placeholder="Search by title or author">
@@ -110,7 +91,6 @@
         <div class="toolbar">
             <select id="borrowStatusFilter" aria-label="Borrow status filter">
                 <option value="active" selected>Active Only</option>
-                <option value="all">All</option>
                 <option value="returned">Returned</option>
                 <option value="overdue">Overdue</option>
             </select>
@@ -123,10 +103,6 @@
                 <option value="asc" selected>Asc</option>
                 <option value="desc">Desc</option>
             </select>
-            <input id="borrowDateFrom" type="date" aria-label="Borrow date from">
-            <input id="borrowDateTo" type="date" aria-label="Borrow date to">
-            <input id="dueDateFrom" type="date" aria-label="Due date from">
-            <input id="dueDateTo" type="date" aria-label="Due date to">
             <button id="applyBorrowFiltersBtn" type="button">Apply Borrow Filters</button>
             <button id="resetBorrowFiltersBtn" class="secondary" type="button">Reset Borrow Filters</button>
             <button id="checkBorrowRemindersBtn" class="secondary" type="button">Check Reminders</button>
@@ -136,44 +112,13 @@
         <h3>Notification Board</h3>
         <div id="notificationBox" class="panel-subtle">
             <p id="notificationStatus">Loading notifications...</p>
-            <div class="inline-row">
-                <label for="notificationScopeFilter">View</label>
-                <select id="notificationScopeFilter">
-                    <option value="active" selected>Active</option>
-                    <option value="archived">Archived</option>
-                    <option value="all">All</option>
-                </select>
-                <label for="notificationReadFilter">Read</label>
-                <select id="notificationReadFilter">
-                    <option value="all" selected>All</option>
-                    <option value="read">Read</option>
-                    <option value="unread">Unread</option>
-                </select>
-                <label for="notificationPriorityFilter">Priority</label>
-                <select id="notificationPriorityFilter">
-                    <option value="all" selected>All</option>
-                    <option value="high">High</option>
-                    <option value="normal">Normal</option>
-                    <option value="low">Low</option>
-                </select>
-            </div>
-            <div class="inline-row">
-                <label for="notificationSortBy">Sort By</label>
-                <select id="notificationSortBy">
-                    <option value="createdAt" selected>Created At</option>
-                    <option value="priority">Priority</option>
-                </select>
-                <label for="notificationSortDir">Direction</label>
-                <select id="notificationSortDir">
-                    <option value="desc" selected>Desc</option>
-                    <option value="asc">Asc</option>
-                </select>
-                <input id="notificationSearchInput" type="text" placeholder="Search title or message" aria-label="Search notifications">
-                <button id="applyNotificationFiltersBtn" class="secondary" type="button">Apply Filters</button>
-                <button id="resetNotificationFiltersBtn" class="secondary" type="button">Reset Filters</button>
-            </div>
             <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
             <ul id="notificationsList"></ul>
+            <div class="pager-row">
+                <button id="notificationPrevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
+                <span id="notificationPageInfo">1/1</span>
+                <button id="notificationNextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
+            </div>
         </div>
 
         <h3>Borrowed Book Reader</h3>
@@ -195,6 +140,7 @@
 <div id="toast"></div>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="portal-books.js"></script>
 </body>
 </html>

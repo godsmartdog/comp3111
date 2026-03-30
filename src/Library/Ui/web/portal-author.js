@@ -11,63 +11,6 @@ let previewObjectUrl = null;
 const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
 const filePreview = document.getElementById("filePreview");
-const authorPasswordInput = document.getElementById("authorProfilePassword");
-const authorPasswordStrengthLabel = document.getElementById("authorPasswordStrengthLabel");
-const authorPasswordStrengthHint = document.getElementById("authorPasswordStrengthHint");
-const authorPasswordChecklist = document.getElementById("authorPasswordChecklist");
-
-const authorPasswordRuleLength = document.getElementById("authorPasswordRuleLength");
-const authorPasswordRuleUpper = document.getElementById("authorPasswordRuleUpper");
-const authorPasswordRuleLower = document.getElementById("authorPasswordRuleLower");
-const authorPasswordRuleDigit = document.getElementById("authorPasswordRuleDigit");
-const authorPasswordRuleSpecial = document.getElementById("authorPasswordRuleSpecial");
-
-function updatePasswordRuleLine(element, passed, label) {
-    if (!element) {
-        return;
-    }
-    element.textContent = `${passed ? "[OK]" : "[ ]"} ${label}`;
-}
-
-function refreshAuthorPasswordStrength(passwordRaw) {
-    if (!authorPasswordStrengthLabel || !authorPasswordStrengthHint || !authorPasswordChecklist) {
-        return;
-    }
-
-    const password = passwordRaw || "";
-    if (!password) {
-        authorPasswordStrengthLabel.textContent = "Strength: --";
-        authorPasswordStrengthHint.textContent = "Enter a new password to see strength guidance.";
-        authorPasswordChecklist.classList.add("hidden");
-        return;
-    }
-
-    const checks = {
-        length: password.length >= 8 && password.length <= 64,
-        upper: /[A-Z]/.test(password),
-        lower: /[a-z]/.test(password),
-        digit: /\d/.test(password),
-        special: /[^A-Za-z0-9]/.test(password)
-    };
-
-    const passedCount = Object.values(checks).filter(Boolean).length;
-    let level = "Weak";
-    if (passedCount >= 5) {
-        level = "Strong";
-    } else if (passedCount >= 3) {
-        level = "Medium";
-    }
-
-    authorPasswordStrengthLabel.textContent = `Strength: ${level}`;
-    authorPasswordStrengthHint.textContent = "Password rules are enforced by server-side validation on save.";
-    authorPasswordChecklist.classList.remove("hidden");
-
-    updatePasswordRuleLine(authorPasswordRuleLength, checks.length, "8-64 characters");
-    updatePasswordRuleLine(authorPasswordRuleUpper, checks.upper, "At least one uppercase letter");
-    updatePasswordRuleLine(authorPasswordRuleLower, checks.lower, "At least one lowercase letter");
-    updatePasswordRuleLine(authorPasswordRuleDigit, checks.digit, "At least one digit");
-    updatePasswordRuleLine(authorPasswordRuleSpecial, checks.special, "At least one special character");
-}
 
 function clearFilePreviewUrl() {
     if (previewObjectUrl) {
@@ -76,55 +19,6 @@ function clearFilePreviewUrl() {
     }
 }
 
-async function loadAuthorProfile() {
-    const payload = await api("/api/author/profile");
-    document.getElementById("authorProfileFullName").value = payload.fullName || "";
-    document.getElementById("authorProfileBio").value = payload.bio || "";
-}
-
-async function saveAuthorProfile() {
-    const feedback = document.getElementById("authorProfileFeedback");
-    const fullName = document.getElementById("authorProfileFullName").value.trim();
-    const bio = document.getElementById("authorProfileBio").value.trim();
-    const password = document.getElementById("authorProfilePassword").value;
-
-    if (!fullName) {
-        feedback.textContent = "Full Name cannot be empty.";
-        showToast(feedback.textContent, true);
-        return;
-    }
-    if (!bio) {
-        feedback.textContent = "Bio cannot be empty.";
-        showToast(feedback.textContent, true);
-        return;
-    }
-
-    if (password.trim()) {
-        const issues = getPasswordPolicyViolations(password);
-        if (issues.length > 0) {
-            feedback.textContent = issues[0];
-            showToast(feedback.textContent, true);
-            return;
-        }
-    }
-
-    const text = await api("/api/author/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, bio, password })
-    }, false);
-
-    feedback.textContent = text;
-    document.getElementById("authorProfilePassword").value = "";
-
-    if (currentUser) {
-        currentUser.fullName = fullName;
-        saveCurrentUser(currentUser);
-        document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
-    }
-
-    showToast(text, false);
-}
 
 async function renderLocalFilePreview(file) {
     clearFilePreviewUrl();
@@ -188,10 +82,6 @@ fileInput.addEventListener("change", async () => {
         filePreview.textContent = "Failed to render local preview.";
         showToast(error.message || "Preview failed.", true);
     }
-});
-
-authorPasswordInput?.addEventListener("input", () => {
-    refreshAuthorPasswordStrength(authorPasswordInput.value);
 });
 
 async function refreshDrafts() {
@@ -602,16 +492,6 @@ document.getElementById("loadAuthorNotificationsBtn")?.addEventListener("click",
     refreshAuthorNotifications().catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("saveAuthorProfileBtn")?.addEventListener("click", () => {
-    saveAuthorProfile().catch((e) => {
-        const feedback = document.getElementById("authorProfileFeedback");
-        if (feedback) {
-            feedback.textContent = e.message;
-        }
-        showToast(e.message, true);
-    });
-});
-
 document.getElementById("previewBtn").addEventListener("click", async () => {
     try {
         const preview = await api("/api/author/preview", {
@@ -687,14 +567,6 @@ if (currentUser) {
         bannerMessage: "A previous author portal state is available for this session."
     });
 
-    refreshAuthorPasswordStrength(authorPasswordInput?.value || "");
-    loadAuthorProfile().catch((e) => {
-        const feedback = document.getElementById("authorProfileFeedback");
-        if (feedback) {
-            feedback.textContent = "Failed to load author profile.";
-        }
-        showToast(e.message, true);
-    });
     refreshDrafts().catch((e) => showToast(e.message, true));
     refreshSubmittedBooks().catch((e) => {
         const status = document.getElementById("submittedStatus");

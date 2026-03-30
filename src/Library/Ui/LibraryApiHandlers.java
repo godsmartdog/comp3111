@@ -782,12 +782,22 @@ public class LibraryApiHandlers {
                         .orElseThrow(() -> new IllegalArgumentException("Book not found."));
 
                 String filePath = nullToEmpty(book.getFilePath()).trim();
-                boolean hasPdf = !filePath.isEmpty() && filePath.toLowerCase().endsWith(".pdf") && Files.isRegularFile(Paths.get(filePath));
+                String lowerPath = filePath.toLowerCase();
+                boolean hasPdf = !filePath.isEmpty() && lowerPath.endsWith(".pdf") && Files.isRegularFile(Paths.get(filePath));
+                boolean hasDocx = !filePath.isEmpty() && lowerPath.endsWith(".docx") && Files.isRegularFile(Paths.get(filePath));
                 if (hasPdf) {
                     sendJson(exchange, 200, "{" +
                             "\"type\":\"pdf\"," +
                             "\"url\":\"/api/borrow/file?bookId=" + JsonUtil.escape(bookId) + "\"" +
                             "}");
+                    return;
+                }
+
+                if (hasDocx) {
+                    sendJson(exchange, 200, "{" +
+                        "\"type\":\"docx\"," +
+                        "\"url\":\"/api/borrow/file?bookId=" + JsonUtil.escape(bookId) + "\"" +
+                        "}");
                     return;
                 }
 
@@ -826,7 +836,13 @@ public class LibraryApiHandlers {
                 }
 
                 byte[] bytes = Files.readAllBytes(file);
-                exchange.getResponseHeaders().set("Content-Type", "application/pdf");
+                String fileName = file.getFileName().toString().toLowerCase();
+                String contentType = fileName.endsWith(".pdf")
+                        ? "application/pdf"
+                        : (fileName.endsWith(".docx")
+                        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        : "application/octet-stream");
+                exchange.getResponseHeaders().set("Content-Type", contentType);
                 exchange.sendResponseHeaders(200, bytes.length);
                 exchange.getResponseBody().write(bytes);
                 exchange.close();

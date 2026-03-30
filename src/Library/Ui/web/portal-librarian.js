@@ -7,69 +7,6 @@ if (currentUser) {
 
 let submissionSortEnabled = false;
 
-async function loadLibrarianProfile() {
-    const payload = await api("/api/librarian/profile");
-    document.getElementById("librarianProfileFullName").value = payload.fullName || "";
-    document.getElementById("librarianProfileEmployeeId").value = payload.employeeId || "";
-    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
-    if (currentPasswordInput) {
-        currentPasswordInput.value = "";
-    }
-}
-
-async function saveLibrarianProfile() {
-    const feedback = document.getElementById("librarianProfileFeedback");
-    const fullName = document.getElementById("librarianProfileFullName").value.trim();
-    const employeeId = document.getElementById("librarianProfileEmployeeId").value.trim();
-    const currentPassword = document.getElementById("librarianProfileCurrentPassword")?.value || "";
-    const password = document.getElementById("librarianProfilePassword").value;
-
-    if (!fullName) {
-        feedback.textContent = "Full Name cannot be empty.";
-        showToast(feedback.textContent, true);
-        return;
-    }
-    if (!employeeId) {
-        feedback.textContent = "Employee ID cannot be empty.";
-        showToast(feedback.textContent, true);
-        return;
-    }
-
-    if (password.trim()) {
-        if (!currentPassword.trim()) {
-            feedback.textContent = "Current password is required to change password.";
-            showToast(feedback.textContent, true);
-            return;
-        }
-
-        const issues = getPasswordPolicyViolations(password);
-        if (issues.length > 0) {
-            feedback.textContent = issues[0];
-            showToast(feedback.textContent, true);
-            return;
-        }
-    }
-
-    const text = await api("/api/librarian/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, employeeId, password, currentPassword })
-    }, false);
-
-    feedback.textContent = text;
-    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
-    if (currentPasswordInput) {
-        currentPasswordInput.value = "";
-    }
-    document.getElementById("librarianProfilePassword").value = "";
-    if (currentUser) {
-        currentUser.fullName = fullName;
-        saveCurrentUser(currentUser);
-        document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
-    }
-    showToast(text, false);
-}
-
 function renderPending(items) {
     const tbody = document.getElementById("pendingBody");
     tbody.innerHTML = "";
@@ -381,16 +318,6 @@ document.getElementById("resetSubmissionFiltersBtn")?.addEventListener("click", 
         .catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("saveLibrarianProfileBtn")?.addEventListener("click", () => {
-    saveLibrarianProfile().catch((e) => {
-        const feedback = document.getElementById("librarianProfileFeedback");
-        if (feedback) {
-            feedback.textContent = e.message;
-        }
-        showToast(e.message, true);
-    });
-});
-
 document.getElementById("refreshApprovedBooksBtn")?.addEventListener("click", () => {
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
 });
@@ -417,13 +344,6 @@ if (currentUser) {
         bannerMessage: "A previous librarian review state is available for this session."
     });
 
-    loadLibrarianProfile().catch((e) => {
-        const feedback = document.getElementById("librarianProfileFeedback");
-        if (feedback) {
-            feedback.textContent = "Failed to load librarian profile.";
-        }
-        showToast(e.message, true);
-    });
     refreshPending().catch((e) => showToast(e.message, true));
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
     refreshBorrowedRecords().catch((e) => showToast(e.message, true));
