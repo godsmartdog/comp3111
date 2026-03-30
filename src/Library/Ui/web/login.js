@@ -16,6 +16,11 @@ if (["STUDENT", "STAFF", "AUTHOR", "LIBRARIAN"].includes(initialRole)) {
 }
 syncRoleUi();
 
+const sessionMessage = getQueryParam("sessionMessage");
+if (sessionMessage) {
+    showToast(sessionMessage, true);
+}
+
 roleSelect.addEventListener("change", syncRoleUi);
 
 document.getElementById("loginBtn").addEventListener("click", async () => {

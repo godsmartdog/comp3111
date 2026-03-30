@@ -5,11 +5,15 @@ import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
 import Library.Model.NotificationItem;
+import Library.Model.NotificationPriority;
 import Library.Model.ReadingProgress;
 import Library.Model.Role;
+import Library.Model.SessionSnapshot;
 import Library.Model.User;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryReadingProgressRepository;
+import Library.Repository.MemorySessionSnapshotRepository;
+import Library.Security.SecurityConfig;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
@@ -20,6 +24,7 @@ import Library.Service.LibrarianService3;
 import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Service.SessionSnapshotService;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -31,6 +36,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -58,8 +65,10 @@ public class LibraryApiHandlers {
     private final LibrarianService3 librarianService;
     private final NotificationService notificationService;
     private final ReadingProgressService readingProgressService;
+    private final SessionSnapshotService sessionSnapshotService;
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Long> sessionLastActiveAtMs = new ConcurrentHashMap<>();
     private volatile SessionSnapshotSchema latestSessionSnapshot;
 
     public LibraryApiHandlers(AuthService authService,
@@ -70,6 +79,32 @@ public class LibraryApiHandlers {
                               AuthorDraftService authorDraftService,
                               FileService fileService,
                               LibrarianService3 librarianService) {
+                    this(
+                        authService,
+                        bookService,
+                        borrowService,
+                        recommendationService,
+                        authorService,
+                        authorDraftService,
+                        fileService,
+                        librarianService,
+                        new NotificationService(new MemoryNotificationRepository()),
+                        new ReadingProgressService(new MemoryReadingProgressRepository()),
+                        new SessionSnapshotService(new MemorySessionSnapshotRepository())
+                    );
+    }
+
+    public LibraryApiHandlers(AuthService authService,
+                              BookService bookService,
+                              BorrowService borrowService,
+                              RecommendationService recommendationService,
+                              AuthorService2 authorService,
+                              AuthorDraftService authorDraftService,
+                              FileService fileService,
+                              LibrarianService3 librarianService,
+                              NotificationService notificationService,
+                              ReadingProgressService readingProgressService,
+                              SessionSnapshotService sessionSnapshotService) {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
@@ -78,8 +113,15 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
-        this.notificationService = new NotificationService(new MemoryNotificationRepository());
-        this.readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+        this.notificationService = notificationService == null
+            ? new NotificationService(new MemoryNotificationRepository())
+            : notificationService;
+        this.readingProgressService = readingProgressService == null
+            ? new ReadingProgressService(new MemoryReadingProgressRepository())
+            : readingProgressService;
+        this.sessionSnapshotService = sessionSnapshotService == null
+            ? new SessionSnapshotService(new MemorySessionSnapshotRepository())
+            : sessionSnapshotService;
         this.latestSessionSnapshot = SessionSnapshotSchema.empty();
     }
 
@@ -133,6 +175,7 @@ public class LibraryApiHandlers {
 
                 String sessionId = UUID.randomUUID().toString();
                 sessions.put(sessionId, user);
+                sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                 refreshSessionSnapshot();
 
                 String payload = "{" +
@@ -154,10 +197,127 @@ public class LibraryApiHandlers {
             }
             String sessionId = exchange.getRequestHeaders().getFirst(SESSION_HEADER);
             if (sessionId != null) {
-                sessions.remove(sessionId.trim());
+                String trimmedSessionId = sessionId.trim();
+                sessionSnapshotService.clearSnapshotForSession(trimmedSessionId);
+                sessions.remove(trimmedSessionId);
+                sessionLastActiveAtMs.remove(trimmedSessionId);
                 refreshSessionSnapshot();
             }
             sendText(exchange, 200, "Logged out.");
+        });
+
+        server.createContext("/api/session-snapshot/save", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                Map<String, String> form = readForm(exchange);
+                String portalKey = RequestFilters.getTrimmed(form, "portalKey", "");
+                String lastViewKey = RequestFilters.getTrimmed(form, "lastViewKey", "");
+                String lastAction = RequestFilters.getTrimmed(form, "lastAction", "");
+                String statePayload = RequestFilters.getTrimmed(form, "statePayload", "");
+
+                SessionSnapshot snapshot = sessionSnapshotService.saveSnapshot(
+                        sessionId,
+                        user.getUsername(),
+                        user.getRole(),
+                        portalKey,
+                        lastViewKey,
+                        lastAction,
+                        statePayload
+                );
+                sendJson(exchange, 200, sessionSnapshotToJson(snapshot, true));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/session-snapshot", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                SessionSnapshot snapshot = sessionSnapshotService
+                        .getSnapshot(sessionId, user.getUsername(), user.getRole())
+                        .orElse(null);
+                sendJson(exchange, 200, sessionSnapshotToJson(snapshot, snapshot != null));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/session-snapshot/clear", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                boolean cleared = sessionSnapshotService.clearSnapshot(sessionId, user.getUsername(), user.getRole());
+                sendJson(exchange, 200, "{" +
+                        "\"status\":\"cleared\"," +
+                        "\"cleared\":" + cleared +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/dev/crash-test", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                User user = requireAuthenticated(exchange);
+                String sessionId = requireSessionId(exchange);
+                Map<String, String> form = readForm(exchange);
+                String portalKey = RequestFilters.getTrimmed(form, "portalKey", "");
+                String lastViewKey = RequestFilters.getTrimmed(form, "lastViewKey", "");
+                String lastAction = RequestFilters.getTrimmed(form, "lastAction", "simulate");
+                String statePayload = RequestFilters.getTrimmed(form, "statePayload", "");
+
+                SessionSnapshot snapshot = sessionSnapshotService.saveSnapshot(
+                        sessionId,
+                        user.getUsername(),
+                        user.getRole(),
+                        portalKey,
+                        lastViewKey,
+                        lastAction,
+                        statePayload
+                );
+
+                String payload = sessionSnapshotToJson(snapshot, true);
+                payload = payload.substring(0, payload.length() - 1)
+                        + ",\"status\":\"simulated\",\"scope\":\"dev-only endpoint\"}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
         });
 
         server.createContext("/api/internal/crash-test", exchange -> {
@@ -189,6 +349,7 @@ public class LibraryApiHandlers {
                         refreshSessionSnapshot();
                         int beforeCount = sessions.size();
                         sessions.clear();
+                        sessionLastActiveAtMs.clear();
                         sendJson(exchange, 200, "{" +
                                 "\"status\":\"simulated\"," +
                                 "\"evictedSessions\":" + beforeCount + "," +
@@ -256,11 +417,13 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String fullName = required(form, "fullName");
                 String newPassword = form.getOrDefault("password", "");
-                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword);
+                String currentPassword = form.getOrDefault("currentPassword", "");
+                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword, currentPassword);
 
                 String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
                 if (!sessionId.isEmpty()) {
                     sessions.put(sessionId, updated);
+                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                     refreshSessionSnapshot();
                 }
 
@@ -286,7 +449,23 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                List<NotificationItem> items = notificationService.listByUser(user.getUsername());
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String scopeRaw = RequestFilters.getTrimmed(query, "scope", "active");
+                NotificationService.NotificationScope scope = NotificationService.NotificationScope.fromString(scopeRaw);
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                NotificationService.NotificationReadFilter readFilter = parseNotificationReadFilter(query);
+                NotificationPriority priorityFilter = parseNotificationPriorityFilter(query);
+                NotificationService.NotificationSortBy sortBy = parseNotificationSortBy(query);
+                NotificationService.NotificationSortDirection sortDir = parseNotificationSortDir(query);
+                List<NotificationItem> items = notificationService.listByUser(
+                        user.getUsername(),
+                        scope,
+                        keyword,
+                        readFilter,
+                        priorityFilter,
+                        sortBy,
+                        sortDir
+                );
                 sendJson(exchange, 200, notificationsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -320,6 +499,81 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/notifications/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.deleteNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"deleted\"," +
+                        "\"message\":\"Notification deleted.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications/archive", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.archiveNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"archived\"," +
+                        "\"message\":\"Notification archived.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/notifications/unarchive", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String notificationId = required(form, "notificationId");
+                NotificationItem item = notificationService.unarchiveNotification(user.getUsername(), notificationId);
+
+                String payload = "{" +
+                        "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
+                        "\"status\":\"active\"," +
+                        "\"message\":\"Notification unarchived.\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrow", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -339,6 +593,57 @@ public class LibraryApiHandlers {
                         "You borrowed this book. Due date: " + record.getDueDate()
                 );
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/borrow/bulk", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+                if (bookIds.isEmpty()) {
+                    throw new IllegalArgumentException("Missing required field: bookIds");
+                }
+                int days = RequestFilters.parseIntInRange(form, "days", 14, 1, 14);
+
+                List<BorrowRecord> records = borrowService.borrowBooks(user.getUsername(), bookIds, days);
+                BorrowRecord sample = records.get(0);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Books Borrowed",
+                        "You borrowed " + records.size() + " books. Due date: " + sample.getDueDate()
+                );
+
+                sendText(exchange, 200, "Borrowed " + records.size() + " books successfully. Due date: " + sample.getDueDate());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/borrow/reminders/check", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                int generated = generateBorrowReminderNotifications(user.getUsername());
+                sendJson(exchange, 200, "{" +
+                        "\"status\":\"checked\"," +
+                        "\"generated\":" + generated +
+                        "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -397,22 +702,28 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                List<BorrowRecord> records = borrowService.listActiveBorrowsByUser(user.getUsername());
+                generateBorrowReminderNotifications(user.getUsername());
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String status = parseBorrowStatus(query);
+                String sortBy = parseBorrowSortBy(query);
+                String sortDir = parseBorrowSortDir(query);
+                LocalDate borrowDateFrom = parseDateFilter(query, "borrowDateFrom");
+                LocalDate borrowDateTo = parseDateFilter(query, "borrowDateTo");
+                LocalDate dueDateFrom = parseDateFilter(query, "dueDateFrom");
+                LocalDate dueDateTo = parseDateFilter(query, "dueDateTo");
 
-                List<String> jsonItems = new ArrayList<>();
-                for (BorrowRecord record : records) {
-                    String title = bookService.findBookById(record.getBookId())
-                            .map(Book::getTitle)
-                            .orElse(record.getBookId());
-                    jsonItems.add("{" +
-                            "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
-                            "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
-                            "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
-                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
-                            "\"overdue\":" + record.isOverdue(java.time.LocalDate.now()) +
-                            "}");
-                }
-                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+                List<BorrowRecord> records = borrowService.listBorrowRecordsByUser(
+                        user.getUsername(),
+                        status,
+                        borrowDateFrom,
+                        borrowDateTo,
+                        dueDateFrom,
+                        dueDateTo,
+                        sortBy,
+                        sortDir
+                );
+
+                sendJson(exchange, 200, borrowsToJson(records));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -619,8 +930,84 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.AUTHOR);
-                List<Book> books = bookService.listApprovedBooksByAuthorUsername(user.getUsername());
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
                 sendJson(exchange, 200, authorPublishedBooksToJson(books));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-books", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
+                sendJson(exchange, 200, authorPublishedBooksToJson(books));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/update", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                String title = required(form, "title");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String description = required(form, "description");
+
+                Book updated = authorService.updateOwnedPublishedBook(
+                        user.getUsername(),
+                        bookId,
+                        title,
+                        genres,
+                        description
+                );
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Updated",
+                        "Your published book metadata was updated: " + updated.getTitle()
+                );
+                sendText(exchange, 200, "Published book updated: " + updated.getId());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+
+                authorService.deleteOwnedPublishedBook(user.getUsername(), bookId);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Deleted",
+                        "Your published book was removed from the catalog."
+                );
+                sendText(exchange, 200, "Published book deleted: " + bookId);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -796,6 +1183,132 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/submissions", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<BookSubmission2> items = authorService.listSubmissionsByAuthor(user.getUsername());
+                sendJson(exchange, 200, authorSubmissionsToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/update", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+
+                String submissionId = required(form, "submissionId");
+                String title = required(form, "title");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String description = required(form, "description");
+                String filePath = RequestFilters.getTrimmed(form, "filePath", "");
+                if (!filePath.isEmpty()) {
+                    fileService.validateSubmissionFile(filePath);
+                }
+
+                BookSubmission2 updated = authorService.updatePendingSubmission(
+                        user.getUsername(),
+                        submissionId,
+                        title,
+                        genres,
+                        description,
+                        filePath
+                );
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Submission Updated",
+                        "Your pending submission was updated: " + updated.getTitle()
+                );
+                sendText(exchange, 200, "Submission updated: " + updated.getId());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String submissionId = required(form, "submissionId");
+
+                authorService.deletePendingSubmission(user.getUsername(), submissionId);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Submission Deleted",
+                        "Your pending submission was deleted."
+                );
+                sendText(exchange, 200, "Submission deleted: " + submissionId);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/read", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> values = "POST".equalsIgnoreCase(exchange.getRequestMethod())
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String submissionId = required(values, "submissionId");
+
+                AuthorService2.FilePreview preview = authorService.readOwnedSubmissionFilePreview(user.getUsername(), submissionId);
+                sendJson(exchange, 200, filePreviewToJson(preview));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/published-book/read", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> values = "POST".equalsIgnoreCase(exchange.getRequestMethod())
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String bookId = required(values, "bookId");
+
+                AuthorService2.FilePreview preview = authorService.readOwnedPublishedBookFilePreview(user.getUsername(), bookId);
+                sendJson(exchange, 200, filePreviewToJson(preview));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/pending", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -804,18 +1317,19 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.LIBRARIAN);
-                List<BookSubmission2> items = librarianService.getPendingSubmissions();
-                List<String> jsonItems = new ArrayList<>();
-                for (BookSubmission2 submission : items) {
-                    jsonItems.add("{" +
-                            "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
-                            "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
-                            "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
-                            "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
-                            "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"" +
-                            "}");
-                }
-                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                String status = parseLibrarianSubmissionStatus(query);
+                String sortBy = parseLibrarianSubmissionSortBy(query);
+                String sortDir = parseLibrarianSubmissionSortDir(query);
+
+                List<BookSubmission2> items = librarianService.querySubmissionsForReview(
+                        keyword,
+                        status,
+                        sortBy,
+                        sortDir
+                );
+                sendJson(exchange, 200, librarianSubmissionsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -918,13 +1432,15 @@ public class LibraryApiHandlers {
                 String fullName = required(form, "fullName");
                 String employeeId = required(form, "employeeId");
                 String password = form.getOrDefault("password", "");
+                String currentPassword = form.getOrDefault("currentPassword", "");
 
                 LibrarianService3.LibrarianProfileSnapshot updated = librarianService.updateLibrarianProfile(
                         user.getUsername(),
                         user.getUsername(),
                         fullName,
                         employeeId,
-                        password
+                    password,
+                    currentPassword
                 );
 
                 notificationService.addNotification(
@@ -937,6 +1453,7 @@ public class LibraryApiHandlers {
                 if (!sessionId.isEmpty()) {
                     user.updateFullName(updated.fullName());
                     sessions.put(sessionId, user);
+                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
                     refreshSessionSnapshot();
                 }
 
@@ -1040,6 +1557,19 @@ public class LibraryApiHandlers {
             throw new ApiAuthException("Session expired or invalid. Please login again.");
         }
 
+        long now = Instant.now().toEpochMilli();
+        long lastActiveAt = sessionLastActiveAtMs.getOrDefault(sessionId, now);
+        long idleTimeoutMs = SecurityConfig.sessionIdleTimeoutMs();
+        if (now - lastActiveAt > idleTimeoutMs) {
+            sessionSnapshotService.clearSnapshotForSession(sessionId);
+            sessions.remove(sessionId);
+            sessionLastActiveAtMs.remove(sessionId);
+            refreshSessionSnapshot();
+            throw new ApiAuthException("Session expired due to inactivity. Please login again.");
+        }
+
+        sessionLastActiveAtMs.put(sessionId, now);
+
         for (Role role : allowedRoles) {
             if (user.getRole() == role) {
                 return user;
@@ -1047,6 +1577,18 @@ public class LibraryApiHandlers {
         }
 
         throw new ApiAuthException("Permission denied for role " + user.getRole() + ".");
+    }
+
+    private User requireAuthenticated(HttpExchange exchange) {
+        return requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+    }
+
+    private String requireSessionId(HttpExchange exchange) {
+        String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+        if (sessionId.isEmpty()) {
+            throw new ApiAuthException("Missing session. Please login again.");
+        }
+        return sessionId;
     }
 
     private boolean isCrashHookEnabled(HttpExchange exchange) {
@@ -1060,6 +1602,7 @@ public class LibraryApiHandlers {
 
     private int restoreSessionsFromSnapshot(SessionSnapshotSchema snapshot) {
         sessions.clear();
+        sessionLastActiveAtMs.clear();
         int restored = 0;
 
         for (SessionSnapshotSchema.SessionEntry entry : snapshot.sessions()) {
@@ -1067,6 +1610,7 @@ public class LibraryApiHandlers {
                 Role role = Role.valueOf(entry.role());
                 User user = new User(entry.username(), entry.fullName(), "", role);
                 sessions.put(entry.sessionId(), user);
+                sessionLastActiveAtMs.put(entry.sessionId(), Instant.now().toEpochMilli());
                 restored++;
             } catch (Exception ignored) {
                 // Skip invalid or unknown session entries.
@@ -1076,6 +1620,46 @@ public class LibraryApiHandlers {
         refreshSessionSnapshot();
         return restored;
     }
+
+        private int generateBorrowReminderNotifications(String username) {
+        LocalDate today = LocalDate.now();
+        List<BorrowService.BorrowReminderCandidate> candidates = borrowService.findReturnReminderCandidates(
+            username,
+            today,
+            SecurityConfig.returnReminderDueSoonDays()
+        );
+
+        int generated = 0;
+        for (BorrowService.BorrowReminderCandidate candidate : candidates) {
+            String category = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "overdue"
+                : "due-soon";
+            NotificationPriority priority = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? NotificationPriority.HIGH
+                : NotificationPriority.NORMAL;
+            String title = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "Overdue Return Reminder"
+                : "Due Soon Return Reminder";
+            String message = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
+                ? "Your borrowed book \"" + candidate.bookTitle() + "\" is overdue. It was due on " + candidate.dueDate() + "."
+                : "Your borrowed book \"" + candidate.bookTitle() + "\" is due in " + candidate.daysUntilDue() + " day(s) on " + candidate.dueDate() + ".";
+
+            boolean created = notificationService.addBorrowReminderIfAbsent(
+                username,
+                candidate.borrowRecordId(),
+                category,
+                today,
+                candidate.dueDate(),
+                title,
+                message,
+                priority
+            );
+            if (created) {
+            generated++;
+            }
+        }
+        return generated;
+        }
 
     private String booksToJson(List<Book> books) {
         List<String> items = new ArrayList<>();
@@ -1156,8 +1740,134 @@ public class LibraryApiHandlers {
         throw new IllegalArgumentException("availability must be one of: all, available, unavailable.");
     }
 
+    private static String parseBorrowStatus(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "status", "active");
+        if ("all".equalsIgnoreCase(raw)
+                || "returned".equalsIgnoreCase(raw)
+                || "active".equalsIgnoreCase(raw)
+                || "overdue".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("status must be one of: all, returned, active, overdue.");
+    }
+
+    private static String parseBorrowSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "");
+        if (raw.isEmpty() || "borrowDate".equalsIgnoreCase(raw) || "dueDate".equalsIgnoreCase(raw)) {
+            return raw;
+        }
+        throw new IllegalArgumentException("sortBy must be one of: borrowDate, dueDate.");
+    }
+
+    private static String parseBorrowSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "asc");
+        if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
+    private static NotificationService.NotificationReadFilter parseNotificationReadFilter(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "read", "all");
+        return NotificationService.NotificationReadFilter.fromString(raw);
+    }
+
+    private static NotificationPriority parseNotificationPriorityFilter(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "priority", "all");
+        if (raw.isEmpty() || "all".equalsIgnoreCase(raw)) {
+            return null;
+        }
+
+        try {
+            return NotificationPriority.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("priority must be one of: all, high, normal, low.");
+        }
+    }
+
+    private static NotificationService.NotificationSortBy parseNotificationSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "createdAt");
+        return NotificationService.NotificationSortBy.fromString(raw);
+    }
+
+    private static NotificationService.NotificationSortDirection parseNotificationSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "desc");
+        return NotificationService.NotificationSortDirection.fromString(raw);
+    }
+
+    private static String parseLibrarianSubmissionStatus(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "status", "pending");
+        if ("all".equalsIgnoreCase(raw)
+                || "pending".equalsIgnoreCase(raw)
+                || "approved".equalsIgnoreCase(raw)
+                || "rejected".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("status must be one of: all, pending, approved, rejected.");
+    }
+
+    private static String parseLibrarianSubmissionSortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "");
+        if (raw.isEmpty() || "submittedDate".equalsIgnoreCase(raw)) {
+            return raw;
+        }
+        throw new IllegalArgumentException("sortBy must be one of: submittedDate.");
+    }
+
+    private static String parseLibrarianSubmissionSortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "asc");
+        if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
+    private static LocalDate parseDateFilter(Map<String, String> values, String key) {
+        String raw = RequestFilters.getTrimmed(values, key, "");
+        if (raw.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return LocalDate.parse(raw);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid date value for " + key + ". Expected YYYY-MM-DD.");
+        }
+    }
+
     private static String urlDecode(String input) {
         return URLDecoder.decode(input, StandardCharsets.UTF_8);
+    }
+
+    private String borrowsToJson(List<BorrowRecord> records) {
+        LocalDate today = LocalDate.now();
+        int dueSoonThresholdDays = SecurityConfig.returnReminderDueSoonDays();
+        List<String> jsonItems = new ArrayList<>();
+        for (BorrowRecord record : records) {
+            String title = bookService.findBookById(record.getBookId())
+                    .map(Book::getTitle)
+                    .orElse(record.getBookId());
+            boolean overdue = record.isOverdue(today);
+            int daysUntilDue = (int) (record.getDueDate().toEpochDay() - today.toEpochDay());
+            boolean dueSoon = !record.isReturned() && !overdue && daysUntilDue >= 0 && daysUntilDue <= dueSoonThresholdDays;
+            String reminderLevel = overdue ? "overdue" : (dueSoon ? "due-soon" : "");
+            String status = record.isReturned() ? "Returned" : "Borrowed";
+
+            jsonItems.add("{" +
+                    "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
+                    "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
+                    "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
+                    "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
+                    "\"dueDate\":\"" + record.getDueDate() + "\"," +
+                    "\"returned\":" + record.isReturned() + "," +
+                    "\"status\":\"" + status + "\"," +
+                    "\"overdue\":" + overdue + "," +
+                    "\"dueSoon\":" + dueSoon + "," +
+                    "\"daysUntilDue\":" + daysUntilDue + "," +
+                    "\"reminderLevel\":\"" + reminderLevel + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", jsonItems) + "]";
     }
 
     private static String readingProgressToJson(ReadingProgress progress) {
@@ -1194,8 +1904,12 @@ public class LibraryApiHandlers {
                     "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
                     "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
+                    "\"priority\":\"" + item.getPriority() + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() + "," +
+                    "\"readAt\":\"" + JsonUtil.escape(item.getReadAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getReadAt())) + "\"," +
+                    "\"archived\":" + item.isArchived() + "," +
+                    "\"archivedAt\":\"" + JsonUtil.escape(item.getArchivedAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getArchivedAt())) + "\"," +
                     "\"metadata\":{" + String.join(",", metadataValues) + "}," +
                     "\"action\":" + actionJson +
                     "}");
@@ -1217,19 +1931,102 @@ public class LibraryApiHandlers {
                 "}";
     }
 
+    private String sessionSnapshotToJson(SessionSnapshot snapshot, boolean exists) {
+        if (!exists || snapshot == null) {
+            return "{" +
+                    "\"exists\":false," +
+                    "\"sessionId\":\"\"," +
+                    "\"username\":\"\"," +
+                    "\"role\":\"\"," +
+                    "\"portalKey\":\"\"," +
+                    "\"lastViewKey\":\"\"," +
+                    "\"lastAction\":\"\"," +
+                    "\"timestamp\":\"\"," +
+                    "\"statePayload\":\"\"" +
+                    "}";
+        }
+
+        return "{" +
+                "\"exists\":true," +
+                "\"sessionId\":\"" + JsonUtil.escape(snapshot.getSessionId()) + "\"," +
+                "\"username\":\"" + JsonUtil.escape(snapshot.getUsername()) + "\"," +
+                "\"role\":\"" + JsonUtil.escape(snapshot.getRole().name()) + "\"," +
+                "\"portalKey\":\"" + JsonUtil.escape(snapshot.getPortalKey()) + "\"," +
+                "\"lastViewKey\":\"" + JsonUtil.escape(snapshot.getLastViewKey()) + "\"," +
+                "\"lastAction\":\"" + JsonUtil.escape(snapshot.getLastAction()) + "\"," +
+                "\"timestamp\":\"" + JsonUtil.escape(DATE_TIME_FORMATTER.format(snapshot.getCapturedAt())) + "\"," +
+                "\"statePayload\":\"" + JsonUtil.escape(snapshot.getStatePayload()) + "\"" +
+                "}";
+    }
+
     private static String authorPublishedBooksToJson(List<Book> books) {
         List<String> values = new ArrayList<>();
         for (Book book : books) {
             String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"description\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private static String authorSubmissionsToJson(List<BookSubmission2> submissions) {
+        List<String> values = new ArrayList<>();
+        for (BookSubmission2 submission : submissions) {
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : submission.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
+
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"description\":\"" + JsonUtil.escape(submission.getDescription()) + "\"," +
+                    "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
+                    "\"status\":\"" + submission.getStatus() + "\"," +
+                    "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
+                    "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(submission.getRejectionReason())) + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private static String librarianSubmissionsToJson(List<BookSubmission2> submissions) {
+        List<String> values = new ArrayList<>();
+        for (BookSubmission2 submission : submissions) {
+            values.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
+                    "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
+                    "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
+                    "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
+                    "\"status\":\"" + submission.getStatus() + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private static String filePreviewToJson(AuthorService2.FilePreview preview) {
+        return "{" +
+                "\"itemId\":\"" + JsonUtil.escape(preview.itemId()) + "\"," +
+                "\"sourceType\":\"" + JsonUtil.escape(preview.sourceType()) + "\"," +
+                "\"filePath\":\"" + JsonUtil.escape(preview.filePath()) + "\"," +
+                "\"sizeBytes\":" + preview.sizeBytes() + "," +
+                "\"previewText\":\"" + JsonUtil.escape(preview.previewText()) + "\"" +
+                "}";
     }
 
     private static MultipartData readMultipartForm(HttpExchange exchange) throws IOException {

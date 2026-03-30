@@ -1,4 +1,5 @@
 const currentUser = requireRole("AUTHOR");
+let sessionSnapshotController = null;
 if (currentUser) {
     document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
     attachLogout("logoutBtn");
@@ -219,6 +220,133 @@ async function refreshDrafts() {
     });
 }
 
+async function refreshSubmittedBooks() {
+    const status = document.getElementById("submittedStatus");
+    const body = document.getElementById("submittedBooksBody");
+    if (!status || !body) {
+        return;
+    }
+
+    const items = await api("/api/author/submissions");
+    body.innerHTML = "";
+
+    if (!Array.isArray(items) || items.length === 0) {
+        status.textContent = "No submitted books yet.";
+        return;
+    }
+
+    status.textContent = `Found ${items.length} submitted book(s).`;
+
+    items.forEach((item) => {
+        const row = document.createElement("tr");
+        const actionCell = document.createElement("td");
+        row.innerHTML = `
+            <td>${item.id}</td>
+            <td>${item.title}</td>
+            <td>${item.status}</td>
+            <td>${item.submittedDate || ""}</td>
+            <td>${item.fileName || ""}</td>
+        `;
+
+        const readBtn = document.createElement("button");
+        readBtn.className = "secondary";
+        readBtn.type = "button";
+        readBtn.textContent = "Read";
+        readBtn.addEventListener("click", async () => {
+            try {
+                const payload = await api(`/api/author/submission/read?submissionId=${encodeURIComponent(item.id)}`);
+                renderServerFilePreview(payload, `Submission: ${item.title || item.id}`);
+                showToast("Submission preview loaded.", false);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        if (item.status === "PENDING") {
+            const editBtn = document.createElement("button");
+            editBtn.className = "secondary";
+            editBtn.type = "button";
+            editBtn.textContent = "Edit";
+            editBtn.addEventListener("click", async () => {
+                try {
+                    const newTitle = prompt("Update title:", item.title || "");
+                    if (newTitle === null) {
+                        return;
+                    }
+
+                    const newGenres = prompt("Update genres (comma separated):", Array.isArray(item.genres) ? item.genres.join(", ") : "");
+                    if (newGenres === null) {
+                        return;
+                    }
+
+                    const newDescription = prompt("Update description:", item.description || "");
+                    if (newDescription === null) {
+                        return;
+                    }
+
+                    const newFilePath = prompt("Update file path (leave empty to keep current):", "");
+                    if (newFilePath === null) {
+                        return;
+                    }
+
+                    const text = await api("/api/author/submission/update", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({
+                            submissionId: item.id,
+                            title: newTitle.trim(),
+                            genres: parseGenres(newGenres),
+                            description: newDescription.trim(),
+                            filePath: newFilePath.trim()
+                        })
+                    }, false);
+
+                    showToast(text, false);
+                    await refreshSubmittedBooks();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "secondary";
+            deleteBtn.type = "button";
+            deleteBtn.textContent = "Delete";
+            deleteBtn.addEventListener("click", async () => {
+                const confirmed = confirm(`Delete pending submission \"${item.title}\"?`);
+                if (!confirmed) {
+                    return;
+                }
+
+                try {
+                    const text = await api("/api/author/submission/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ submissionId: item.id })
+                    }, false);
+
+                    showToast(text, false);
+                    await refreshSubmittedBooks();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            actionCell.appendChild(editBtn);
+            actionCell.appendChild(document.createTextNode(" "));
+            actionCell.appendChild(deleteBtn);
+        } else {
+            actionCell.textContent = "Locked ";
+        }
+
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(readBtn);
+
+        row.appendChild(actionCell);
+        body.appendChild(row);
+    });
+}
+
 async function refreshPublishedBooks() {
     const status = document.getElementById("publishedStatus");
     const body = document.getElementById("publishedBooksBody");
@@ -226,7 +354,7 @@ async function refreshPublishedBooks() {
         return;
     }
 
-    const items = await api("/api/author/published");
+    const items = await api("/api/author/published-books");
     body.innerHTML = "";
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -235,17 +363,125 @@ async function refreshPublishedBooks() {
     }
 
     status.textContent = `Found ${items.length} published book(s).`;
+
     items.forEach((item) => {
         const row = document.createElement("tr");
+        const actionCell = document.createElement("td");
         row.innerHTML = `
             <td>${item.id}</td>
             <td>${item.title}</td>
-            <td>${item.summary || ""}</td>
+            <td>${Array.isArray(item.genres) ? item.genres.join(", ") : ""}</td>
+            <td>${item.description || item.summary || ""}</td>
             <td>${item.publishDate || ""}</td>
             <td>${item.status}</td>
         `;
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "secondary";
+        editBtn.type = "button";
+        editBtn.textContent = "Edit";
+        editBtn.addEventListener("click", async () => {
+            try {
+                const newTitle = prompt("Update title:", item.title || "");
+                if (newTitle === null) {
+                    return;
+                }
+
+                const newGenres = prompt(
+                    "Update genres (comma separated):",
+                    Array.isArray(item.genres) ? item.genres.join(", ") : ""
+                );
+                if (newGenres === null) {
+                    return;
+                }
+
+                const newDescription = prompt("Update description:", item.description || item.summary || "");
+                if (newDescription === null) {
+                    return;
+                }
+
+                const text = await api("/api/author/published-book/update", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({
+                        bookId: item.id,
+                        title: newTitle.trim(),
+                        genres: parseGenres(newGenres),
+                        description: newDescription.trim()
+                    })
+                }, false);
+
+                showToast(text, false);
+                await refreshPublishedBooks();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "secondary";
+        deleteBtn.type = "button";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", async () => {
+            const confirmed = confirm(`Delete published book \"${item.title}\"? This cannot be undone.`);
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                const text = await api("/api/author/published-book/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({ bookId: item.id })
+                }, false);
+
+                showToast(text, false);
+                await refreshPublishedBooks();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        const readBtn = document.createElement("button");
+        readBtn.className = "secondary";
+        readBtn.type = "button";
+        readBtn.textContent = "Read";
+        readBtn.addEventListener("click", async () => {
+            try {
+                const payload = await api(`/api/author/published-book/read?bookId=${encodeURIComponent(item.id)}`);
+                renderServerFilePreview(payload, `Published: ${item.title || item.id}`);
+                showToast("Published book preview loaded.", false);
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        actionCell.appendChild(editBtn);
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(deleteBtn);
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(readBtn);
+        row.appendChild(actionCell);
         body.appendChild(row);
     });
+}
+
+function renderServerFilePreview(payload, heading) {
+    const previewBox = document.getElementById("authorPreview");
+    if (!previewBox) {
+        return;
+    }
+
+    const filePath = payload?.filePath || "";
+    const sizeBytes = payload?.sizeBytes ?? "";
+    const text = payload?.previewText || "";
+    previewBox.textContent =
+        `=== ${heading} ===\n` +
+        `File: ${filePath}\n` +
+        `Size: ${sizeBytes} bytes\n` +
+        `--- Text Preview ---\n` +
+        `${text}\n` +
+        `--- End Preview ---`;
 }
 
 async function refreshAuthorNotifications() {
@@ -259,8 +495,7 @@ async function refreshAuthorNotifications() {
     try {
         unreadLine.textContent = "Unread: --";
         const items = await api("/api/author/notifications");
-        const unreadItems = Array.isArray(items) ? items.filter((item) => !item.read) : [];
-        let unreadCount = unreadItems.length;
+        let unreadCount = items.filter((item) => !item.read).length;
 
         try {
             const summary = await api("/api/author/notifications/summary");
@@ -274,14 +509,14 @@ async function refreshAuthorNotifications() {
         list.innerHTML = "";
         unreadLine.textContent = `Unread: ${unreadCount}`;
 
-        if (unreadItems.length === 0) {
+        if (!Array.isArray(items) || items.length === 0) {
             status.textContent = "No notifications.";
             return;
         }
 
-        status.textContent = `Unread: ${unreadCount}`;
+        status.textContent = `Total: ${items.length}, Unread: ${unreadCount}`;
 
-        unreadItems.forEach((item) => {
+        items.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             li.innerHTML = `
@@ -341,6 +576,16 @@ document.getElementById("autoSaveBtn").addEventListener("click", async () => {
 
 document.getElementById("loadDraftsBtn").addEventListener("click", () => {
     refreshDrafts().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("loadSubmittedBtn")?.addEventListener("click", () => {
+    refreshSubmittedBooks().catch((e) => {
+        const status = document.getElementById("submittedStatus");
+        if (status) {
+            status.textContent = "Failed to load submitted books.";
+        }
+        showToast(e.message, true);
+    });
 });
 
 document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
@@ -423,6 +668,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         clearFilePreviewUrl();
         filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
         await refreshDrafts();
+        await refreshSubmittedBooks();
         await refreshAuthorNotifications();
     } catch (error) {
         showToast(error.message, true);
@@ -430,6 +676,17 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 });
 
 if (currentUser) {
+    sessionSnapshotController = initSessionSnapshotPortal({
+        portalKey: "author-portal",
+        defaultViewKey: "author-dashboard",
+        getViewKey: () => "author-dashboard",
+        getState: () => ({ page: "author-dashboard" }),
+        restoreState: async () => {
+            showToast("Previous author portal state restored.", false);
+        },
+        bannerMessage: "A previous author portal state is available for this session."
+    });
+
     refreshAuthorPasswordStrength(authorPasswordInput?.value || "");
     loadAuthorProfile().catch((e) => {
         const feedback = document.getElementById("authorProfileFeedback");
@@ -439,6 +696,13 @@ if (currentUser) {
         showToast(e.message, true);
     });
     refreshDrafts().catch((e) => showToast(e.message, true));
+    refreshSubmittedBooks().catch((e) => {
+        const status = document.getElementById("submittedStatus");
+        if (status) {
+            status.textContent = "Failed to load submitted books.";
+        }
+        showToast(e.message, true);
+    });
     refreshPublishedBooks().catch((e) => {
         const status = document.getElementById("publishedStatus");
         if (status) {
@@ -447,4 +711,5 @@ if (currentUser) {
         showToast(e.message, true);
     });
     refreshAuthorNotifications().catch((e) => showToast(e.message, true));
+    sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }

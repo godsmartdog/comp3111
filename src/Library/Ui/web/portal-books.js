@@ -1,5 +1,6 @@
 const expectedRole = document.querySelector("main").dataset.role;
 const currentUser = requireRole(expectedRole);
+let sessionSnapshotController = null;
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
     welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
@@ -7,35 +8,127 @@ if (currentUser) {
 }
 
 let selectedBookId = null;
-let selectedBookSummary = null;
+const selectedBookIds = new Set();
 let selectedBorrowedBookId = null;
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
 
-function animateSelectedBookState() {
-    const selectedBookElement = document.getElementById("selectedBook");
-    selectedBookElement.classList.remove("is-updated");
-    void selectedBookElement.offsetWidth;
-    selectedBookElement.classList.add("is-updated");
+async function loadProfile() {
+    const profile = await api("/api/profile");
+    const fullNameInput = document.getElementById("profileFullName");
+    const currentPasswordInput = document.getElementById("profileCurrentPassword");
+    const newPasswordInput = document.getElementById("profilePassword");
+    const profileFeedback = document.getElementById("profileFeedback");
+
+    if (fullNameInput) {
+        fullNameInput.value = profile.fullName || "";
+    }
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
+    if (newPasswordInput) {
+        newPasswordInput.value = "";
+    }
+    if (profileFeedback) {
+        profileFeedback.textContent = "";
+    }
 }
 
-function updateSelectedBookUi(book) {
-    const selectedBookElement = document.getElementById("selectedBook");
-    if (!book) {
-        selectedBookElement.classList.remove("has-selection", "is-updated");
-        selectedBookElement.textContent = "Selected book: none";
+async function saveProfile() {
+    const fullNameInput = document.getElementById("profileFullName");
+    const currentPasswordInput = document.getElementById("profileCurrentPassword");
+    const newPasswordInput = document.getElementById("profilePassword");
+    const profileFeedback = document.getElementById("profileFeedback");
+
+    const fullName = (fullNameInput?.value || "").trim();
+    const currentPassword = (currentPasswordInput?.value || "").trim();
+    const newPassword = (newPasswordInput?.value || "").trim();
+
+    if (!fullName) {
+        showToast("Full Name cannot be empty.", true);
+        if (profileFeedback) {
+            profileFeedback.textContent = "Full Name cannot be empty.";
+        }
         return;
     }
 
-    const days = Number(document.getElementById("borrowDays")?.value || "14");
-    selectedBookElement.classList.add("has-selection");
-    selectedBookElement.innerHTML = `
-        <span class="selected-book-label">Ready to borrow</span>
-        <strong class="selected-book-title">${book.title}</strong>
-        <span class="selected-book-meta">by ${book.author} · ${days} day${days === 1 ? "" : "s"}</span>
-    `;
-    animateSelectedBookState();
+    if (newPassword) {
+        if (!currentPassword) {
+            showToast("Current password is required to change password.", true);
+            if (profileFeedback) {
+                profileFeedback.textContent = "Current password is required to change password.";
+            }
+            return;
+        }
+
+        const passwordIssues = getPasswordPolicyViolations(newPassword);
+        if (passwordIssues.length > 0) {
+            const message = passwordIssues[0];
+            showToast(message, true);
+            if (profileFeedback) {
+                profileFeedback.textContent = message;
+            }
+            return;
+        }
+    }
+
+    await api("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({
+            fullName,
+            password: newPassword,
+            currentPassword
+        })
+    }, false);
+
+    if (currentUser) {
+        currentUser.fullName = fullName;
+        saveCurrentUser(currentUser);
+    }
+
+    const welcomeLine = document.getElementById("welcomeLine");
+    if (welcomeLine && currentUser) {
+        welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
+    }
+
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
+    if (newPasswordInput) {
+        newPasswordInput.value = "";
+    }
+    if (profileFeedback) {
+        profileFeedback.textContent = "Profile updated successfully.";
+    }
+    showToast("Profile updated successfully.", false);
+}
+
+function updateSelectedBookLabel() {
+    const selectedBookLabel = document.getElementById("selectedBook");
+    const totalSelected = selectedBookIds.size;
+    if (!selectedBookId) {
+        selectedBookLabel.textContent = `Selected book: none | Multi-selected: ${totalSelected}`;
+        return;
+    }
+
+    const selected = allBooks.find((book) => book.id === selectedBookId);
+    const title = selected?.title || selectedBookId;
+    selectedBookLabel.textContent = `Selected book: ${title} | Multi-selected: ${totalSelected}`;
+}
+
+function syncMultiSelectionWithVisibleBooks() {
+    const visibleIds = new Set(allBooks.map((book) => book.id));
+    Array.from(selectedBookIds).forEach((bookId) => {
+        if (!visibleIds.has(bookId)) {
+            selectedBookIds.delete(bookId);
+        }
+    });
+
+    if (selectedBookId && !visibleIds.has(selectedBookId)) {
+        selectedBookId = null;
+    }
 }
 
 function getTotalPages() {
@@ -68,31 +161,39 @@ function renderBooks(books) {
         const row = document.createElement("tr");
         row.innerHTML = '<td colspan="4" class="muted">No books available for the current filter.</td>';
         tbody.appendChild(row);
-        updatePagerUi();
         return;
     }
 
     books.forEach((book) => {
         const row = document.createElement("tr");
         const statusClass = book.available ? "status-available" : "status-unavailable";
-        const isSelected = selectedBookId === book.id;
-
-        if (isSelected) {
-            row.classList.add("book-row-selected");
-        }
 
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
             <td class="${statusClass}">${book.available ? "Available" : "Unavailable"}</td>
-            <td><button type="button" class="secondary book-select-btn ${isSelected ? "is-selected" : ""}">${isSelected ? "Selected" : "Select"}</button></td>
+            <td>
+                <label>
+                    <input class="book-multi-select" type="checkbox" ${selectedBookIds.has(book.id) ? "checked" : ""}>
+                    Multi
+                </label>
+                <button class="secondary" type="button">Select</button>
+            </td>
         `;
+
+        const checkbox = row.querySelector(".book-multi-select");
+        checkbox.addEventListener("change", () => {
+            if (checkbox.checked) {
+                selectedBookIds.add(book.id);
+            } else {
+                selectedBookIds.delete(book.id);
+            }
+            updateSelectedBookLabel();
+        });
 
         row.querySelector("button").addEventListener("click", () => {
             selectedBookId = book.id;
-            selectedBookSummary = { id: book.id, title: book.title, author: book.author };
-            updateSelectedBookUi(selectedBookSummary);
-            renderCurrentPageBooks();
+            updateSelectedBookLabel();
         });
 
         tbody.appendChild(row);
@@ -114,21 +215,10 @@ async function refreshBooks(keyword = "") {
     const url = query ? `/api/books?${query}` : "/api/books";
     const books = await api(url);
     allBooks = [...books].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
-
-    if (selectedBookId) {
-        const latestSelected = allBooks.find((book) => book.id === selectedBookId);
-        if (latestSelected) {
-            selectedBookSummary = {
-                id: latestSelected.id,
-                title: latestSelected.title,
-                author: latestSelected.author
-            };
-        }
-        updateSelectedBookUi(selectedBookSummary);
-    }
-
+    syncMultiSelectionWithVisibleBooks();
     currentPage = 1;
     renderCurrentPageBooks();
+    updateSelectedBookLabel();
 }
 
 async function refreshRecommendations() {
@@ -144,7 +234,37 @@ async function refreshRecommendations() {
 
 async function refreshBorrows() {
     const list = document.getElementById("borrows");
-    const items = await api("/api/borrows/history");
+    const params = new URLSearchParams();
+    const status = document.getElementById("borrowStatusFilter")?.value || "all";
+    const sortBy = document.getElementById("borrowSortBy")?.value || "";
+    const sortDir = document.getElementById("borrowSortDir")?.value || "asc";
+    const borrowDateFrom = document.getElementById("borrowDateFrom")?.value || "";
+    const borrowDateTo = document.getElementById("borrowDateTo")?.value || "";
+    const dueDateFrom = document.getElementById("dueDateFrom")?.value || "";
+    const dueDateTo = document.getElementById("dueDateTo")?.value || "";
+
+    if (status) {
+        params.set("status", status);
+    }
+    if (sortBy) {
+        params.set("sortBy", sortBy);
+        params.set("sortDir", sortDir);
+    }
+    if (borrowDateFrom) {
+        params.set("borrowDateFrom", borrowDateFrom);
+    }
+    if (borrowDateTo) {
+        params.set("borrowDateTo", borrowDateTo);
+    }
+    if (dueDateFrom) {
+        params.set("dueDateFrom", dueDateFrom);
+    }
+    if (dueDateTo) {
+        params.set("dueDateTo", dueDateTo);
+    }
+
+    const query = params.toString();
+    const items = await api(query ? `/api/borrows?${query}` : "/api/borrows");
     list.innerHTML = "";
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -157,24 +277,32 @@ async function refreshBorrows() {
 
     items.forEach((item) => {
         const li = document.createElement("li");
-        const isReturned = !!item.returned;
-        const statusText = isReturned
-            ? `Returned${item.returnedDate ? ` on ${item.returnedDate}` : ""}`
-            : `Due ${item.dueDate}${item.overdue ? " [OVERDUE]" : ""}`;
-
-        li.innerHTML = isReturned
-            ? `<span>${item.bookTitle} (${statusText})</span>`
-            : `
-                <span>${item.bookTitle} (${statusText})</span>
-                <button class="secondary" type="button">Read</button>
-                <button class="secondary" type="button">Return</button>
-            `;
+        const isReturned = item.returned === true || String(item.status || "").toLowerCase() === "returned";
+        const warningLabel = item.overdue
+            ? "OVERDUE"
+            : item.dueSoon
+                ? `DUE SOON: ${item.daysUntilDue} day(s)`
+                : "";
+        if (item.overdue) {
+            li.style.background = "rgba(139, 47, 39, 0.12)";
+            li.style.border = "1px solid rgba(139, 47, 39, 0.45)";
+        } else if (item.dueSoon) {
+            li.style.background = "rgba(176, 116, 29, 0.12)";
+            li.style.border = "1px solid rgba(176, 116, 29, 0.4)";
+        }
 
         if (isReturned) {
+            const returnedDate = item.returnedDate ? ` on ${item.returnedDate}` : "";
+            li.innerHTML = `<span>${item.bookTitle} (Returned${returnedDate})</span>`;
             list.appendChild(li);
             return;
         }
 
+        li.innerHTML = `
+            <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
+            <button class="secondary" type="button">Read</button>
+            <button class="secondary" type="button">Return</button>
+        `;
         const buttons = li.querySelectorAll("button");
         const readBtn = buttons[0];
         const returnBtn = buttons[1];
@@ -215,39 +343,85 @@ async function refreshBorrows() {
 async function refreshNotifications() {
     const list = document.getElementById("notificationsList");
     const status = document.getElementById("notificationStatus");
+    const scopeFilter = document.getElementById("notificationScopeFilter");
+    const readFilter = document.getElementById("notificationReadFilter");
+    const priorityFilter = document.getElementById("notificationPriorityFilter");
+    const sortByFilter = document.getElementById("notificationSortBy");
+    const sortDirFilter = document.getElementById("notificationSortDir");
+    const searchInput = document.getElementById("notificationSearchInput");
     if (!list || !status) {
         return;
     }
 
+    const selectedScope = scopeFilter?.value || "active";
+    const selectedRead = readFilter?.value || "all";
+    const selectedPriority = priorityFilter?.value || "all";
+    const selectedSortBy = sortByFilter?.value || "createdAt";
+    const selectedSortDir = sortDirFilter?.value || "desc";
+    const selectedQuery = (searchInput?.value || "").trim();
+
+    const params = new URLSearchParams();
+    params.set("scope", selectedScope);
+    params.set("read", selectedRead);
+    params.set("priority", selectedPriority);
+    params.set("sortBy", selectedSortBy);
+    params.set("sortDir", selectedSortDir);
+    if (selectedQuery) {
+        params.set("q", selectedQuery);
+    }
+
     status.textContent = "Loading notifications...";
     try {
-        const items = await api("/api/notifications");
-        const unreadItems = Array.isArray(items) ? items.filter((item) => !item.read) : [];
+        const items = await api(`/api/notifications?${params.toString()}`);
+        const activeItems = selectedScope === "active"
+            ? items
+            : await api("/api/notifications?scope=active");
         list.innerHTML = "";
 
-        if (unreadItems.length === 0) {
-            status.textContent = "No notifications.";
+        if (!Array.isArray(items) || items.length === 0) {
+            const activeUnread = Array.isArray(activeItems)
+                ? activeItems.filter((item) => !item.read).length
+                : 0;
+            status.textContent = `No notifications in ${selectedScope} view. Active unread: ${activeUnread}`;
             return;
         }
 
-        status.textContent = `Unread: ${unreadItems.length}`;
+        const unreadCount = Array.isArray(activeItems)
+            ? activeItems.filter((item) => !item.read).length
+            : 0;
+        const queryLabel = selectedQuery ? ` | Search: ${selectedQuery}` : "";
+        status.textContent = `View: ${selectedScope} | Total: ${items.length} | Active Unread: ${unreadCount}${queryLabel}`;
 
-        unreadItems.forEach((item) => {
+        items.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
             const created = item.createdAt || "";
+            const priority = (item.priority || "NORMAL").toUpperCase();
+            const priorityClass = `priority-${priority.toLowerCase()}`;
+            const isArchived = item.archived === true;
+
+            li.style.padding = "10px";
+            li.style.borderRadius = "8px";
+            li.style.marginBottom = "8px";
+            li.style.background = item.read ? "rgba(60, 80, 120, 0.12)" : "rgba(32, 53, 79, 0.2)";
+            li.style.border = item.read ? "1px solid rgba(120, 140, 180, 0.35)" : "1px solid rgba(74, 116, 173, 0.45)";
 
             li.innerHTML = `
                 <div>
                     <strong>[${readLabel}] ${item.title}</strong>
+                    <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                     <div>${item.message || ""}</div>
-                    <small>${created}</small>
+                    <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
                 </div>
-                <button class="secondary" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                <div>
+                    <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                    <button class="danger notification-delete-btn" type="button">Delete</button>
+                    <button class="secondary notification-archive-btn" type="button">${isArchived ? "Unarchive" : "Archive"}</button>
+                </div>
             `;
 
-            const button = li.querySelector("button");
-            button.addEventListener("click", async () => {
+            const markReadButton = li.querySelector(".notification-read-btn");
+            markReadButton.addEventListener("click", async () => {
                 try {
                     const payload = await api("/api/notifications/read", {
                         method: "POST",
@@ -255,10 +429,42 @@ async function refreshNotifications() {
                         body: formBody({ notificationId: item.id })
                     });
                     showToast(payload.message || "Notification marked as read.", false);
-
                     li.remove();
                     const remaining = list.querySelectorAll("li").length;
-                    status.textContent = remaining === 0 ? "No notifications." : `Unread: ${remaining}`;
+                    status.textContent = remaining === 0
+                        ? `No notifications in ${selectedScope} view.`
+                        : `View: ${selectedScope} | Remaining: ${remaining}`;
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            const deleteButton = li.querySelector(".notification-delete-btn");
+            deleteButton.addEventListener("click", async () => {
+                try {
+                    const payload = await api("/api/notifications/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || "Notification deleted.", false);
+                    await refreshNotifications();
+                } catch (error) {
+                    showToast(error.message, true);
+                }
+            });
+
+            const archiveButton = li.querySelector(".notification-archive-btn");
+            archiveButton.addEventListener("click", async () => {
+                try {
+                    const endpoint = isArchived ? "/api/notifications/unarchive" : "/api/notifications/archive";
+                    const payload = await api(endpoint, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                        body: formBody({ notificationId: item.id })
+                    });
+                    showToast(payload.message || (isArchived ? "Notification unarchived." : "Notification archived."), false);
+                    await refreshNotifications();
                 } catch (error) {
                     showToast(error.message, true);
                 }
@@ -269,6 +475,46 @@ async function refreshNotifications() {
     } catch (error) {
         status.textContent = "Failed to load notifications.";
         throw error;
+    }
+}
+
+function getNotificationSnapshotState() {
+    return {
+        scope: document.getElementById("notificationScopeFilter")?.value || "active",
+        read: document.getElementById("notificationReadFilter")?.value || "all",
+        priority: document.getElementById("notificationPriorityFilter")?.value || "all",
+        sortBy: document.getElementById("notificationSortBy")?.value || "createdAt",
+        sortDir: document.getElementById("notificationSortDir")?.value || "desc",
+        query: document.getElementById("notificationSearchInput")?.value || ""
+    };
+}
+
+function applyNotificationSnapshotState(state) {
+    const values = state || {};
+    const scope = document.getElementById("notificationScopeFilter");
+    const read = document.getElementById("notificationReadFilter");
+    const priority = document.getElementById("notificationPriorityFilter");
+    const sortBy = document.getElementById("notificationSortBy");
+    const sortDir = document.getElementById("notificationSortDir");
+    const search = document.getElementById("notificationSearchInput");
+
+    if (scope && values.scope) {
+        scope.value = values.scope;
+    }
+    if (read && values.read) {
+        read.value = values.read;
+    }
+    if (priority && values.priority) {
+        priority.value = values.priority;
+    }
+    if (sortBy && values.sortBy) {
+        sortBy.value = values.sortBy;
+    }
+    if (sortDir && values.sortDir) {
+        sortDir.value = values.sortDir;
+    }
+    if (search) {
+        search.value = values.query || "";
     }
 }
 
@@ -357,6 +603,16 @@ document.getElementById("showAllBtn").addEventListener("click", () => {
     refreshBooks().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
+    saveProfile().catch((e) => {
+        const profileFeedback = document.getElementById("profileFeedback");
+        if (profileFeedback) {
+            profileFeedback.textContent = e.message;
+        }
+        showToast(e.message, true);
+    });
+});
+
 document.getElementById("prevPageBtn").addEventListener("click", () => {
     if (currentPage > 1) {
         currentPage -= 1;
@@ -368,12 +624,6 @@ document.getElementById("nextPageBtn").addEventListener("click", () => {
     if (currentPage < getTotalPages()) {
         currentPage += 1;
         renderCurrentPageBooks();
-    }
-});
-
-document.getElementById("borrowDays").addEventListener("change", () => {
-    if (selectedBookSummary) {
-        updateSelectedBookUi(selectedBookSummary);
     }
 });
 
@@ -392,9 +642,33 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
         }, false);
 
         showToast(text, false);
-        selectedBookId = null;
-        selectedBookSummary = null;
-        updateSelectedBookUi(null);
+        await refreshBooks();
+        await refreshRecommendations();
+        await refreshBorrows();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
+
+document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => {
+    try {
+        if (selectedBookIds.size === 0) {
+            showToast("Please multi-select at least one book first.", true);
+            return;
+        }
+
+        const days = Number(document.getElementById("borrowDays").value);
+        const text = await api("/api/borrow/bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                bookIds: Array.from(selectedBookIds).join(","),
+                days
+            })
+        }, false);
+
+        showToast(text, false);
+        selectedBookIds.clear();
         await refreshBooks();
         await refreshRecommendations();
         await refreshBorrows();
@@ -404,13 +678,118 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
-    refreshNotifications().catch((e) => showToast(e.message, true));
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-refresh"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-apply"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetNotificationFiltersBtn")?.addEventListener("click", () => {
+    const scope = document.getElementById("notificationScopeFilter");
+    const read = document.getElementById("notificationReadFilter");
+    const priority = document.getElementById("notificationPriorityFilter");
+    const sortBy = document.getElementById("notificationSortBy");
+    const sortDir = document.getElementById("notificationSortDir");
+    const search = document.getElementById("notificationSearchInput");
+
+    if (scope) {
+        scope.value = "active";
+    }
+    if (read) {
+        read.value = "all";
+    }
+    if (priority) {
+        priority.value = "all";
+    }
+    if (sortBy) {
+        sortBy.value = "createdAt";
+    }
+    if (sortDir) {
+        sortDir.value = "desc";
+    }
+    if (search) {
+        search.value = "";
+    }
+
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter-reset"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyBorrowFiltersBtn")?.addEventListener("click", () => {
+    refreshBorrows().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetBorrowFiltersBtn")?.addEventListener("click", () => {
+    const status = document.getElementById("borrowStatusFilter");
+    const sortBy = document.getElementById("borrowSortBy");
+    const sortDir = document.getElementById("borrowSortDir");
+    const borrowDateFrom = document.getElementById("borrowDateFrom");
+    const borrowDateTo = document.getElementById("borrowDateTo");
+    const dueDateFrom = document.getElementById("dueDateFrom");
+    const dueDateTo = document.getElementById("dueDateTo");
+
+    if (status) {
+        status.value = "all";
+    }
+    if (sortBy) {
+        sortBy.value = "";
+    }
+    if (sortDir) {
+        sortDir.value = "asc";
+    }
+    if (borrowDateFrom) {
+        borrowDateFrom.value = "";
+    }
+    if (borrowDateTo) {
+        borrowDateTo.value = "";
+    }
+    if (dueDateFrom) {
+        dueDateFrom.value = "";
+    }
+    if (dueDateTo) {
+        dueDateTo.value = "";
+    }
+
+    refreshBorrows().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("checkBorrowRemindersBtn")?.addEventListener("click", async () => {
+    try {
+        const payload = await api("/api/borrow/reminders/check", {
+            method: "POST"
+        });
+        showToast(`Reminder check complete. Generated ${payload.generated || 0} reminder(s).`, false);
+        await refreshBorrows();
+        await refreshNotifications();
+    } catch (error) {
+        showToast(error.message, true);
+    }
 });
 
 if (currentUser) {
+    sessionSnapshotController = initSessionSnapshotPortal({
+        portalKey: `${currentUser.role.toLowerCase()}-portal`,
+        defaultViewKey: "notifications-board",
+        getViewKey: () => "notifications-board",
+        getState: getNotificationSnapshotState,
+        restoreState: async (state) => {
+            applyNotificationSnapshotState(state);
+            await refreshNotifications();
+            showToast("Previous notification view restored.", false);
+        },
+        bannerMessage: "A previous notification view is available for this session."
+    });
+
     loadProfile().catch((e) => showToast(e.message, true));
     refreshBooks().catch((e) => showToast(e.message, true));
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));
     refreshNotifications().catch((e) => showToast(e.message, true));
+    sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }

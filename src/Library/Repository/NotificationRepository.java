@@ -8,4 +8,5 @@ public interface NotificationRepository {
     void save(NotificationItem item);
     Optional<NotificationItem> findById(String id);
     List<NotificationItem> findByUsername(String username);
+    boolean deleteById(String id);
 }

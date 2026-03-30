@@ -1,18 +1,26 @@
 package Library.Service;
 
 import Library.Exception.AuthenticationException;
+import Library.Exception.BusinessException;
+import Library.Exception.NotFoundException;
 import Library.Exception.ValidationException;
+import Library.Model.Book;
 import Library.Model.AuthorProfile2;
 import Library.Model.BookSubmission2;
+import Library.Model.BorrowRecord;
 import Library.Model.Role;
+import Library.Model.SubmissionState;
 import Library.Model.User;
 import Library.Repository.AuthorProfileRepository2;
+import Library.Repository.BookRepository;
 import Library.Repository.BookSubmissionRepository2;
+import Library.Repository.BorrowRepository;
 import Library.Repository.UserRepository;
 import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,14 +44,23 @@ public class AuthorService2 {
     private final UserRepository userRepository;
     private final AuthorProfileRepository2 authorProfileRepository;
     private final BookSubmissionRepository2 submissionRepository;
+    private final BookRepository bookRepository;
+    private final BorrowRepository borrowRepository;
+    private final FileService fileService;
 
     // Constructor to initialize the service with required repositories, allowing for dependency injection and easier testing.
     public AuthorService2(UserRepository userRepository,
                          AuthorProfileRepository2 authorProfileRepository,
-                         BookSubmissionRepository2 submissionRepository) {
+                         BookSubmissionRepository2 submissionRepository,
+                         BookRepository bookRepository,
+                         BorrowRepository borrowRepository,
+                         FileService fileService) {
         this.userRepository = userRepository;
         this.authorProfileRepository = authorProfileRepository;
         this.submissionRepository = submissionRepository;
+        this.bookRepository = bookRepository;
+        this.borrowRepository = borrowRepository;
+        this.fileService = fileService;
     }
 
     // Method to register a new author, validating input and ensuring unique usernames, while also creating an associated author profile.
@@ -175,6 +192,106 @@ public class AuthorService2 {
         return new AuthorProfileSnapshot(user.getUsername(), user.getFullName(), profile.getBio());
     }
 
+    public List<BookSubmission2> listSubmissionsByAuthor(String authorUsername) {
+        String normalizedAuthorUsername = normalizeRequired(authorUsername, "Author username cannot be empty.");
+        return submissionRepository.findByAuthorUsername(normalizedAuthorUsername).stream()
+                .sorted(Comparator.comparing(BookSubmission2::getSubmittedDate, Comparator.reverseOrder())
+                        .thenComparing(BookSubmission2::getId))
+                .toList();
+    }
+
+    public List<Book> listPublishedBooksByAuthor(String authorUsername) {
+        String normalizedAuthorUsername = normalizeRequired(authorUsername, "Author username cannot be empty.");
+        return bookRepository.findAll().stream()
+                .filter(Book::isApproved)
+                .filter(book -> book.getAuthorUsername().equals(normalizedAuthorUsername))
+                .sorted(Comparator.comparing(Book::getTitle).thenComparing(Book::getId))
+                .toList();
+    }
+
+    public Book updateOwnedPublishedBook(String actingUsername,
+                                         String bookId,
+                                         String title,
+                                         List<String> genres,
+                                         String description) {
+        Book existing = requireOwnedPublishedBook(actingUsername, bookId, "update");
+        String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
+        List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
+        String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
+
+        existing.updateMetadata(normalizedTitle, normalizedGenres, normalizedDescription);
+        bookRepository.save(existing);
+        return existing;
+    }
+
+    public void deleteOwnedPublishedBook(String actingUsername, String bookId) {
+        Book existing = requireOwnedPublishedBook(actingUsername, bookId, "delete");
+        if (hasActiveBorrowForBook(existing.getId())) {
+            throw new BusinessException("Cannot delete a published book with active borrows.");
+        }
+        bookRepository.deleteById(existing.getId());
+    }
+
+    public FilePreview readOwnedSubmissionFilePreview(String actingUsername, String submissionId) {
+        BookSubmission2 submission = requireOwnedSubmission(actingUsername, submissionId, "read");
+        FileService.TextPreview preview = fileService.readSafeTextPreview(submission.getFileName());
+        return new FilePreview(
+                submission.getId(),
+                "submission",
+                preview.absolutePath(),
+                preview.sizeBytes(),
+                preview.previewText()
+        );
+    }
+
+    public FilePreview readOwnedPublishedBookFilePreview(String actingUsername, String bookId) {
+        Book book = requireOwnedPublishedBook(actingUsername, bookId, "read");
+        String filePath = normalizeRequired(book.getFilePath(), "Published book file path is not available.");
+        FileService.TextPreview preview = fileService.readSafeTextPreview(filePath);
+        return new FilePreview(
+                book.getId(),
+                "published",
+                preview.absolutePath(),
+                preview.sizeBytes(),
+                preview.previewText()
+        );
+    }
+
+    public BookSubmission2 updatePendingSubmission(String actingUsername,
+                                                   String submissionId,
+                                                   String title,
+                                                   List<String> genres,
+                                                   String description,
+                                                   String fileName) {
+        BookSubmission2 existing = requireOwnedPendingSubmission(actingUsername, submissionId, "update", "updated");
+        String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
+        List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
+        String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
+
+        String normalizedFileName = fileName == null || fileName.isBlank()
+                ? existing.getFileName()
+                : normalizeRequired(fileName, "Book file is required.");
+        validateFileFormat(normalizedFileName);
+
+        BookSubmission2 updated = new BookSubmission2(
+                existing.getId(),
+                normalizedTitle,
+                existing.getAuthorUsername(),
+                existing.getAuthorFullName(),
+                normalizedGenres,
+                normalizedDescription,
+                normalizedFileName,
+                existing.getSubmittedDate()
+        );
+        submissionRepository.save(updated);
+        return updated;
+    }
+
+    public void deletePendingSubmission(String actingUsername, String submissionId) {
+        BookSubmission2 existing = requireOwnedPendingSubmission(actingUsername, submissionId, "delete", "deleted");
+        submissionRepository.deleteById(existing.getId());
+    }
+
     // Private helper method to validate that the provided genres are all supported, throwing a ValidationException if any unsupported genres are found.
     private List<String> normalizeGenres(List<String> genres, String emptyMessage) {
         if (genres == null) {
@@ -224,6 +341,63 @@ public class AuthorService2 {
         return value.trim();
     }
 
+    private BookSubmission2 requireOwnedPendingSubmission(String actingUsername,
+                                                          String submissionId,
+                                                          String ownershipVerb,
+                                                          String pendingVerb) {
+        BookSubmission2 existing = requireOwnedSubmission(actingUsername, submissionId, ownershipVerb);
+        if (existing.getStatus() != SubmissionState.PENDING) {
+            throw new ValidationException("Only pending submissions can be " + pendingVerb + ".");
+        }
+        return existing;
+    }
+
+    private BookSubmission2 requireOwnedSubmission(String actingUsername,
+                                                   String submissionId,
+                                                   String ownershipVerb) {
+        String normalizedActor = normalizeRequired(actingUsername, "Author username cannot be empty.");
+        String normalizedSubmissionId = normalizeRequired(submissionId, "Submission ID cannot be empty.");
+
+        BookSubmission2 existing = submissionRepository.findById(normalizedSubmissionId)
+                .orElseThrow(() -> new NotFoundException("Submission not found."));
+        if (!existing.getAuthorUsername().equals(normalizedActor)) {
+            throw new ValidationException("Cannot " + ownershipVerb + " another author's submission.");
+        }
+        return existing;
+    }
+
+    private Book requireOwnedPublishedBook(String actingUsername, String bookId, String actionVerb) {
+        String normalizedActor = normalizeRequired(actingUsername, "Author username cannot be empty.");
+        String normalizedBookId = normalizeRequired(bookId, "Book ID cannot be empty.");
+
+        Book existing = bookRepository.findById(normalizedBookId)
+                .orElseThrow(() -> new NotFoundException("Published book not found."));
+
+        if (!existing.isApproved()) {
+            throw new ValidationException("Only approved books can be managed here.");
+        }
+        if (!existing.getAuthorUsername().equals(normalizedActor)) {
+            throw new ValidationException("Cannot " + actionVerb + " another author's published book.");
+        }
+        return existing;
+    }
+
+    private boolean hasActiveBorrowForBook(String bookId) {
+        for (BorrowRecord record : borrowRepository.findAll()) {
+            if (record.getBookId().equals(bookId) && !record.isReturned()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public record AuthorProfileSnapshot(String username, String fullName, String bio) {
+    }
+
+    public record FilePreview(String itemId,
+                              String sourceType,
+                              String filePath,
+                              long sizeBytes,
+                              String previewText) {
     }
 }

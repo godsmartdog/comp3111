@@ -81,6 +81,27 @@
         <h3>Saved Drafts</h3>
         <ul id="drafts"></ul>
 
+        <h3>My Submitted Books</h3>
+        <div class="panel-subtle">
+            <p id="submittedStatus">Loading submitted books...</p>
+            <button id="loadSubmittedBtn" class="secondary" type="button">Refresh Submitted Books</button>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Status</th>
+                        <th>Submitted Date</th>
+                        <th>File</th>
+                        <th>Action</th>
+                    </tr>
+                    </thead>
+                    <tbody id="submittedBooksBody"></tbody>
+                </table>
+            </div>
+        </div>
+
         <h3>My Published Books</h3>
         <div class="panel-subtle">
             <p id="publishedStatus">Loading published books...</p>
@@ -91,9 +112,11 @@
                     <tr>
                         <th>ID</th>
                         <th>Title</th>
-                        <th>Summary</th>
+                        <th>Genres</th>
+                        <th>Description</th>
                         <th>Publish Date</th>
                         <th>Status</th>
+                        <th>Action</th>
                     </tr>
                     </thead>
                     <tbody id="publishedBooksBody"></tbody>

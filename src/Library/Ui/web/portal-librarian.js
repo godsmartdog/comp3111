@@ -1,19 +1,27 @@
 const currentUser = requireRole("LIBRARIAN");
+let sessionSnapshotController = null;
 if (currentUser) {
     document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
     attachLogout("logoutBtn");
 }
 
+let submissionSortEnabled = false;
+
 async function loadLibrarianProfile() {
     const payload = await api("/api/librarian/profile");
     document.getElementById("librarianProfileFullName").value = payload.fullName || "";
     document.getElementById("librarianProfileEmployeeId").value = payload.employeeId || "";
+    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
 }
 
 async function saveLibrarianProfile() {
     const feedback = document.getElementById("librarianProfileFeedback");
     const fullName = document.getElementById("librarianProfileFullName").value.trim();
     const employeeId = document.getElementById("librarianProfileEmployeeId").value.trim();
+    const currentPassword = document.getElementById("librarianProfileCurrentPassword")?.value || "";
     const password = document.getElementById("librarianProfilePassword").value;
 
     if (!fullName) {
@@ -28,6 +36,12 @@ async function saveLibrarianProfile() {
     }
 
     if (password.trim()) {
+        if (!currentPassword.trim()) {
+            feedback.textContent = "Current password is required to change password.";
+            showToast(feedback.textContent, true);
+            return;
+        }
+
         const issues = getPasswordPolicyViolations(password);
         if (issues.length > 0) {
             feedback.textContent = issues[0];
@@ -39,10 +53,14 @@ async function saveLibrarianProfile() {
     const text = await api("/api/librarian/profile", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, employeeId, password })
+        body: formBody({ fullName, employeeId, password, currentPassword })
     }, false);
 
     feedback.textContent = text;
+    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = "";
+    }
     document.getElementById("librarianProfilePassword").value = "";
     if (currentUser) {
         currentUser.fullName = fullName;
@@ -61,6 +79,7 @@ function renderPending(items) {
         row.innerHTML = `
             <td>${item.title}</td>
             <td>${item.authorFullName}</td>
+            <td>${item.status || ""}</td>
             <td>${item.submittedDate}</td>
             <td>${item.fileName}</td>
             <td></td>
@@ -87,8 +106,72 @@ function renderPending(items) {
 }
 
 async function refreshPending() {
-    const items = await api("/api/librarian/pending");
+    const searchInput = document.getElementById("submissionSearchInput");
+    const statusFilter = document.getElementById("submissionStatusFilter");
+    const sortDirFilter = document.getElementById("submissionSortDirFilter");
+
+    const query = new URLSearchParams();
+    const keyword = searchInput ? searchInput.value.trim() : "";
+    const status = statusFilter ? statusFilter.value : "pending";
+    const sortDir = sortDirFilter ? sortDirFilter.value : "asc";
+
+    if (keyword) {
+        query.set("q", keyword);
+    }
+    if (status) {
+        query.set("status", status);
+    }
+    if (submissionSortEnabled) {
+        query.set("sortBy", "submittedDate");
+        query.set("sortDir", sortDir || "asc");
+    }
+
+    const path = `/api/librarian/pending?${query.toString()}`;
+    const items = await api(path);
     renderPending(items);
+}
+
+function resetSubmissionFilters() {
+    const searchInput = document.getElementById("submissionSearchInput");
+    const statusFilter = document.getElementById("submissionStatusFilter");
+    const sortDirFilter = document.getElementById("submissionSortDirFilter");
+
+    if (searchInput) {
+        searchInput.value = "";
+    }
+    if (statusFilter) {
+        statusFilter.value = "pending";
+    }
+    if (sortDirFilter) {
+        sortDirFilter.value = "asc";
+    }
+}
+
+function getLibrarianSnapshotState() {
+    return {
+        query: document.getElementById("submissionSearchInput")?.value || "",
+        status: document.getElementById("submissionStatusFilter")?.value || "pending",
+        sortDir: document.getElementById("submissionSortDirFilter")?.value || "asc",
+        sortEnabled: submissionSortEnabled
+    };
+}
+
+function applyLibrarianSnapshotState(state) {
+    const values = state || {};
+    const search = document.getElementById("submissionSearchInput");
+    const status = document.getElementById("submissionStatusFilter");
+    const sortDir = document.getElementById("submissionSortDirFilter");
+
+    if (search) {
+        search.value = values.query || "";
+    }
+    if (status) {
+        status.value = values.status || "pending";
+    }
+    if (sortDir) {
+        sortDir.value = values.sortDir || "asc";
+    }
+    submissionSortEnabled = values.sortEnabled === true;
 }
 
 function renderApprovedBooks(items) {
@@ -283,6 +366,21 @@ document.getElementById("refreshPendingBtn").addEventListener("click", () => {
     refreshPending().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("applySubmissionFiltersBtn")?.addEventListener("click", () => {
+    submissionSortEnabled = true;
+    refreshPending()
+        .then(() => sessionSnapshotController?.persistSnapshot("pending-filter-apply"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("resetSubmissionFiltersBtn")?.addEventListener("click", () => {
+    submissionSortEnabled = false;
+    resetSubmissionFilters();
+    refreshPending()
+        .then(() => sessionSnapshotController?.persistSnapshot("pending-filter-reset"))
+        .catch((e) => showToast(e.message, true));
+});
+
 document.getElementById("saveLibrarianProfileBtn")?.addEventListener("click", () => {
     saveLibrarianProfile().catch((e) => {
         const feedback = document.getElementById("librarianProfileFeedback");
@@ -306,6 +404,19 @@ document.getElementById("refreshLibrarianNotificationsBtn")?.addEventListener("c
 });
 
 if (currentUser) {
+    sessionSnapshotController = initSessionSnapshotPortal({
+        portalKey: "librarian-portal",
+        defaultViewKey: "pending-submissions",
+        getViewKey: () => "pending-submissions",
+        getState: getLibrarianSnapshotState,
+        restoreState: async (state) => {
+            applyLibrarianSnapshotState(state);
+            await refreshPending();
+            showToast("Previous librarian review view restored.", false);
+        },
+        bannerMessage: "A previous librarian review state is available for this session."
+    });
+
     loadLibrarianProfile().catch((e) => {
         const feedback = document.getElementById("librarianProfileFeedback");
         if (feedback) {
@@ -317,4 +428,5 @@ if (currentUser) {
     refreshApprovedBooks().catch((e) => showToast(e.message, true));
     refreshBorrowedRecords().catch((e) => showToast(e.message, true));
     refreshLibrarianNotifications().catch((e) => showToast(e.message, true));
+    sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }
