@@ -4031,7 +4031,13 @@ public final class LibraryIntegrationTest {
         );
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
-        private final LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
+        private final LibrarianService3 librarianService = new LibrarianService3(
+            userRepository,
+            authorProfileRepository,
+            librarianProfileRepository,
+            submissionRepository,
+            bookRepository
+        );
         private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
         private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
         private final SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(new MemorySessionSnapshotRepository());

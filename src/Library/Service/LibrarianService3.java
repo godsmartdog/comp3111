@@ -6,6 +6,7 @@ import Library.Exception.ValidationException;
 import Library.Model.*;
 import Library.Repository.BookRepository;
 import Library.Repository.BookSubmissionRepository2;
+import Library.Repository.AuthorProfileRepository2;
 import Library.Repository.LibrarianProfileRepository3;
 import Library.Repository.UserRepository;
 import Library.Security.NamePolicy;
@@ -23,16 +24,19 @@ public class LibrarianService3 {
     private static final int MAX_REJECTION_REASON_LENGTH = 500;
 
     private final UserRepository userRepository;
+    private final AuthorProfileRepository2 authorProfileRepository;
     private final LibrarianProfileRepository3 librarianProfileRepository;
     private final BookSubmissionRepository2 submissionRepository;
     private final BookRepository bookRepository;
 
     // Constructor to initialize the LibrarianService with the required repositories for user management, librarian profiles, book submissions, and books, allowing for dependency injection and better separation of concerns.
     public LibrarianService3 (UserRepository userRepository,
+                            AuthorProfileRepository2 authorProfileRepository,
                             LibrarianProfileRepository3 librarianProfileRepository,
                             BookSubmissionRepository2 submissionRepository,
                             BookRepository bookRepository) {
         this.userRepository = userRepository;
+        this.authorProfileRepository = authorProfileRepository;
         this.librarianProfileRepository = librarianProfileRepository;
         this.submissionRepository = submissionRepository;
         this.bookRepository = bookRepository;
@@ -96,6 +100,80 @@ public class LibrarianService3 {
         user.updateFullName(normalizedFullName);
         userRepository.save(user);
         return user;
+    }
+
+    public ManagedUserProfileSnapshot getManagedUserProfile(String targetUsername) {
+        String normalizedTarget = NamePolicy.validateUsername(targetUsername);
+        User user = userRepository.findByUsername(normalizedTarget)
+                .orElseThrow(() -> new ValidationException("User not found."));
+
+        String bio = "";
+        String employeeId = "";
+        if (user.getRole() == Role.AUTHOR) {
+            bio = authorProfileRepository.findByUsername(normalizedTarget)
+                    .map(AuthorProfile2::getBio)
+                    .orElse("");
+        } else if (user.getRole() == Role.LIBRARIAN) {
+            employeeId = librarianProfileRepository.findByUsername(normalizedTarget)
+                    .map(LibrarianProfile3::getEmployeeId)
+                    .orElse("");
+        }
+
+        return new ManagedUserProfileSnapshot(
+                user.getUsername(),
+                user.getRole(),
+                user.getFullName(),
+                user.isActive(),
+                bio,
+                employeeId,
+                false
+        );
+    }
+
+    public ManagedUserProfileSnapshot updateManagedUserProfile(String actingUsername,
+                                                               String targetUsername,
+                                                               String fullName,
+                                                               String bio,
+                                                               String employeeId,
+                                                               String newPassword) {
+        NamePolicy.validateUsername(actingUsername);
+        String normalizedTarget = NamePolicy.validateUsername(targetUsername);
+        String normalizedFullName = NamePolicy.validateFullName(fullName);
+
+        User user = userRepository.findByUsername(normalizedTarget)
+                .orElseThrow(() -> new ValidationException("User not found."));
+        user.updateFullName(normalizedFullName);
+
+        boolean passwordUpdated = false;
+        if (newPassword != null && !newPassword.isBlank()) {
+            PasswordPolicy.validate(newPassword);
+            user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+            passwordUpdated = true;
+        }
+        userRepository.save(user);
+
+        String normalizedBio = "";
+        String normalizedEmployeeId = "";
+        if (user.getRole() == Role.AUTHOR) {
+            normalizedBio = bio == null ? "" : bio.trim();
+            authorProfileRepository.save(new AuthorProfile2(user.getUsername(), normalizedBio));
+        } else if (user.getRole() == Role.LIBRARIAN) {
+            normalizedEmployeeId = employeeId == null ? "" : employeeId.trim();
+            if (normalizedEmployeeId.isEmpty()) {
+                throw new ValidationException("Employee ID cannot be empty.");
+            }
+            librarianProfileRepository.save(new LibrarianProfile3(user.getUsername(), normalizedEmployeeId));
+        }
+
+        return new ManagedUserProfileSnapshot(
+                user.getUsername(),
+                user.getRole(),
+                user.getFullName(),
+                user.isActive(),
+                normalizedBio,
+                normalizedEmployeeId,
+                passwordUpdated
+        );
     }
 
     public User setManagedUserActive(String actingUsername, String targetUsername, boolean active) {
@@ -383,5 +461,14 @@ public class LibrarianService3 {
     }
 
     public record LibrarianProfileSnapshot(String username, String fullName, String employeeId) {
+    }
+
+    public record ManagedUserProfileSnapshot(String username,
+                                             Role role,
+                                             String fullName,
+                                             boolean active,
+                                             String bio,
+                                             String employeeId,
+                                             boolean passwordUpdated) {
     }
 }

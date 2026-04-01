@@ -1517,6 +1517,34 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/users/profile", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String username = required(query, "username");
+
+                LibrarianService3.ManagedUserProfileSnapshot profile = librarianService.getManagedUserProfile(username);
+                String payload = "{" +
+                        "\"username\":\"" + JsonUtil.escape(profile.username()) + "\"," +
+                        "\"role\":\"" + profile.role().name() + "\"," +
+                        "\"fullName\":\"" + JsonUtil.escape(profile.fullName()) + "\"," +
+                        "\"active\":" + profile.active() + "," +
+                        "\"bio\":\"" + JsonUtil.escape(profile.bio()) + "\"," +
+                        "\"employeeId\":\"" + JsonUtil.escape(profile.employeeId()) + "\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/users/update", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1528,10 +1556,38 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String username = required(form, "username");
                 String fullName = required(form, "fullName");
+                String bio = form.getOrDefault("bio", "");
+                String employeeId = form.getOrDefault("employeeId", "");
+                String password = form.getOrDefault("password", "");
 
-                User updated = librarianService.updateManagedUserFullName(username, fullName);
-                appendUserActivity(updated.getUsername(), "Account name updated by librarian " + librarian.getUsername() + ".");
-                appendUserActivity(librarian.getUsername(), "Updated account profile for " + updated.getUsername() + ".");
+                LibrarianService3.ManagedUserProfileSnapshot updated = librarianService.updateManagedUserProfile(
+                        librarian.getUsername(),
+                        username,
+                        fullName,
+                        bio,
+                        employeeId,
+                        password
+                );
+
+                if (updated.passwordUpdated()) {
+                    invalidateSessionsByUsername(updated.username());
+                }
+
+                if (updated.username().equals(librarian.getUsername()) && !updated.passwordUpdated()) {
+                    String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+                    if (!sessionId.isEmpty()) {
+                        librarian.updateFullName(updated.fullName());
+                        sessions.put(sessionId, librarian);
+                        sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
+                        refreshSessionSnapshot();
+                    }
+                }
+
+                appendUserActivity(updated.username(), "Account profile updated by librarian " + librarian.getUsername() + ".");
+                if (updated.passwordUpdated()) {
+                    appendUserActivity(updated.username(), "Account password reset by librarian " + librarian.getUsername() + ".");
+                }
+                appendUserActivity(librarian.getUsername(), "Updated account profile for " + updated.username() + ".");
                 sendText(exchange, 200, "User updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());

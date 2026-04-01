@@ -90,7 +90,13 @@ public class LibraryManagementApp {
             fileService
         );
         AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
-        LibrarianService3 librarianService = new LibrarianService3(userRepository, librarianProfileRepository, submissionRepository, bookRepository);
+        LibrarianService3 librarianService = new LibrarianService3(
+            userRepository,
+            authorProfileRepository,
+            librarianProfileRepository,
+            submissionRepository,
+            bookRepository
+        );
 
         authService.registerStudentOrStaff("student1", "Student Demo", "Password1!", Library.Model.Role.STUDENT);
         authorService.registerAuthor("author1", "Author Demo", "Password1!", "Writes demo content.");

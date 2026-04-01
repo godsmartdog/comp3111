@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Edit User Profile</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Edit User Profile</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="librarian-users.html">Back to Users</a>
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <p id="editUserStatus" class="hint">Loading user profile...</p>
+
+        <div class="split">
+            <div>
+                <label for="editUsername">Username</label>
+                <input id="editUsername" type="text" readonly>
+            </div>
+            <div>
+                <label for="editRole">Role</label>
+                <input id="editRole" type="text" readonly>
+            </div>
+        </div>
+
+        <div class="split">
+            <div>
+                <label for="editActive">Account Status</label>
+                <input id="editActive" type="text" readonly>
+            </div>
+            <div>
+                <label for="editFullName">Full Name</label>
+                <input id="editFullName" type="text" placeholder="Enter full name">
+            </div>
+        </div>
+
+        <div id="authorBioGroup" style="display:none;">
+            <label for="editBio">Author Bio</label>
+            <textarea id="editBio" rows="5" placeholder="Enter author bio"></textarea>
+        </div>
+
+        <div id="librarianEmployeeGroup" style="display:none;">
+            <label for="editEmployeeId">Employee ID</label>
+            <input id="editEmployeeId" type="text" placeholder="Enter employee ID">
+        </div>
+
+        <label for="editPassword">New Password (optional)</label>
+        <input id="editPassword" type="password" placeholder="Leave blank to keep current password">
+        <p class="hint">If provided, account password will be reset immediately.</p>
+
+        <div class="toolbar">
+            <button id="saveUserProfileBtn" type="button">Save Changes</button>
+            <a class="link-btn" href="librarian-users.html">Cancel</a>
+        </div>
+
+        <p id="editUserFeedback" class="hint"></p>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-user-edit.js"></script>
+</body>
+</html>

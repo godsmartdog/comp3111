@@ -67,7 +67,7 @@ function renderUsers(items) {
         editBtn.className = "secondary";
         editBtn.type = "button";
         editBtn.textContent = "Edit";
-        editBtn.addEventListener("click", () => updateUser(item));
+        editBtn.addEventListener("click", () => openUserEditPage(item));
 
         const toggleBtn = document.createElement("button");
         toggleBtn.className = item.active ? "danger" : "secondary";
@@ -100,27 +100,12 @@ async function loadUsers() {
     renderUsers(items);
 }
 
-async function updateUser(item) {
-    const nextName = (prompt(`Update full name for ${item.username}:`, item.fullName || "") || "").trim();
-    if (!nextName || nextName === (item.fullName || "")) {
+function openUserEditPage(item) {
+    if (!item?.username) {
+        showToast("Unable to open edit page for this user.", true);
         return;
     }
-
-    if (!confirm(`Confirm update full name for ${item.username}?`)) {
-        return;
-    }
-
-    try {
-        const text = await api("/api/librarian/users/update", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({ username: item.username, fullName: nextName })
-        }, false);
-        showToast(text, false);
-        await loadUsers();
-    } catch (error) {
-        showToast(error.message, true);
-    }
+    window.location.href = `librarian-user-edit.html?username=${encodeURIComponent(item.username)}`;
 }
 
 async function toggleUserActive(item) {
