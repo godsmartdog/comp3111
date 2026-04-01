@@ -56,10 +56,16 @@ public class AuthService {
             throw new AuthenticationException("This username does not belong to " + expectedRole + " account.");
         }
 
+        if (!user.isActive()) {
+            throw new AuthenticationException("Account is deactivated. Please contact a librarian.");
+        }
+
         if (!PasswordHasher.matches(password, user.getPasswordHash())) {
             throw new AuthenticationException("Invalid username or password.");
         }
 
+        user.markLoginNow();
+        userRepository.save(user);
         sessionManager.createSession(user);
 
         return user;

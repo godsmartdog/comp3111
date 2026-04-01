@@ -93,6 +93,49 @@ public class FileService {
         }
     }
 
+    public FilePreviewDetails readPreviewDetails(String filePath) {
+        validateSubmissionFile(filePath);
+        Path path = normalizeSafePath(filePath);
+
+        try {
+            long size = Files.size(path);
+            String lower = path.getFileName().toString().toLowerCase(Locale.ROOT);
+            String previewType = resolvePreviewType(lower);
+            String previewText = "";
+
+            if ("text".equals(previewType)) {
+                List<String> lines = new ArrayList<>();
+                try (var stream = Files.lines(path)) {
+                    stream.limit(DEFAULT_PREVIEW_MAX_LINES).forEach(lines::add);
+                }
+                previewText = String.join(System.lineSeparator(), lines);
+                if (previewText.length() > DEFAULT_PREVIEW_MAX_CHARS) {
+                    previewText = previewText.substring(0, DEFAULT_PREVIEW_MAX_CHARS) + "...";
+                }
+            }
+
+            return new FilePreviewDetails(path.toAbsolutePath().toString(), size, previewType, previewText);
+        } catch (IOException e) {
+            throw new ValidationException("Cannot read file preview: " + e.getMessage());
+        }
+    }
+
+    private String resolvePreviewType(String lowerFileName) {
+        if (lowerFileName.endsWith(".txt") || lowerFileName.endsWith(".md")) {
+            return "text";
+        }
+        if (lowerFileName.endsWith(".pdf")) {
+            return "pdf";
+        }
+        if (lowerFileName.endsWith(".docx")) {
+            return "docx";
+        }
+        if (lowerFileName.endsWith(".jpg") || lowerFileName.endsWith(".jpeg") || lowerFileName.endsWith(".png")) {
+            return "image";
+        }
+        return "binary";
+    }
+
     private Path normalizeSafePath(String filePath) {
         Path original = Path.of(filePath);
         for (Path segment : original) {
@@ -104,5 +147,11 @@ public class FileService {
     }
 
     public record TextPreview(String absolutePath, long sizeBytes, String previewText) {
+    }
+
+    public record FilePreviewDetails(String absolutePath,
+                                     long sizeBytes,
+                                     String previewType,
+                                     String previewText) {
     }
 }

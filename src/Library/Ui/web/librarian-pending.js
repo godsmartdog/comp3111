@@ -50,20 +50,16 @@ function renderPending(items) {
 
 async function refreshPending() {
     const searchInput = document.getElementById("submissionSearchInput");
-    const statusFilter = document.getElementById("submissionStatusFilter");
     const sortDirFilter = document.getElementById("submissionSortDirFilter");
 
     const query = new URLSearchParams();
     const keyword = searchInput ? searchInput.value.trim() : "";
-    const status = statusFilter ? statusFilter.value : "pending";
     const sortDir = sortDirFilter ? sortDirFilter.value : "asc";
 
     if (keyword) {
         query.set("q", keyword);
     }
-    if (status) {
-        query.set("status", status);
-    }
+    query.set("status", "pending");
     if (submissionSortEnabled) {
         query.set("sortBy", "submittedDate");
         query.set("sortDir", sortDir || "asc");
@@ -76,14 +72,10 @@ async function refreshPending() {
 
 function resetSubmissionFilters() {
     const searchInput = document.getElementById("submissionSearchInput");
-    const statusFilter = document.getElementById("submissionStatusFilter");
     const sortDirFilter = document.getElementById("submissionSortDirFilter");
 
     if (searchInput) {
         searchInput.value = "";
-    }
-    if (statusFilter) {
-        statusFilter.value = "pending";
     }
     if (sortDirFilter) {
         sortDirFilter.value = "asc";

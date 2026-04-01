@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Manage Users</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Manage All Users</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="profile-librarian.html">Profile</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <div class="toolbar">
+            <input id="userSearchInput" type="text" placeholder="Search by username or full name">
+            <select id="userRoleFilter">
+                <option value="all" selected>All Roles</option>
+                <option value="student">Student</option>
+                <option value="staff">Staff</option>
+                <option value="author">Author</option>
+                <option value="librarian">Librarian</option>
+            </select>
+            <select id="userStatusFilter">
+                <option value="all" selected>All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+            <button id="applyUserFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetUserFiltersBtn" class="secondary" type="button">Reset</button>
+        </div>
+
+        <div class="toolbar">
+            <button id="bulkDeactivateBtn" class="danger" type="button">Deactivate Selected</button>
+            <button id="bulkActivateBtn" class="secondary" type="button">Activate Selected</button>
+            <button id="refreshUsersBtn" class="secondary" type="button">Refresh Users</button>
+        </div>
+
+        <p id="usersStatus" class="hint">Loading users...</p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Select</th>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th>Borrow Activity</th>
+                    <th>Recent Activity</th>
+                    <th>Actions</th>
+                </tr>
+                </thead>
+                <tbody id="usersBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-users.js"></script>
+</body>
+</html>

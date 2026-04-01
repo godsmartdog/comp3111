@@ -88,9 +88,14 @@ public class AuthorService2 {
         if (user.getRole() != Role.AUTHOR) {
             throw new AuthenticationException("This username does not belong to AUTHOR account.");
         }
+        if (!user.isActive()) {
+            throw new AuthenticationException("Account is deactivated. Please contact a librarian.");
+        }
         if (!PasswordHasher.matches(password, user.getPasswordHash())) {
             throw new AuthenticationException("Invalid username or password.");
         }
+        user.markLoginNow();
+        userRepository.save(user);
         SessionManager.getInstance().createSession(user);
         return user;
     }
@@ -235,12 +240,13 @@ public class AuthorService2 {
 
     public FilePreview readOwnedSubmissionFilePreview(String actingUsername, String submissionId) {
         BookSubmission2 submission = requireOwnedSubmission(actingUsername, submissionId, "read");
-        FileService.TextPreview preview = fileService.readSafeTextPreview(submission.getFileName());
+        FileService.FilePreviewDetails preview = fileService.readPreviewDetails(submission.getFileName());
         return new FilePreview(
                 submission.getId(),
                 "submission",
                 preview.absolutePath(),
                 preview.sizeBytes(),
+            preview.previewType(),
                 preview.previewText()
         );
     }
@@ -248,12 +254,13 @@ public class AuthorService2 {
     public FilePreview readOwnedPublishedBookFilePreview(String actingUsername, String bookId) {
         Book book = requireOwnedPublishedBook(actingUsername, bookId, "read");
         String filePath = normalizeRequired(book.getFilePath(), "Published book file path is not available.");
-        FileService.TextPreview preview = fileService.readSafeTextPreview(filePath);
+        FileService.FilePreviewDetails preview = fileService.readPreviewDetails(filePath);
         return new FilePreview(
                 book.getId(),
                 "published",
                 preview.absolutePath(),
                 preview.sizeBytes(),
+            preview.previewType(),
                 preview.previewText()
         );
     }
@@ -399,6 +406,7 @@ public class AuthorService2 {
                               String sourceType,
                               String filePath,
                               long sizeBytes,
+                              String previewType,
                               String previewText) {
     }
 }

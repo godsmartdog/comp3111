@@ -12,6 +12,8 @@ public class User {
     private String passwordHash;
     private final Role role;
     private final LocalDateTime createdAt;
+    private boolean active;
+    private LocalDateTime lastLoginAt;
 
     // Constructor
     public User(String username, String fullName, String passwordHash, Role role) {
@@ -20,6 +22,8 @@ public class User {
         this.passwordHash = passwordHash;
         this.role = role;
         this.createdAt = LocalDateTime.now(); // retrieve current system time
+        this.active = true;
+        this.lastLoginAt = null;
     }
 
     // Accessor
@@ -28,6 +32,8 @@ public class User {
     public String getPasswordHash() { return passwordHash; }
     public Role getRole() { return role; }
     public LocalDateTime getCreatedAt() { return createdAt; }
+    public boolean isActive() { return active; }
+    public LocalDateTime getLastLoginAt() { return lastLoginAt; }
 
     public void updateFullName(String fullName) {
         this.fullName = fullName;
@@ -35,6 +41,18 @@ public class User {
 
     public void updatePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public void deactivate() {
+        this.active = false;
+    }
+
+    public void activate() {
+        this.active = true;
+    }
+
+    public void markLoginNow() {
+        this.lastLoginAt = LocalDateTime.now();
     }
 
     // Foundation for future implementation - customizing/ overloading operators

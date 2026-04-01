@@ -7,6 +7,7 @@ if (currentUser) {
 
 let selectedFile = null;
 let previewObjectUrl = null;
+let serverPreviewObjectUrl = null;
 
 const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
@@ -16,6 +17,13 @@ function clearFilePreviewUrl() {
     if (previewObjectUrl) {
         URL.revokeObjectURL(previewObjectUrl);
         previewObjectUrl = null;
+    }
+}
+
+function clearServerPreviewUrl() {
+    if (serverPreviewObjectUrl) {
+        URL.revokeObjectURL(serverPreviewObjectUrl);
+        serverPreviewObjectUrl = null;
     }
 }
 
@@ -145,7 +153,7 @@ async function refreshSubmittedBooks() {
         readBtn.addEventListener("click", async () => {
             try {
                 const payload = await api(`/api/author/submission/read?submissionId=${encodeURIComponent(item.id)}`);
-                renderServerFilePreview(payload, `Submission: ${item.title || item.id}`);
+                await renderServerFilePreview(payload, `Submission: ${item.title || item.id}`);
                 showToast("Submission preview loaded.", false);
             } catch (error) {
                 showToast(error.message, true);
@@ -339,7 +347,7 @@ async function refreshPublishedBooks() {
         readBtn.addEventListener("click", async () => {
             try {
                 const payload = await api(`/api/author/published-book/read?bookId=${encodeURIComponent(item.id)}`);
-                renderServerFilePreview(payload, `Published: ${item.title || item.id}`);
+                await renderServerFilePreview(payload, `Published: ${item.title || item.id}`);
                 showToast("Published book preview loaded.", false);
             } catch (error) {
                 showToast(error.message, true);
@@ -356,22 +364,127 @@ async function refreshPublishedBooks() {
     });
 }
 
-function renderServerFilePreview(payload, heading) {
-    const previewBox = document.getElementById("authorPreview");
-    if (!previewBox) {
+function resetServerPreviewSurface(metaText) {
+    const meta = document.getElementById("authorPreviewMeta");
+    const pdf = document.getElementById("authorPreviewPdf");
+    const text = document.getElementById("authorPreviewText");
+    const imageWrap = document.getElementById("authorPreviewImageWrap");
+    const image = document.getElementById("authorPreviewImage");
+
+    clearServerPreviewUrl();
+    if (meta) {
+        meta.textContent = metaText;
+    }
+    if (pdf) {
+        pdf.style.display = "none";
+        pdf.src = "";
+    }
+    if (text) {
+        text.style.display = "none";
+        text.textContent = "";
+    }
+    if (imageWrap) {
+        imageWrap.style.display = "none";
+    }
+    if (image) {
+        image.removeAttribute("src");
+    }
+}
+
+async function renderServerFilePreview(payload, heading) {
+    const meta = document.getElementById("authorPreviewMeta");
+    if (!meta) {
         return;
     }
 
     const filePath = payload?.filePath || "";
     const sizeBytes = payload?.sizeBytes ?? "";
-    const text = payload?.previewText || "";
-    previewBox.textContent =
-        `=== ${heading} ===\n` +
-        `File: ${filePath}\n` +
-        `Size: ${sizeBytes} bytes\n` +
-        `--- Text Preview ---\n` +
-        `${text}\n` +
-        `--- End Preview ---`;
+    const previewType = payload?.previewType || "text";
+    const fileUrl = payload?.fileUrl || "";
+    const previewText = payload?.previewText || "";
+    const metaText = `${heading} | File: ${filePath} | Size: ${sizeBytes} bytes`;
+
+    resetServerPreviewSurface(metaText);
+
+    const text = document.getElementById("authorPreviewText");
+    const pdf = document.getElementById("authorPreviewPdf");
+    const imageWrap = document.getElementById("authorPreviewImageWrap");
+    const image = document.getElementById("authorPreviewImage");
+    const headers = {};
+    if (currentUser?.sessionId) {
+        headers["X-Session-Id"] = currentUser.sessionId;
+    }
+
+    if (previewType === "text") {
+        if (text) {
+            text.style.display = "block";
+            text.style.whiteSpace = "pre-wrap";
+            text.textContent = previewText || "No text content available.";
+        }
+        return;
+    }
+
+    if (!fileUrl) {
+        if (text) {
+            text.style.display = "block";
+            text.style.whiteSpace = "pre-wrap";
+            text.textContent = "No preview URL available for this file.";
+        }
+        return;
+    }
+
+    const response = await fetch(fileUrl, { headers });
+    if (!response.ok) {
+        throw new Error("Failed to load file preview.");
+    }
+
+    if (previewType === "pdf") {
+        clearServerPreviewUrl();
+        const blob = await response.blob();
+        serverPreviewObjectUrl = URL.createObjectURL(blob);
+        if (pdf) {
+            pdf.style.display = "block";
+            pdf.src = serverPreviewObjectUrl;
+        }
+        return;
+    }
+
+    if (previewType === "docx") {
+        if (typeof mammoth === "undefined") {
+            if (text) {
+                text.style.display = "block";
+                text.style.whiteSpace = "pre-wrap";
+                text.textContent = "DOCX preview dependency is missing.";
+            }
+            return;
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        if (text) {
+            text.style.display = "block";
+            text.style.whiteSpace = "normal";
+            text.innerHTML = result.value || "No readable DOCX content available.";
+        }
+        return;
+    }
+
+    if (previewType === "image") {
+        clearServerPreviewUrl();
+        const blob = await response.blob();
+        serverPreviewObjectUrl = URL.createObjectURL(blob);
+        if (image && imageWrap) {
+            imageWrap.style.display = "block";
+            image.src = serverPreviewObjectUrl;
+        }
+        return;
+    }
+
+    if (text) {
+        text.style.display = "block";
+        text.style.whiteSpace = "pre-wrap";
+        text.textContent = "This file type cannot be rendered inline. Use browser download/open to view it.";
+    }
 }
 
 async function refreshAuthorNotifications() {
@@ -504,7 +617,13 @@ document.getElementById("previewBtn").addEventListener("click", async () => {
             })
         }, false);
 
-        document.getElementById("authorPreview").textContent = preview;
+        resetServerPreviewSurface("Draft text preview");
+        const previewText = document.getElementById("authorPreviewText");
+        if (previewText) {
+            previewText.style.display = "block";
+            previewText.style.whiteSpace = "pre-wrap";
+            previewText.textContent = preview;
+        }
     } catch (error) {
         showToast(error.message, true);
     }
@@ -542,7 +661,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         document.getElementById("authorGenres").value = "";
         document.getElementById("authorDescription").value = "";
         document.getElementById("authorFilePath").value = "";
-        document.getElementById("authorPreview").textContent = "";
+        resetServerPreviewSurface("");
         selectedFile = null;
         fileInput.value = "";
         clearFilePreviewUrl();
@@ -553,6 +672,11 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     } catch (error) {
         showToast(error.message, true);
     }
+});
+
+window.addEventListener("beforeunload", () => {
+    clearFilePreviewUrl();
+    clearServerPreviewUrl();
 });
 
 if (currentUser) {

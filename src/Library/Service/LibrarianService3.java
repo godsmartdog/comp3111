@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 // Service class to handle librarian-related operations such as registration, login, and managing book submissions, including approving or rejecting submissions and converting approved submissions into published books.
 public class LibrarianService3 {
@@ -61,11 +62,122 @@ public class LibrarianService3 {
         if (user.getRole() != Role.LIBRARIAN) {
             throw new AuthenticationException("This username does not belong to LIBRARIAN account.");
         }
+        if (!user.isActive()) {
+            throw new AuthenticationException("Account is deactivated. Please contact a librarian.");
+        }
         if (!PasswordHasher.matches(password, user.getPasswordHash())) {
             throw new AuthenticationException("Invalid username or password.");
         }
+        user.markLoginNow();
+        userRepository.save(user);
         SessionManager.getInstance().createSession(user);
         return user;
+    }
+
+    public List<User> listUsersForManagement(String keyword, String role, String status) {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        String normalizedRole = role == null ? "all" : role.trim().toLowerCase(Locale.ROOT);
+        String normalizedStatus = status == null ? "all" : status.trim().toLowerCase(Locale.ROOT);
+
+        return userRepository.findAll().stream()
+                .filter(user -> matchesUserKeyword(user, normalizedKeyword))
+                .filter(user -> matchesUserRole(user, normalizedRole))
+                .filter(user -> matchesUserStatus(user, normalizedStatus))
+                .sorted(Comparator.comparing(User::getUsername))
+                .toList();
+    }
+
+    public User updateManagedUserFullName(String targetUsername, String fullName) {
+        String normalizedUsername = NamePolicy.validateUsername(targetUsername);
+        String normalizedFullName = NamePolicy.validateFullName(fullName);
+
+        User user = userRepository.findByUsername(normalizedUsername)
+                .orElseThrow(() -> new ValidationException("User not found."));
+        user.updateFullName(normalizedFullName);
+        userRepository.save(user);
+        return user;
+    }
+
+    public User setManagedUserActive(String actingUsername, String targetUsername, boolean active) {
+        String normalizedActor = NamePolicy.validateUsername(actingUsername);
+        String normalizedTarget = NamePolicy.validateUsername(targetUsername);
+        if (normalizedActor.equals(normalizedTarget) && !active) {
+            throw new ValidationException("Cannot deactivate your own librarian account.");
+        }
+
+        User user = userRepository.findByUsername(normalizedTarget)
+                .orElseThrow(() -> new ValidationException("User not found."));
+        if (active) {
+            user.activate();
+        } else {
+            user.deactivate();
+        }
+        userRepository.save(user);
+        return user;
+    }
+
+    public int setManagedUsersActiveBulk(String actingUsername, List<String> usernames, boolean active) {
+        if (usernames == null || usernames.isEmpty()) {
+            throw new ValidationException("At least one username is required.");
+        }
+
+        String normalizedActor = NamePolicy.validateUsername(actingUsername);
+        Set<String> uniqueUsernames = usernames.stream()
+                .map(NamePolicy::validateUsername)
+                .collect(java.util.stream.Collectors.toSet());
+
+        if (!active && uniqueUsernames.contains(normalizedActor)) {
+            throw new ValidationException("Cannot bulk deactivate your own librarian account.");
+        }
+
+        int changed = 0;
+        for (String username : uniqueUsernames) {
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new ValidationException("User not found: " + username));
+            if (active) {
+                if (!user.isActive()) {
+                    user.activate();
+                    changed++;
+                }
+            } else {
+                if (user.isActive()) {
+                    user.deactivate();
+                    changed++;
+                }
+            }
+            userRepository.save(user);
+        }
+        return changed;
+    }
+
+    private boolean matchesUserKeyword(User user, String keyword) {
+        if (keyword.isEmpty()) {
+            return true;
+        }
+
+        String username = user.getUsername() == null ? "" : user.getUsername().toLowerCase(Locale.ROOT);
+        String fullName = user.getFullName() == null ? "" : user.getFullName().toLowerCase(Locale.ROOT);
+        return username.contains(keyword) || fullName.contains(keyword);
+    }
+
+    private boolean matchesUserRole(User user, String role) {
+        if ("all".equals(role)) {
+            return true;
+        }
+        return user.getRole().name().equalsIgnoreCase(role);
+    }
+
+    private boolean matchesUserStatus(User user, String status) {
+        if ("all".equals(status)) {
+            return true;
+        }
+        if ("active".equals(status)) {
+            return user.isActive();
+        }
+        if ("inactive".equals(status)) {
+            return !user.isActive();
+        }
+        throw new ValidationException("status must be one of: all, active, inactive.");
     }
 
     public LibrarianProfileSnapshot getLibrarianProfile(String username) {
