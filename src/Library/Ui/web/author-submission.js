@@ -84,7 +84,11 @@ async function refreshDrafts() {
         button.textContent = `Load: ${draft.title}`;
         button.addEventListener("click", () => {
             document.getElementById("authorTitle").value = draft.title;
-            document.getElementById("authorGenres").value = draft.genres.join(", ");
+            const genresSelect = document.getElementById("authorGenres");
+            const primaryGenre = Array.isArray(draft.genres) && draft.genres.length > 0 ? draft.genres[0] : "";
+            if (genresSelect) {
+                genresSelect.value = primaryGenre;
+            }
             document.getElementById("authorDescription").value = draft.description;
             document.getElementById("authorFilePath").value = draft.filePath;
             selectedFile = null;

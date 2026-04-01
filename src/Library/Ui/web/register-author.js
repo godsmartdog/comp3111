@@ -4,11 +4,18 @@ document.getElementById("registerBtn").addEventListener("click", async () => {
         const username = document.getElementById("username").value.trim();
         const fullName = document.getElementById("fullName").value.trim();
         const password = document.getElementById("password").value;
+        const confirmPassword = document.getElementById("confirmPassword").value;
         const bio = document.getElementById("bio").value.trim();
 
         const vio = getusernamePolicyViolations(username);
         if (vio.length > 0) {
             showToast("Username does not meet policy.", true);
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            passwordError.textContent = "Password and confirm password do not match.";
+            showToast("Please make sure both password fields are the same.", true);
             return;
         }
 
