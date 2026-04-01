@@ -143,7 +143,7 @@ async function refreshBooks(keyword = "") {
 
 async function refreshRecommendations() {
     const list = document.getElementById("recommendations");
-    const items = await api("/api/recommendations?limit=5");
+    const items = await api("/api/recommendations?limit=10");
     list.innerHTML = "";
     items.forEach((item) => {
         const li = document.createElement("li");

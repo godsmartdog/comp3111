@@ -15,6 +15,30 @@ const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
 const filePreview = document.getElementById("filePreview");
 
+function getSelectedGenres() {
+    const genresSelect = document.getElementById("authorGenres");
+    if (!genresSelect) {
+        return "";
+    }
+
+    return Array.from(genresSelect.selectedOptions)
+        .map((option) => option.value.trim())
+        .filter(Boolean)
+        .join(",");
+}
+
+function setSelectedGenres(values) {
+    const genresSelect = document.getElementById("authorGenres");
+    if (!genresSelect) {
+        return;
+    }
+
+    const selectedSet = new Set((values || []).map((value) => String(value).trim()).filter(Boolean));
+    Array.from(genresSelect.options).forEach((option) => {
+        option.selected = selectedSet.has(option.value);
+    });
+}
+
 function clearFilePreviewUrl() {
     if (previewObjectUrl) {
         URL.revokeObjectURL(previewObjectUrl);
@@ -84,11 +108,7 @@ async function refreshDrafts() {
         button.textContent = `Load: ${draft.title}`;
         button.addEventListener("click", () => {
             document.getElementById("authorTitle").value = draft.title;
-            const genresSelect = document.getElementById("authorGenres");
-            const primaryGenre = Array.isArray(draft.genres) && draft.genres.length > 0 ? draft.genres[0] : "";
-            if (genresSelect) {
-                genresSelect.value = primaryGenre;
-            }
+            setSelectedGenres(Array.isArray(draft.genres) ? draft.genres : []);
             document.getElementById("authorDescription").value = draft.description;
             document.getElementById("authorFilePath").value = draft.filePath;
             selectedFile = null;
@@ -137,7 +157,7 @@ document.getElementById("autoSaveBtn")?.addEventListener("click", async () => {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({
                 title: document.getElementById("authorTitle")?.value.trim() || "",
-                genres: parseGenres(document.getElementById("authorGenres")?.value || ""),
+                genres: parseGenres(getSelectedGenres()),
                 description: document.getElementById("authorDescription")?.value.trim() || "",
                 filePath: document.getElementById("authorFilePath")?.value.trim() || ""
             })
@@ -160,7 +180,7 @@ document.getElementById("previewBtn")?.addEventListener("click", async () => {
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({
                 title: document.getElementById("authorTitle")?.value.trim() || "",
-                genres: parseGenres(document.getElementById("authorGenres")?.value || ""),
+                genres: parseGenres(getSelectedGenres()),
                 description: document.getElementById("authorDescription")?.value.trim() || ""
             })
         }, false);
@@ -177,7 +197,7 @@ document.getElementById("previewBtn")?.addEventListener("click", async () => {
 document.getElementById("submitBtn")?.addEventListener("click", async () => {
     try {
         const title = document.getElementById("authorTitle")?.value.trim() || "";
-        const genres = parseGenres(document.getElementById("authorGenres")?.value || "");
+        const genres = parseGenres(getSelectedGenres());
         const description = document.getElementById("authorDescription")?.value.trim() || "";
         const manualFilePath = document.getElementById("authorFilePath")?.value.trim() || "";
 
@@ -203,7 +223,7 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
 
         showToast(text, false);
         document.getElementById("authorTitle").value = "";
-        document.getElementById("authorGenres").value = "";
+        setSelectedGenres([]);
         document.getElementById("authorDescription").value = "";
         document.getElementById("authorFilePath").value = "";
         const previewBox = document.getElementById("authorPreview");
