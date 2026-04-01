@@ -33,8 +33,16 @@
                 <label for="authorProfileBio">Bio</label>
                 <textarea id="authorProfileBio" rows="3" placeholder="Short author bio"></textarea>
                 <div class="inline-row">
+                    <label for="authorProfileCurrentPassword">Current Password</label>
+                    <input id="authorProfileCurrentPassword" type="password" placeholder="Required only when changing password">
+                </div>
+                <div class="inline-row">
                     <label for="authorProfilePassword">New Password</label>
                     <input id="authorProfilePassword" type="password" placeholder="Leave blank to keep current password">
+                </div>
+                <div class="inline-row">
+                    <label for="authorProfileConfirmPassword">Confirm New Password</label>
+                    <input id="authorProfileConfirmPassword" type="password" placeholder="Re-enter new password">
                 </div>
                 <button id="saveAuthorProfileBtn" class="secondary" type="button">Save Profile</button>
                 <p id="authorProfileFeedback"></p>

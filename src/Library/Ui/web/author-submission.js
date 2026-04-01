@@ -9,10 +9,13 @@ if (currentUser) {
 }
 
 let selectedFile = null;
+let selectedCoverImageFile = null;
 let previewObjectUrl = null;
 
 const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
+const coverImagePathInput = document.getElementById("authorCoverImagePath");
+const coverImageInput = document.getElementById("authorCoverImageInput");
 const filePreview = document.getElementById("filePreview");
 
 function getSelectedGenres() {
@@ -33,9 +36,10 @@ function setSelectedGenres(values) {
         return;
     }
 
-    const selectedSet = new Set((values || []).map((value) => String(value).trim()).filter(Boolean));
+    const toGenreKey = (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const selectedSet = new Set((values || []).map((value) => toGenreKey(value)).filter(Boolean));
     Array.from(genresSelect.options).forEach((option) => {
-        option.selected = selectedSet.has(option.value);
+        option.selected = selectedSet.has(toGenreKey(option.value));
     });
 }
 
@@ -128,6 +132,10 @@ document.getElementById("pickFileBtn")?.addEventListener("click", () => {
     fileInput?.click();
 });
 
+document.getElementById("pickCoverImageBtn")?.addEventListener("click", () => {
+    coverImageInput?.click();
+});
+
 fileInput?.addEventListener("change", async () => {
     const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!file) {
@@ -148,6 +156,19 @@ fileInput?.addEventListener("change", async () => {
         }
         showToast(error.message || "Preview failed.", true);
     }
+});
+
+coverImageInput?.addEventListener("change", () => {
+    const file = coverImageInput.files && coverImageInput.files[0] ? coverImageInput.files[0] : null;
+    if (!file) {
+        return;
+    }
+
+    selectedCoverImageFile = file;
+    if (coverImagePathInput) {
+        coverImagePathInput.value = file.name;
+    }
+    showToast("Cover image selected.", false);
 });
 
 document.getElementById("autoSaveBtn")?.addEventListener("click", async () => {
@@ -202,12 +223,16 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
         const manualFilePath = document.getElementById("authorFilePath")?.value.trim() || "";
 
         let text;
+        const manualCoverImagePath = document.getElementById("authorCoverImagePath")?.value.trim() || "";
         if (selectedFile) {
             const payload = new FormData();
             payload.append("title", title);
             payload.append("genres", genres);
             payload.append("description", description);
             payload.append("file", selectedFile, selectedFile.name);
+            if (selectedCoverImageFile) {
+                payload.append("coverImage", selectedCoverImageFile, selectedCoverImageFile.name);
+            }
 
             text = await api("/api/author/submit", {
                 method: "POST",
@@ -217,7 +242,7 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
             text = await api("/api/author/submit", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: formBody({ title, genres, description, filePath: manualFilePath })
+                body: formBody({ title, genres, description, filePath: manualFilePath, coverImagePath: manualCoverImagePath })
             }, false);
         }
 
@@ -226,13 +251,18 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
         setSelectedGenres([]);
         document.getElementById("authorDescription").value = "";
         document.getElementById("authorFilePath").value = "";
+        document.getElementById("authorCoverImagePath").value = "";
         const previewBox = document.getElementById("authorPreview");
         if (previewBox) {
             previewBox.textContent = "";
         }
         selectedFile = null;
+        selectedCoverImageFile = null;
         if (fileInput) {
             fileInput.value = "";
+        }
+        if (coverImageInput) {
+            coverImageInput.value = "";
         }
         clearFilePreviewUrl();
         if (filePreview) {

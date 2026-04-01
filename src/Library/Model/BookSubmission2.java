@@ -19,6 +19,7 @@ public class BookSubmission2 {
     private final List<String> genres;
     private final String description;
     private final String fileName;
+    private final String coverImagePath;
     private final LocalDate submittedDate;
 
     private SubmissionState status;
@@ -29,6 +30,11 @@ public class BookSubmission2 {
     // Constructor - first function overloading with currrent system date
     public BookSubmission2(String title, String authorUsername, String authorFullName,
                            List<String> genres, String description, String fileName) {
+        this(title, authorUsername, authorFullName, genres, description, fileName, "");
+    }
+
+    public BookSubmission2(String title, String authorUsername, String authorFullName,
+                           List<String> genres, String description, String fileName, String coverImagePath) {
         this.id = UUID.randomUUID().toString();
         this.title = title;
         this.authorUsername = authorUsername;
@@ -36,6 +42,7 @@ public class BookSubmission2 {
         this.genres = new ArrayList<>(genres); // Liskov polymorphic substution principle - init RHS ArrayList<>() prevent null pointer exception
         this.description = description;
         this.fileName = fileName;
+        this.coverImagePath = coverImagePath == null ? "" : coverImagePath;
         this.submittedDate = LocalDate.now();
         this.status = SubmissionState.PENDING;
         this.rejectionReason = "";
@@ -44,6 +51,11 @@ public class BookSubmission2 {
     // Constructor - second function overloading with user defined and given system date
     public BookSubmission2(String id, String title, String authorUsername, String authorFullName,
                            List<String> genres, String description, String fileName, LocalDate submittedDate) {
+        this(id, title, authorUsername, authorFullName, genres, description, fileName, "", submittedDate);
+    }
+
+    public BookSubmission2(String id, String title, String authorUsername, String authorFullName,
+                           List<String> genres, String description, String fileName, String coverImagePath, LocalDate submittedDate) {
         this.id = id;
         this.title = title;
         this.authorUsername = authorUsername;
@@ -51,6 +63,7 @@ public class BookSubmission2 {
         this.genres = new ArrayList<>(genres); // Liskov polymorphic substution principle - init RHS ArrayList<>() prevent null pointer exception // Defensive duplication prevent extenral modification on the variable
         this.description = description;
         this.fileName = fileName;
+        this.coverImagePath = coverImagePath == null ? "" : coverImagePath;
         this.submittedDate = submittedDate;
         this.status = SubmissionState.PENDING;// Initialization prevent null exception with use of PENDING
         this.rejectionReason = "";
@@ -64,6 +77,7 @@ public class BookSubmission2 {
     public List<String> getGenres() { return new ArrayList<>(genres); }
     public String getDescription() { return description; }
     public String getFileName() { return fileName; }
+    public String getCoverImagePath() { return coverImagePath; }
     public LocalDate getSubmittedDate() { return submittedDate; }
     public SubmissionState getStatus() { return status; }
     public String getLibrarianComment() { return librarianComment; }

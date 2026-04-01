@@ -42,6 +42,32 @@ public class FileService {
         }
     }
 
+    public void validateCoverImageFile(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            throw new ValidationException("Cover image path is required.");
+        }
+
+        String lower = filePath.toLowerCase(Locale.ROOT);
+        boolean allowed = SecurityConfig.ALLOWED_COVER_IMAGE_EXTENSIONS.stream().anyMatch(lower::endsWith);
+        if (!allowed) {
+            throw new ValidationException("Unsupported cover image format. Allowed: " + SecurityConfig.ALLOWED_COVER_IMAGE_EXTENSIONS);
+        }
+
+        Path path = normalizeSafePath(filePath);
+        if (!Files.exists(path) || !Files.isRegularFile(path)) {
+            throw new ValidationException("Cover image does not exist: " + filePath);
+        }
+
+        try {
+            long size = Files.size(path);
+            if (size > SecurityConfig.MAX_COVER_IMAGE_SIZE_BYTES) {
+                throw new ValidationException("Cover image too large. Max size is " + SecurityConfig.MAX_COVER_IMAGE_SIZE_BYTES + " bytes.");
+            }
+        } catch (IOException e) {
+            throw new ValidationException("Cannot read cover image size: " + e.getMessage());
+        }
+    }
+
     // Method to get preview details of a submitted file, providing information such as file path, size, and a content preview for text files, while also handling potential IO exceptions that may occur during file access.
     public String getPreviewDetails(String filePath) {
         validateSubmissionFile(filePath);

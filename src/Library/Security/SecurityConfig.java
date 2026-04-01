@@ -10,7 +10,9 @@ public final class SecurityConfig {
     public static final int DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS = 3;
     public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 15L * 60L * 1000L;
     public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
+    public static final long MAX_COVER_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md", ".jpg", ".jpeg", ".png");
+    public static final List<String> ALLOWED_COVER_IMAGE_EXTENSIONS = List.of(".jpg", ".jpeg", ".png");
     // make this class private access, no one can SecurityConfig config = new SecurityConfig(); do this accidently,
     //just see this as avoid waste of memory
     private SecurityConfig() {

@@ -147,16 +147,19 @@ async function refreshSubmittedBooks() {
     }
 
     const items = await api("/api/author/submissions");
+    const pendingItems = Array.isArray(items)
+        ? items.filter((item) => String(item.status || "").toUpperCase() === "PENDING")
+        : [];
     body.innerHTML = "";
 
-    if (!Array.isArray(items) || items.length === 0) {
-        status.textContent = "No submitted books yet.";
+    if (pendingItems.length === 0) {
+        status.textContent = "No pending submitted books.";
         return;
     }
 
-    status.textContent = `Found ${items.length} submitted book(s).`;
+    status.textContent = `Found ${pendingItems.length} pending submitted book(s).`;
 
-    items.forEach((item) => {
+    pendingItems.forEach((item) => {
         const row = document.createElement("tr");
         const actionCell = document.createElement("td");
         row.innerHTML = `
@@ -181,82 +184,41 @@ async function refreshSubmittedBooks() {
             }
         });
 
-        if (item.status === "PENDING") {
-            const editBtn = document.createElement("button");
-            editBtn.className = "secondary";
-            editBtn.type = "button";
-            editBtn.textContent = "Edit";
-            editBtn.addEventListener("click", async () => {
-                try {
-                    const newTitle = prompt("Update title:", item.title || "");
-                    if (newTitle === null) {
-                        return;
-                    }
+        const editBtn = document.createElement("button");
+        editBtn.className = "secondary";
+        editBtn.type = "button";
+        editBtn.textContent = "Edit";
+        editBtn.addEventListener("click", () => {
+            window.location.href = `author-submission-edit.html?submissionId=${encodeURIComponent(item.id)}`;
+        });
 
-                    const newGenres = prompt("Update genres (comma separated):", Array.isArray(item.genres) ? item.genres.join(", ") : "");
-                    if (newGenres === null) {
-                        return;
-                    }
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "secondary";
+        deleteBtn.type = "button";
+        deleteBtn.textContent = "Delete";
+        deleteBtn.addEventListener("click", async () => {
+            const confirmed = confirm(`Delete pending submission \"${item.title}\"?`);
+            if (!confirmed) {
+                return;
+            }
 
-                    const newDescription = prompt("Update description:", item.description || "");
-                    if (newDescription === null) {
-                        return;
-                    }
+            try {
+                const text = await api("/api/author/submission/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({ submissionId: item.id })
+                }, false);
 
-                    const newFilePath = prompt("Update file path (leave empty to keep current):", "");
-                    if (newFilePath === null) {
-                        return;
-                    }
+                showToast(text, false);
+                await refreshSubmittedBooks();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
 
-                    const text = await api("/api/author/submission/update", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: formBody({
-                            submissionId: item.id,
-                            title: newTitle.trim(),
-                            genres: parseGenres(newGenres),
-                            description: newDescription.trim(),
-                            filePath: newFilePath.trim()
-                        })
-                    }, false);
-
-                    showToast(text, false);
-                    await refreshSubmittedBooks();
-                } catch (error) {
-                    showToast(error.message, true);
-                }
-            });
-
-            const deleteBtn = document.createElement("button");
-            deleteBtn.className = "secondary";
-            deleteBtn.type = "button";
-            deleteBtn.textContent = "Delete";
-            deleteBtn.addEventListener("click", async () => {
-                const confirmed = confirm(`Delete pending submission \"${item.title}\"?`);
-                if (!confirmed) {
-                    return;
-                }
-
-                try {
-                    const text = await api("/api/author/submission/delete", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: formBody({ submissionId: item.id })
-                    }, false);
-
-                    showToast(text, false);
-                    await refreshSubmittedBooks();
-                } catch (error) {
-                    showToast(error.message, true);
-                }
-            });
-
-            actionCell.appendChild(editBtn);
-            actionCell.appendChild(document.createTextNode(" "));
-            actionCell.appendChild(deleteBtn);
-        } else {
-            actionCell.textContent = "Locked ";
-        }
+        actionCell.appendChild(editBtn);
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(deleteBtn);
 
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(readBtn);

@@ -400,6 +400,7 @@ public class LibrarianService3 {
         // Convert submission to published/approved book for Task 1.3 listing
         Book book = new Book(s.getTitle(), s.getAuthorUsername(), s.getAuthorFullName(), s.getGenres(), s.getDescription());
         book.setFileMetadata(s.getFileName(), detectContentType(s.getFileName()));
+        book.setCoverImagePath(s.getCoverImagePath());
         book.approve(LocalDate.now());
         bookRepository.save(book);
     }

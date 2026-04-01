@@ -58,12 +58,15 @@ function renderCurrentNotificationPage() {
     currentItems.forEach((item) => {
         const li = document.createElement("li");
         const readLabel = item.read ? "Read" : "Unread";
+        const created = item.createdAt || "";
+        const priority = (item.priority || "NORMAL").toUpperCase();
+        const highLabel = priority === "HIGH" ? " !" : "";
 
         li.innerHTML = `
             <div>
-                <strong>[${readLabel}] ${item.title}</strong>
+                <strong>[${readLabel}] ${item.title}${highLabel}</strong>
                 <div>${item.message || ""}</div>
-                <small>${item.createdAt || ""}</small>
+                <small>${created} | ${priority}</small>
             </div>
             <div class="notification-actions">
                 <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
@@ -116,13 +119,30 @@ async function refreshNotifications() {
         status.textContent = "Loading notifications...";
     }
 
-    const items = await api("/api/notifications?scope=active&sortBy=createdAt&sortDir=desc");
+    const params = new URLSearchParams();
+    params.set("scope", "active");
+    params.set("sortBy", "createdAt");
+    params.set("sortDir", "desc");
+    const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
+    const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
+    if (keyword) {
+        params.set("q", keyword);
+    }
+    if (priorityFilter !== "all") {
+        params.set("priority", priorityFilter);
+    }
+
+    const items = await api(`/api/notifications?${params.toString()}`);
     allNotifications = Array.isArray(items) ? items : [];
     currentNotificationPage = 1;
     renderCurrentNotificationPage();
 }
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
+    refreshNotifications().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
     refreshNotifications().catch((e) => showToast(e.message, true));
 });
 

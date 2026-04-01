@@ -63,6 +63,7 @@ async function loadProfile() {
     document.getElementById("profileFullName").value = profile.fullName || "";
     document.getElementById("profileCurrentPassword").value = "";
     document.getElementById("profilePassword").value = "";
+    document.getElementById("profileConfirmPassword").value = "";
     document.getElementById("profileFeedback").textContent = "";
 }
 
@@ -70,6 +71,7 @@ async function saveProfile() {
     const fullName = document.getElementById("profileFullName").value.trim();
     const currentPassword = document.getElementById("profileCurrentPassword").value.trim();
     const newPassword = document.getElementById("profilePassword").value.trim();
+    const confirmPassword = document.getElementById("profileConfirmPassword").value.trim();
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -78,6 +80,12 @@ async function saveProfile() {
     if (newPassword) {
         if (!currentPassword) {
             throw new Error("Current password is required to change password.");
+        }
+        if (!confirmPassword) {
+            throw new Error("Please confirm the new password.");
+        }
+        if (newPassword !== confirmPassword) {
+            throw new Error("New password and confirmation do not match.");
         }
         const issues = getPasswordPolicyViolations(newPassword);
         if (issues.length > 0) {
@@ -99,6 +107,7 @@ async function saveProfile() {
 
     document.getElementById("profileCurrentPassword").value = "";
     document.getElementById("profilePassword").value = "";
+    document.getElementById("profileConfirmPassword").value = "";
     document.getElementById("profileFeedback").textContent = "Profile updated successfully.";
     showToast("Profile updated successfully.", false);
 }

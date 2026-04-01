@@ -57,6 +57,14 @@
                 <input id="authorFileInput" type="file" class="hidden" accept=".pdf,.docx,.jpg,.jpeg,.png,.doc,.txt,.md">
             </div>
 
+            <label>Cover Image (optional)</label>
+            <div class="file-row">
+                <input id="authorCoverImagePath" type="text" placeholder="C:/path/to/cover.jpg">
+                <button id="pickCoverImageBtn" type="button" class="secondary file-btn">Browse Cover...</button>
+                <input id="authorCoverImageInput" type="file" class="hidden" accept=".jpg,.jpeg,.png">
+            </div>
+            <p class="hint">Allowed cover formats: JPG, JPEG, PNG. Max size: 2 MB.</p>
+
             <label>Description</label>
             <textarea id="authorDescription" rows="6" placeholder="Book description"></textarea>
         </div>

@@ -36,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.io.BufferedReader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Instant;
@@ -406,6 +407,36 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/books/summary", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = required(query, "bookId");
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+
+                String summary = nullToEmpty(book.getSummary()).trim();
+                String preview = readFirstTwoLinesIfTextFile(book.getFilePath());
+
+                String payload = "{" +
+                        "\"bookId\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                        "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                        "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
+                        "\"preview\":\"" + JsonUtil.escape(preview) + "\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/profile", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -602,6 +633,7 @@ public class LibraryApiHandlers {
                         "Book Borrowed",
                         "You borrowed this book. Due date: " + record.getDueDate()
                 );
+                generateBorrowReminderNotifications(user.getUsername());
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -632,6 +664,7 @@ public class LibraryApiHandlers {
                         "Books Borrowed",
                         "You borrowed " + records.size() + " books. Due date: " + sample.getDueDate()
                 );
+                generateBorrowReminderNotifications(user.getUsername());
 
                 sendText(exchange, 200, "Borrowed " + records.size() + " books successfully. Due date: " + sample.getDueDate());
             } catch (ApiAuthException e) {
@@ -1063,8 +1096,9 @@ public class LibraryApiHandlers {
                 String fullName = required(form, "fullName");
                 String bio = required(form, "bio");
                 String password = form.getOrDefault("password", "");
+                String currentPassword = form.getOrDefault("currentPassword", "");
 
-                authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password);
+                authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password, currentPassword);
                 notificationService.addNotification(
                         user.getUsername(),
                         "Author Profile Updated",
@@ -1169,11 +1203,13 @@ public class LibraryApiHandlers {
                 String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase();
                 Map<String, String> form;
                 UploadedFile uploadedFile = null;
+                UploadedFile uploadedCoverImage = null;
 
                 if (contentType.startsWith("multipart/form-data")) {
                     MultipartData multipartData = readMultipartForm(exchange);
                     form = multipartData.fields();
-                    uploadedFile = multipartData.uploadedFile();
+                    uploadedFile = multipartData.uploadedFile("file");
+                    uploadedCoverImage = multipartData.uploadedFile("coverImage");
                 } else {
                     form = readForm(exchange);
                 }
@@ -1182,6 +1218,7 @@ public class LibraryApiHandlers {
                 List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String description = required(form, "description");
                 String filePath = form.getOrDefault("filePath", "").trim();
+                String coverImagePath = form.getOrDefault("coverImagePath", "").trim();
 
                 String submissionFileReference;
                 if (uploadedFile != null) {
@@ -1193,7 +1230,23 @@ public class LibraryApiHandlers {
                     submissionFileReference = filePath;
                 }
 
-                BookSubmission2 submission = authorService.publishBook(user.getUsername(), title, genres, description, submissionFileReference);
+                String submissionCoverImageReference = "";
+                if (uploadedCoverImage != null) {
+                    fileService.validateCoverImageFile(uploadedCoverImage.path().toString());
+                    submissionCoverImageReference = uploadedCoverImage.path().toString();
+                } else if (!coverImagePath.isEmpty()) {
+                    fileService.validateCoverImageFile(coverImagePath);
+                    submissionCoverImageReference = coverImagePath;
+                }
+
+                BookSubmission2 submission = authorService.publishBook(
+                        user.getUsername(),
+                        title,
+                        genres,
+                        description,
+                        submissionFileReference,
+                        submissionCoverImageReference
+                );
                 authorDraftService.clearDraft(user.getUsername(), title);
                 notificationService.addNotification(
                         user.getUsername(),
@@ -1588,6 +1641,23 @@ public class LibraryApiHandlers {
                     appendUserActivity(updated.username(), "Account password reset by librarian " + librarian.getUsername() + ".");
                 }
                 appendUserActivity(librarian.getUsername(), "Updated account profile for " + updated.username() + ".");
+
+                notificationService.addNotification(
+                        updated.username(),
+                        "Account Updated by Librarian",
+                        "Your account profile was updated by librarian " + librarian.getUsername() + ".",
+                        NotificationPriority.HIGH,
+                        null,
+                        Map.of("type", "account-update", "actor", librarian.getUsername())
+                );
+                notificationService.addNotification(
+                        librarian.getUsername(),
+                        "Managed User Updated",
+                        "You updated account profile for " + updated.username() + ".",
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "account-update", "target", updated.username())
+                );
                 sendText(exchange, 200, "User updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1617,6 +1687,15 @@ public class LibraryApiHandlers {
                 String actionLabel = updated.isActive() ? "activated" : "deactivated";
                 appendUserActivity(updated.getUsername(), "Account was " + actionLabel + " by librarian " + librarian.getUsername() + ".");
                 appendUserActivity(librarian.getUsername(), "" + actionLabel.substring(0, 1).toUpperCase() + actionLabel.substring(1) + " account " + updated.getUsername() + ".");
+
+                notificationService.addNotification(
+                        updated.getUsername(),
+                        "Account Status Updated",
+                        "Your account was " + actionLabel + " by librarian " + librarian.getUsername() + ".",
+                        NotificationPriority.HIGH,
+                        null,
+                        Map.of("type", "account-update", "status", actionLabel)
+                );
                 sendText(exchange, 200, "User " + actionLabel + " successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1657,6 +1736,14 @@ public class LibraryApiHandlers {
                 appendUserActivity(librarian.getUsername(), "Bulk " + actionLabel + " " + changed + " account(s).");
                 for (String username : usernames) {
                     appendUserActivity(username, "Account was " + actionLabel + " via librarian bulk action.");
+                    notificationService.addNotification(
+                            username,
+                            "Account Status Updated",
+                            "Your account was " + actionLabel + " via librarian bulk action.",
+                            NotificationPriority.HIGH,
+                            null,
+                            Map.of("type", "account-update", "status", actionLabel)
+                    );
                 }
 
                 sendText(exchange, 200, "Bulk action complete. Updated " + changed + " account(s).");
@@ -1902,7 +1989,7 @@ public class LibraryApiHandlers {
                 : "due-soon";
             NotificationPriority priority = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
                 ? NotificationPriority.HIGH
-                : NotificationPriority.NORMAL;
+                : (candidate.daysUntilDue() <= 1 ? NotificationPriority.HIGH : NotificationPriority.NORMAL);
             String title = candidate.level() == BorrowService.BorrowReminderLevel.OVERDUE
                 ? "Overdue Return Reminder"
                 : "Due Soon Return Reminder";
@@ -1927,6 +2014,40 @@ public class LibraryApiHandlers {
         return generated;
         }
 
+    private static String readFirstTwoLinesIfTextFile(String filePath) {
+        String normalizedPath = nullToEmpty(filePath).trim();
+        if (normalizedPath.isEmpty()) {
+            return "First 2-page preview is not available for this book.";
+        }
+
+        String lower = normalizedPath.toLowerCase(Locale.ROOT);
+        if (!(lower.endsWith(".txt") || lower.endsWith(".md"))) {
+            return "First 2-page preview is not available for this file format.";
+        }
+
+        Path path = Paths.get(normalizedPath);
+        if (!Files.isRegularFile(path)) {
+            return "First 2-page preview file is not available.";
+        }
+
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            List<String> lines = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                String line = reader.readLine();
+                if (line == null) {
+                    break;
+                }
+                lines.add(line);
+            }
+            if (lines.isEmpty()) {
+                return "No preview text available.";
+            }
+            return String.join(System.lineSeparator(), lines);
+        } catch (Exception ex) {
+            return "First 2-page preview cannot be read.";
+        }
+    }
+
     private String booksToJson(List<Book> books) {
         List<String> items = new ArrayList<>();
         for (Book book : books) {
@@ -1935,6 +2056,7 @@ public class LibraryApiHandlers {
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                    "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
                     "\"status\":\"" + (book.isAvailable() ? "Available" : "Unavailable") + "\"," +
                     "\"available\":" + book.isAvailable() +
                     "}");
@@ -2261,6 +2383,7 @@ public class LibraryApiHandlers {
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"description\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
                     "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
                     "}");
@@ -2282,6 +2405,7 @@ public class LibraryApiHandlers {
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"description\":\"" + JsonUtil.escape(submission.getDescription()) + "\"," +
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"coverImagePath\":\"" + JsonUtil.escape(submission.getCoverImagePath()) + "\"," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
                     "\"status\":\"" + submission.getStatus() + "\"," +
                     "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
@@ -2454,7 +2578,7 @@ public class LibraryApiHandlers {
         String payload = new String(rawBody, StandardCharsets.ISO_8859_1);
 
         Map<String, String> fields = new LinkedHashMap<>();
-        UploadedFile uploadedFile = null;
+        Map<String, UploadedFile> uploadedFiles = new LinkedHashMap<>();
 
         String[] sections = payload.split(java.util.regex.Pattern.quote(delimiter));
         for (String section : sections) {
@@ -2500,13 +2624,13 @@ public class LibraryApiHandlers {
             if (fileName != null && !fileName.isBlank()) {
                 byte[] bytes = body.getBytes(StandardCharsets.ISO_8859_1);
                 Path tempFile = saveUploadedTempFile(fileName, bytes);
-                uploadedFile = new UploadedFile(fileName, tempFile);
+                uploadedFiles.put(name, new UploadedFile(fileName, tempFile));
             } else {
                 fields.put(name, new String(body.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8).trim());
             }
         }
 
-        return new MultipartData(fields, uploadedFile);
+        return new MultipartData(fields, uploadedFiles);
     }
 
     private static String extractDispositionToken(String disposition, String tokenName) {
@@ -2541,7 +2665,20 @@ public class LibraryApiHandlers {
         return value == null ? "" : value;
     }
 
-    private record MultipartData(Map<String, String> fields, UploadedFile uploadedFile) {
+    private record MultipartData(Map<String, String> fields, Map<String, UploadedFile> uploadedFiles) {
+        UploadedFile uploadedFile() {
+            if (uploadedFiles == null || uploadedFiles.isEmpty()) {
+                return null;
+            }
+            return uploadedFiles.values().iterator().next();
+        }
+
+        UploadedFile uploadedFile(String fieldName) {
+            if (uploadedFiles == null || fieldName == null || fieldName.isBlank()) {
+                return null;
+            }
+            return uploadedFiles.get(fieldName);
+        }
     }
 
     private record UploadedFile(String originalFileName, Path path) {

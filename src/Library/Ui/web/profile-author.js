@@ -49,13 +49,17 @@ async function loadAuthorProfile() {
     const payload = await api("/api/author/profile");
     document.getElementById("authorProfileFullName").value = payload.fullName || "";
     document.getElementById("authorProfileBio").value = payload.bio || "";
+    document.getElementById("authorProfileCurrentPassword").value = "";
     document.getElementById("authorProfilePassword").value = "";
+    document.getElementById("authorProfileConfirmPassword").value = "";
 }
 
 async function saveAuthorProfile() {
     const fullName = document.getElementById("authorProfileFullName").value.trim();
     const bio = document.getElementById("authorProfileBio").value.trim();
+    const currentPassword = document.getElementById("authorProfileCurrentPassword").value.trim();
     const password = document.getElementById("authorProfilePassword").value;
+    const confirmPassword = document.getElementById("authorProfileConfirmPassword").value;
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -64,6 +68,15 @@ async function saveAuthorProfile() {
         throw new Error("Bio cannot be empty.");
     }
     if (password.trim()) {
+        if (!currentPassword) {
+            throw new Error("Current password is required to change password.");
+        }
+        if (!confirmPassword.trim()) {
+            throw new Error("Please confirm the new password.");
+        }
+        if (password !== confirmPassword) {
+            throw new Error("New password and confirmation do not match.");
+        }
         const issues = getPasswordPolicyViolations(password);
         if (issues.length > 0) {
             throw new Error(issues[0]);
@@ -73,7 +86,7 @@ async function saveAuthorProfile() {
     const text = await api("/api/author/profile", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, bio, password })
+        body: formBody({ fullName, bio, password, currentPassword })
     }, false);
 
     if (currentUser) {
@@ -82,7 +95,9 @@ async function saveAuthorProfile() {
         document.getElementById("welcomeLine").textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
     }
 
+    document.getElementById("authorProfileCurrentPassword").value = "";
     document.getElementById("authorProfilePassword").value = "";
+    document.getElementById("authorProfileConfirmPassword").value = "";
     document.getElementById("authorProfileFeedback").textContent = text;
     showToast(text, false);
 }

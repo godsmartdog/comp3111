@@ -26,9 +26,9 @@ function updateRoleSpecificFields(role) {
 }
 
 function writeProfileToForm(profile) {
-    document.getElementById("editUsername").value = profile.username || "";
-    document.getElementById("editRole").value = profile.role || "";
-    document.getElementById("editActive").value = profile.active ? "Active" : "Inactive";
+    document.getElementById("editUsername").textContent = profile.username || "";
+    document.getElementById("editRole").textContent = profile.role || "";
+    document.getElementById("editActive").textContent = profile.active ? "Active" : "Inactive";
     document.getElementById("editFullName").value = profile.fullName || "";
     document.getElementById("editBio").value = profile.bio || "";
     document.getElementById("editEmployeeId").value = profile.employeeId || "";

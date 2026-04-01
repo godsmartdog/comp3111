@@ -35,6 +35,16 @@
         <h3>Notification Board</h3>
         <div id="notificationBox" class="panel-subtle">
             <p id="notificationStatus">Loading notifications...</p>
+            <div class="toolbar">
+                <input id="notificationKeyword" type="text" placeholder="Search notifications...">
+                <select id="notificationPriorityFilter" aria-label="Notification highlight filter">
+                    <option value="all" selected>All</option>
+                    <option value="high">Highlighted (!)</option>
+                    <option value="normal">Normal</option>
+                    <option value="low">Low</option>
+                </select>
+                <button id="applyNotificationFiltersBtn" class="secondary" type="button">Apply Filters</button>
+            </div>
             <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
             <ul id="notificationsList"></ul>
             <div class="pager-row">

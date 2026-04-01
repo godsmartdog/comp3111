@@ -33,11 +33,13 @@ public class AuthorService2 {
     // Supported genres for book submissions, defined as a constant set for validation purposes.
     private static final Set<String> SUPPORTED_GENRES = Set.of(
             "Fiction", "Non-Fiction", "Science", "Technology", "History",
-            "Biography", "Fantasy", "Mystery", "Romance", "Education"
+            "Biography", "Fantasy", "Mystery", "Romance", "Education",
+            "Science Fiction", "Thriller", "Business", "Art", "Philosophy",
+            "Self-Help", "Children", "Young Adult"
     );
         private static final Map<String, String> GENRE_LOOKUP = SUPPORTED_GENRES.stream()
             .collect(Collectors.toMap(
-                genre -> genre.toLowerCase(Locale.ROOT),
+                AuthorService2::normalizeGenreLookupKey,
                 genre -> genre
             ));
 
@@ -103,10 +105,16 @@ public class AuthorService2 {
     // Method to submit a new book for publication, validating input and ensuring the submitting user is an authenticated author before saving the submission.
     public BookSubmission2 publishBook(String authorUsername, String title, List<String> genres,
                                       String description, String fileName) {
+        return publishBook(authorUsername, title, genres, description, fileName, "");
+    }
+
+    public BookSubmission2 publishBook(String authorUsername, String title, List<String> genres,
+                                      String description, String fileName, String coverImagePath) {
         String normalizedAuthorUsername = normalizeRequired(authorUsername, "Author username cannot be empty.");
         String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
         String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
         String normalizedFileName = normalizeRequired(fileName, "Book file is required.");
+        String normalizedCoverImagePath = coverImagePath == null ? "" : coverImagePath.trim();
 
         // Validate genres and file format before proceeding with submission creation.
         List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
@@ -119,7 +127,13 @@ public class AuthorService2 {
 
         // Create and save the book submission, associating it with the author's username and full name for future reference and tracking.
         BookSubmission2 submission = new BookSubmission2(
-            normalizedTitle, author.getUsername(), author.getFullName(), normalizedGenres, normalizedDescription, normalizedFileName
+            normalizedTitle,
+            author.getUsername(),
+            author.getFullName(),
+            normalizedGenres,
+            normalizedDescription,
+            normalizedFileName,
+            normalizedCoverImagePath
         );
         submissionRepository.save(submission);
         return submission;
@@ -170,6 +184,15 @@ public class AuthorService2 {
                                                      String fullName,
                                                      String bio,
                                                      String newPassword) {
+        return updateAuthorProfile(actingUsername, targetUsername, fullName, bio, newPassword, "");
+    }
+
+    public AuthorProfileSnapshot updateAuthorProfile(String actingUsername,
+                                                     String targetUsername,
+                                                     String fullName,
+                                                     String bio,
+                                                     String newPassword,
+                                                     String currentPassword) {
         String normalizedActor = normalizeRequired(actingUsername, "Username cannot be empty.");
         String normalizedTarget = normalizeRequired(targetUsername, "Username cannot be empty.");
         if (!normalizedActor.equals(normalizedTarget)) {
@@ -186,6 +209,7 @@ public class AuthorService2 {
         }
 
         user.updateFullName(normalizedFullName);
+        AuthService.validateCurrentPasswordForPasswordChange(user, newPassword, currentPassword);
         if (newPassword != null && !newPassword.isBlank()) {
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
@@ -289,6 +313,7 @@ public class AuthorService2 {
                 normalizedGenres,
                 normalizedDescription,
                 normalizedFileName,
+            existing.getCoverImagePath(),
                 existing.getSubmittedDate()
         );
         submissionRepository.save(updated);
@@ -313,7 +338,7 @@ public class AuthorService2 {
                 continue;
             }
 
-            String canonicalGenre = GENRE_LOOKUP.get(genre.trim().toLowerCase(Locale.ROOT));
+            String canonicalGenre = GENRE_LOOKUP.get(normalizeGenreLookupKey(genre));
             if (canonicalGenre == null) {
                 invalid.add(genre.trim());
                 continue;
@@ -330,6 +355,12 @@ public class AuthorService2 {
             throw new ValidationException("Unsupported genres: " + invalid + ". Supported: " + getSupportedGenres());
         }
         return normalized;
+    }
+
+    private static String normalizeGenreLookupKey(String genre) {
+        return genre == null
+                ? ""
+                : genre.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     // Private helper method to validate the file format of the submitted book, ensuring that only allowed formats are accepted and throwing a ValidationException if the format is unsupported.

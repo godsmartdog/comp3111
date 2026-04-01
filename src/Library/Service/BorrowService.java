@@ -52,6 +52,9 @@ public class BorrowService {
     public BorrowRecord borrowBook(String username, String bookId, int borrowDays) {
         autoReturnOverdueBooks(username);
         validateBorrowDuration(borrowDays);
+        if (hasActiveBorrowForUserAndBook(username, bookId)) {
+            throw new BusinessException("You have already borrowed this book and have not returned it yet.");
+        }
         long activeBorrows = countActiveBorrows(username);
         if (activeBorrows + 1 > MAX_BORROW_LIMIT) {
             throw new BusinessException("Borrow limit reached. Max allowed is " + MAX_BORROW_LIMIT + ".");
@@ -88,6 +91,9 @@ public class BorrowService {
         for (String bookId : normalizedBookIds) {
             if (!uniqueBookIds.add(bookId)) {
                 throw new BusinessException("Duplicate book selection is not allowed.");
+            }
+            if (hasActiveBorrowForUserAndBook(username, bookId)) {
+                throw new BusinessException("Cannot borrow the same book twice before returning it: " + bookId);
             }
             booksToBorrow.add(requireBorrowableBook(bookId));
         }
@@ -280,6 +286,11 @@ public class BorrowService {
         return borrowRepository.findByUsername(username).stream()
                 .filter(r -> !r.isReturned())
                 .count();
+    }
+
+    private boolean hasActiveBorrowForUserAndBook(String username, String bookId) {
+        return borrowRepository.findByUsername(username).stream()
+                .anyMatch(record -> !record.isReturned() && record.getBookId().equals(bookId));
     }
 
     private static List<String> normalizeBookIds(List<String> bookIds) {

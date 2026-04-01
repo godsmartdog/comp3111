@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Edit Submitted Book</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Edit Pending Submission</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="author-submitted.html">My Submitted Books</a>
+        <a class="link-btn" href="mainAuthor.html">Author Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="AUTHOR">
+    <section class="panel glass-panel">
+        <p id="submissionEditStatus" class="hint">Loading submission...</p>
+
+        <label for="submissionIdView">Submission ID (read-only)</label>
+        <p id="submissionIdView" class="hint"></p>
+
+        <label for="submissionTitle">Title</label>
+        <input id="submissionTitle" type="text" placeholder="Book title">
+
+        <label for="submissionGenres">Genres (comma separated)</label>
+        <input id="submissionGenres" type="text" placeholder="Science, Technology">
+
+        <label for="submissionDescription">Description</label>
+        <textarea id="submissionDescription" rows="6" placeholder="Book description"></textarea>
+
+        <label for="submissionFilePath">Optional New File Path</label>
+        <input id="submissionFilePath" type="text" placeholder="Leave blank to keep current file">
+
+        <div class="toolbar">
+            <button id="saveSubmissionBtn" type="button">Save Changes</button>
+            <a class="link-btn" href="author-submitted.html">Cancel</a>
+        </div>
+
+        <p id="submissionEditFeedback" class="hint"></p>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="author-submission-edit.js"></script>
+</body>
+</html>

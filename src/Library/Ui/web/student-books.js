@@ -15,6 +15,29 @@ let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
 
+function resetSelectedBookSummary() {
+    const description = document.getElementById("selectedBookDescription");
+    const preview = document.getElementById("selectedBookPreview");
+    if (description) {
+        description.textContent = "Select a book to view description.";
+    }
+    if (preview) {
+        preview.textContent = "First 2-page preview will appear here if available.";
+    }
+}
+
+async function loadSelectedBookSummary(bookId) {
+    const description = document.getElementById("selectedBookDescription");
+    const preview = document.getElementById("selectedBookPreview");
+    if (!description || !preview || !bookId) {
+        return;
+    }
+
+    const payload = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
+    description.textContent = payload.summary || "No description available for this book.";
+    preview.textContent = payload.preview || "First 2-page preview is not available.";
+}
+
 function updateSelectedBookLabel() {
     const selectedBookLabel = document.getElementById("selectedBook");
     const totalSelected = selectedBookIds.size;
@@ -42,6 +65,7 @@ function syncMultiSelectionWithVisibleBooks() {
 
     if (selectedBookId && !visibleIds.has(selectedBookId)) {
         selectedBookId = null;
+        resetSelectedBookSummary();
     }
 }
 
@@ -110,6 +134,7 @@ function renderBooks(books) {
         row.querySelector("button")?.addEventListener("click", () => {
             selectedBookId = book.id;
             updateSelectedBookLabel();
+            loadSelectedBookSummary(book.id).catch((e) => showToast(e.message, true));
         });
 
         tbody.appendChild(row);
@@ -264,6 +289,11 @@ document.getElementById("borrowBtn")?.addEventListener("click", async () => {
         }
 
         const days = Number(document.getElementById("borrowDays")?.value || 14);
+        const selected = allBooks.find((book) => book.id === selectedBookId);
+        const title = selected?.title || selectedBookId;
+        if (!confirm(`Confirm borrow \"${title}\" for ${days} day(s)?`)) {
+            return;
+        }
         const text = await api("/api/borrow", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -285,6 +315,9 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
         }
 
         const days = Number(document.getElementById("borrowDays")?.value || 14);
+        if (!confirm(`Confirm borrow ${selectedBookIds.size} selected book(s) for ${days} day(s)?`)) {
+            return;
+        }
         const text = await api("/api/borrow/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -303,5 +336,6 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
 });
 
 if (currentUser) {
+    resetSelectedBookSummary();
     refreshBooks().catch((e) => showToast(e.message, true));
 }

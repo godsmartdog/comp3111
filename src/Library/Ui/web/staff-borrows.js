@@ -76,6 +76,9 @@ async function refreshBorrows() {
 
         li.querySelector("button")?.addEventListener("click", async () => {
             try {
+                if (!confirm(`Confirm return \"${item.bookTitle}\"?`)) {
+                    return;
+                }
                 const text = await api("/api/return", {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded" },

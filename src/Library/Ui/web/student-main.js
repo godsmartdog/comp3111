@@ -61,6 +61,7 @@ function renderCurrentNotificationPage() {
         const readLabel = item.read ? "Read" : "Unread";
         const created = item.createdAt || "";
         const priority = (item.priority || "NORMAL").toUpperCase();
+        const highLabel = priority === "HIGH" ? " !" : "";
         const priorityClass = `priority-${priority.toLowerCase()}`;
 
         li.style.padding = "10px";
@@ -71,7 +72,7 @@ function renderCurrentNotificationPage() {
 
         li.innerHTML = `
             <div>
-                <strong>[${readLabel}] ${item.title}</strong>
+                <strong>[${readLabel}] ${item.title}${highLabel}</strong>
                 <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                 <div>${item.message || ""}</div>
                 <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
@@ -133,7 +134,20 @@ async function refreshNotifications() {
     }
 
     try {
-        const items = await api("/api/notifications?scope=active&sortBy=createdAt&sortDir=desc");
+        const params = new URLSearchParams();
+        params.set("scope", "active");
+        params.set("sortBy", "createdAt");
+        params.set("sortDir", "desc");
+        const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
+        const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
+        if (keyword) {
+            params.set("q", keyword);
+        }
+        if (priorityFilter !== "all") {
+            params.set("priority", priorityFilter);
+        }
+
+        const items = await api(`/api/notifications?${params.toString()}`);
         allNotifications = Array.isArray(items) ? items : [];
         currentNotificationPage = 1;
         renderCurrentNotificationPage();
@@ -187,6 +201,12 @@ async function refreshRecommendations() {
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
     refreshNotifications()
         .then(() => sessionSnapshotController?.persistSnapshot("notifications-refresh"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter"))
         .catch((e) => showToast(e.message, true));
 });
 

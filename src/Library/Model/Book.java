@@ -20,6 +20,7 @@ public class Book {
     private String summary;
     private String filePath;
     private String contentType;
+    private String coverImagePath;
 
     // Constructor
     public Book(String title, String authorFullName, String summary) {
@@ -41,6 +42,7 @@ public class Book {
         this.available = false; // initially not available to borrow (not on the shelves before official approval)
         this.filePath = "";
         this.contentType = "";
+        this.coverImagePath = "";
     }
 
     // Accessor
@@ -55,6 +57,7 @@ public class Book {
     public String getSummary() { return summary; }
     public String getFilePath() { return filePath; }
     public String getContentType() { return contentType; }
+    public String getCoverImagePath() { return coverImagePath; }
 
     // Mutator - change boolean to true to list permitted/ legally published books
     public void approve(LocalDate publishDate) {
@@ -77,5 +80,9 @@ public class Book {
     public void setFileMetadata(String filePath, String contentType) {
         this.filePath = filePath == null ? "" : filePath;
         this.contentType = contentType == null ? "" : contentType;
+    }
+
+    public void setCoverImagePath(String coverImagePath) {
+        this.coverImagePath = coverImagePath == null ? "" : coverImagePath;
     }
 }

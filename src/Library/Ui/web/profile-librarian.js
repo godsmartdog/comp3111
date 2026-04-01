@@ -51,6 +51,7 @@ async function loadLibrarianProfile() {
     document.getElementById("librarianProfileEmployeeId").value = payload.employeeId || "";
     document.getElementById("librarianProfileCurrentPassword").value = "";
     document.getElementById("librarianProfilePassword").value = "";
+    document.getElementById("librarianProfileConfirmPassword").value = "";
 }
 
 async function saveLibrarianProfile() {
@@ -58,6 +59,7 @@ async function saveLibrarianProfile() {
     const employeeId = document.getElementById("librarianProfileEmployeeId").value.trim();
     const currentPassword = document.getElementById("librarianProfileCurrentPassword").value.trim();
     const password = document.getElementById("librarianProfilePassword").value;
+    const confirmPassword = document.getElementById("librarianProfileConfirmPassword").value;
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -69,6 +71,12 @@ async function saveLibrarianProfile() {
     if (password.trim()) {
         if (!currentPassword) {
             throw new Error("Current password is required to change password.");
+        }
+        if (!confirmPassword.trim()) {
+            throw new Error("Please confirm the new password.");
+        }
+        if (password !== confirmPassword) {
+            throw new Error("New password and confirmation do not match.");
         }
         const issues = getPasswordPolicyViolations(password);
         if (issues.length > 0) {
@@ -90,6 +98,7 @@ async function saveLibrarianProfile() {
 
     document.getElementById("librarianProfileCurrentPassword").value = "";
     document.getElementById("librarianProfilePassword").value = "";
+    document.getElementById("librarianProfileConfirmPassword").value = "";
     document.getElementById("librarianProfileFeedback").textContent = text;
     showToast(text, false);
 }

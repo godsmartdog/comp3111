@@ -18,6 +18,29 @@ let currentNotificationPage = 1;
 const notificationPageSize = 5;
 let readerFileObjectUrl = null;
 
+function resetSelectedBookSummary() {
+    const description = document.getElementById("selectedBookDescription");
+    const preview = document.getElementById("selectedBookPreview");
+    if (description) {
+        description.textContent = "Select a book to view description.";
+    }
+    if (preview) {
+        preview.textContent = "First 2-page preview will appear here if available.";
+    }
+}
+
+async function loadSelectedBookSummary(bookId) {
+    const description = document.getElementById("selectedBookDescription");
+    const preview = document.getElementById("selectedBookPreview");
+    if (!description || !preview || !bookId) {
+        return;
+    }
+
+    const payload = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
+    description.textContent = payload.summary || "No description available for this book.";
+    preview.textContent = payload.preview || "First 2-page preview is not available.";
+}
+
 function clearReaderObjectUrl() {
     if (readerFileObjectUrl) {
         URL.revokeObjectURL(readerFileObjectUrl);
@@ -48,6 +71,7 @@ function syncMultiSelectionWithVisibleBooks() {
 
     if (selectedBookId && !visibleIds.has(selectedBookId)) {
         selectedBookId = null;
+        resetSelectedBookSummary();
     }
 }
 
@@ -114,6 +138,7 @@ function renderBooks(books) {
         row.querySelector("button").addEventListener("click", () => {
             selectedBookId = book.id;
             updateSelectedBookLabel();
+            loadSelectedBookSummary(book.id).catch((e) => showToast(e.message, true));
         });
 
         tbody.appendChild(row);
@@ -228,6 +253,9 @@ async function refreshBorrows() {
 
         returnBtn.addEventListener("click", async () => {
             try {
+                if (!confirm(`Confirm return \"${item.bookTitle}\"?`)) {
+                    return;
+                }
                 const text = await api("/api/return", {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -257,7 +285,20 @@ async function refreshNotifications() {
 
     status.textContent = "Loading notifications...";
     try {
-        const items = await api("/api/notifications?scope=active&sortBy=createdAt&sortDir=desc");
+        const params = new URLSearchParams();
+        params.set("scope", "active");
+        params.set("sortBy", "createdAt");
+        params.set("sortDir", "desc");
+        const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
+        const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
+        if (keyword) {
+            params.set("q", keyword);
+        }
+        if (priorityFilter !== "all") {
+            params.set("priority", priorityFilter);
+        }
+
+        const items = await api(`/api/notifications?${params.toString()}`);
         allNotifications = Array.isArray(items) ? items : [];
         currentNotificationPage = 1;
         renderCurrentNotificationPage();
@@ -322,10 +363,11 @@ function renderCurrentNotificationPage() {
             li.style.marginBottom = "8px";
             li.style.background = item.read ? "rgba(60, 80, 120, 0.12)" : "rgba(32, 53, 79, 0.2)";
             li.style.border = item.read ? "1px solid rgba(120, 140, 180, 0.35)" : "1px solid rgba(74, 116, 173, 0.45)";
+            const highLabel = priority === "HIGH" ? " !" : "";
 
             li.innerHTML = `
                 <div>
-                    <strong>[${readLabel}] ${item.title}</strong>
+                    <strong>[${readLabel}] ${item.title}${highLabel}</strong>
                     <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                     <div>${item.message || ""}</div>
                     <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
@@ -539,6 +581,11 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
         }
 
         const days = Number(document.getElementById("borrowDays").value);
+        const selected = allBooks.find((book) => book.id === selectedBookId);
+        const title = selected?.title || selectedBookId;
+        if (!confirm(`Confirm borrow \"${title}\" for ${days} day(s)?`)) {
+            return;
+        }
         const text = await api("/api/borrow", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -562,6 +609,9 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
         }
 
         const days = Number(document.getElementById("borrowDays").value);
+        if (!confirm(`Confirm borrow ${selectedBookIds.size} selected book(s) for ${days} day(s)?`)) {
+            return;
+        }
         const text = await api("/api/borrow/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -584,6 +634,12 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {
     refreshNotifications()
         .then(() => sessionSnapshotController?.persistSnapshot("notifications-refresh"))
+        .catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyNotificationFiltersBtn")?.addEventListener("click", () => {
+    refreshNotifications()
+        .then(() => sessionSnapshotController?.persistSnapshot("notifications-filter"))
         .catch((e) => showToast(e.message, true));
 });
 
@@ -653,6 +709,7 @@ if (currentUser) {
     });
 
     refreshBooks().catch((e) => showToast(e.message, true));
+    resetSelectedBookSummary();
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));
     refreshNotifications().catch((e) => showToast(e.message, true));
