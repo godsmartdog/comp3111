@@ -1253,7 +1253,7 @@ public class LibraryApiHandlers {
                         "Submission Created",
                         "Your book submission is now pending librarian review."
                 );
-                sendText(exchange, 200, "Submission created: " + submission.getId());
+                sendText(exchange, 200, "Submission created successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1310,7 +1310,7 @@ public class LibraryApiHandlers {
                         "Submission Updated",
                         "Your pending submission was updated: " + updated.getTitle()
                 );
-                sendText(exchange, 200, "Submission updated: " + updated.getId());
+                sendText(exchange, 200, "Submission updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1335,7 +1335,7 @@ public class LibraryApiHandlers {
                         "Submission Deleted",
                         "Your pending submission was deleted."
                 );
-                sendText(exchange, 200, "Submission deleted: " + submissionId);
+                sendText(exchange, 200, "Submission deleted successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
