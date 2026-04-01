@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Librarian Pending</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Pending Submissions</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="profile-librarian.html">Profile</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <div class="toolbar">
+            <input id="submissionSearchInput" type="text" placeholder="Search by title or author">
+            <select id="submissionStatusFilter">
+                <option value="pending" selected>Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+            </select>
+            <select id="submissionSortDirFilter">
+                <option value="asc" selected>Submitted Date: Oldest First</option>
+                <option value="desc">Submitted Date: Newest First</option>
+            </select>
+            <button id="applySubmissionFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetSubmissionFiltersBtn" class="secondary" type="button">Reset</button>
+        </div>
+        <button id="refreshPendingBtn" class="secondary" type="button">Refresh Pending Submissions</button>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th>File</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="pendingBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-pending.js"></script>
+</body>
+</html>

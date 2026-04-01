@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Register</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<main class="center-wrap">
+    <section class="panel glass-panel form-panel">
+        <h1>Register (Student / Staff / Librarian)</h1>
+
+        <label for="roleSelect">Role</label>
+        <select id="roleSelect">
+            <option value="STUDENT">Student</option>
+            <option value="STAFF">Staff</option>
+            <option value="LIBRARIAN">Librarian</option>
+        </select>
+
+        <label for="username">Username</label>
+        <input id="username" type="text" placeholder="newuser">
+
+        <label for="fullName">Full Name</label>
+        <input id="fullName" type="text" placeholder="Your Name">
+
+        <label for="password">Password</label>
+        <input id="password" type="password" placeholder="Password1!">
+        <div class="policy-box">
+            <strong>Password Policy</strong>
+            <ul class="policy-list">
+                <li>8 to 64 characters</li>
+                <li>At least one uppercase letter</li>
+                <li>At least one lowercase letter</li>
+                <li>At least one digit</li>
+                <li>At least one special character</li>
+                <li>No spaces</li>
+            </ul>
+        </div>
+        <div id="passwordError" class="field-error"></div>
+
+        <div id="employeeWrap" class="hidden-block">
+            <label for="employeeId">Employee ID (for Librarian)</label>
+            <input id="employeeId" type="text" placeholder="EMP-001">
+        </div>
+
+        <button id="registerBtn" class="big-btn secondary">Register</button>
+
+        <div class="quick-links">
+            <a href="index.html">Back to Main</a>
+            <a id="loginLink" href="login.html?role=STUDENT">Go to Login</a>
+            <a href="register-author.html?role=AUTHOR">Author Register</a>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="register.js"></script>
+</body>
+</html>

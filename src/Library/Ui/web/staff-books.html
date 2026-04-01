@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Staff Books</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Books Search and Borrow</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainStaff.html">Staff Main</a>
+        <a class="link-btn" href="profile-user.html">Profile</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="STAFF">
+    <section class="panel glass-panel">
+        <h2>Books</h2>
+        <div class="toolbar">
+            <input id="searchKeyword" type="text" placeholder="Search by title or author">
+            <select id="availabilityFilter" aria-label="Availability filter">
+                <option value="all" selected>All Status</option>
+                <option value="available">Available Only</option>
+                <option value="unavailable">Unavailable Only</option>
+            </select>
+            <button id="searchBtn">Search</button>
+            <button id="showAllBtn" class="secondary">Show All</button>
+        </div>
+
+        <h3>Advanced Search</h3>
+        <div class="toolbar">
+            <input id="titleFilter" type="text" placeholder="Title contains..." aria-label="Title filter">
+            <input id="authorFilter" type="text" placeholder="Author contains..." aria-label="Author filter">
+            <select id="advancedMatchMode" aria-label="Advanced match mode">
+                <option value="contains" selected>Contains</option>
+                <option value="exact">Exact</option>
+            </select>
+            <button id="applyAdvancedSearchBtn" class="secondary" type="button">Apply Advanced Search</button>
+            <button id="clearAdvancedSearchBtn" class="secondary" type="button">Clear Advanced Search</button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="booksBody"></tbody>
+            </table>
+        </div>
+
+        <div class="pager-row">
+            <button id="prevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
+            <span id="pageInfo">1/1</span>
+            <button id="nextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
+        </div>
+
+        <h3>Borrow</h3>
+        <div class="inline-row">
+            <label for="borrowDays">Days</label>
+            <select id="borrowDays">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+                <option value="13">13</option>
+                <option value="14" selected>14</option>
+            </select>
+        </div>
+        <p id="selectedBook">Selected book: none</p>
+        <div class="toolbar">
+            <button id="borrowBtn">Borrow Selected Book</button>
+            <button id="borrowBulkBtn" class="secondary" type="button">Borrow Multi-Selected Books</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="student-books.js"></script>
+</body>
+</html>

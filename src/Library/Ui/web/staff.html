@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Staff Portal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Staff Portal</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="profile-user.html">Profile</a>
+        <a class="link-btn" href="mainStaff.html">Staff Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="STAFF">
+    <section class="panel glass-panel">
+        <h2 id="books-section">Books</h2>
+        <div class="toolbar">
+            <input id="searchKeyword" type="text" placeholder="Search by title or author">
+            <select id="availabilityFilter" aria-label="Availability filter">
+                <option value="all" selected>All Status</option>
+                <option value="available">Available Only</option>
+                <option value="unavailable">Unavailable Only</option>
+            </select>
+            <button id="searchBtn">Search</button>
+            <button id="showAllBtn" class="secondary">Show All</button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="booksBody"></tbody>
+            </table>
+        </div>
+
+        <div class="pager-row">
+            <button id="prevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
+            <span id="pageInfo">1/1</span>
+            <button id="nextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
+        </div>
+
+        <div class="split">
+            <div>
+                <h3>Borrow</h3>
+                <div class="inline-row">
+                    <label for="borrowDays">Days</label>
+                    <select id="borrowDays">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14" selected>14</option>
+                    </select>
+                </div>
+                <p id="selectedBook">Selected book: none</p>
+                <button id="borrowBtn">Borrow Selected Book</button>
+                <button id="borrowBulkBtn" class="secondary" type="button">Borrow Multi-Selected Books</button>
+            </div>
+            <div>
+                <h3>Popular Recommendations</h3>
+                <ul id="recommendations"></ul>
+            </div>
+        </div>
+
+        <h3 id="borrows-section">My Active Borrows</h3>
+        <div class="toolbar">
+            <select id="borrowStatusFilter" aria-label="Borrow status filter">
+                <option value="active" selected>Active Only</option>
+                <option value="returned">Returned</option>
+                <option value="overdue">Overdue</option>
+            </select>
+            <select id="borrowSortBy" aria-label="Borrow sort by">
+                <option value="" selected>No Sort</option>
+                <option value="borrowDate">Borrow Date</option>
+                <option value="dueDate">Due Date</option>
+            </select>
+            <select id="borrowSortDir" aria-label="Borrow sort direction">
+                <option value="asc" selected>Asc</option>
+                <option value="desc">Desc</option>
+            </select>
+            <button id="applyBorrowFiltersBtn" type="button">Apply Borrow Filters</button>
+            <button id="resetBorrowFiltersBtn" class="secondary" type="button">Reset Borrow Filters</button>
+            <button id="checkBorrowRemindersBtn" class="secondary" type="button">Check Reminders</button>
+        </div>
+        <ul id="borrows"></ul>
+
+        <h3 id="notifications-section">Notification Board</h3>
+        <div id="notificationBox" class="panel-subtle">
+            <p id="notificationStatus">Loading notifications...</p>
+            <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
+            <ul id="notificationsList"></ul>
+            <div class="pager-row">
+                <button id="notificationPrevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
+                <span id="notificationPageInfo">1/1</span>
+                <button id="notificationNextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
+            </div>
+        </div>
+
+        <h3 id="reader-section">Borrowed Book Reader</h3>
+        <div id="readerBox" class="panel-subtle">
+            <p id="readerStatus">Select a borrowed book and click Read.</p>
+            <iframe id="readerPdf" style="display:none;width:100%;height:360px;border:1px solid #d9d9d9;border-radius:8px;"></iframe>
+            <pre id="readerText" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
+            <div class="inline-row" style="margin-top:10px;">
+                <label for="bookmarkPage">Bookmark Page</label>
+                <input id="bookmarkPage" type="number" min="1" value="1">
+            </div>
+            <label for="highlightsInput">Highlights (one line per highlight)</label>
+            <textarea id="highlightsInput" rows="4" placeholder="Important quote on line 1&#10;Important quote on line 2"></textarea>
+            <button id="saveProgressBtn" class="secondary" type="button">Save Bookmark/Highlights</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="portal-books.js"></script>
+</body>
+</html>

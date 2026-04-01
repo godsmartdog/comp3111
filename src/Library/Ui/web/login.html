@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Login</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<main class="center-wrap">
+    <section class="panel glass-panel form-panel">
+        <h1>Role Login</h1>
+        <p class="muted" id="roleHint">Sign in as selected role.</p>
+
+        <label for="roleSelect">Role</label>
+        <select id="roleSelect">
+            <option value="STUDENT">Student</option>
+            <option value="STAFF">Staff</option>
+            <option value="AUTHOR">Author</option>
+            <option value="LIBRARIAN">Librarian</option>
+        </select>
+
+        <label for="username">Username</label>
+        <input id="username" type="text" placeholder="student1">
+
+        <label for="password">Password</label>
+        <input id="password" type="password" placeholder="Password1!">
+
+        <button id="loginBtn" class="big-btn">Login</button>
+
+        <div class="quick-links">
+            <a href="index.html">Back to Main</a>
+            <a id="registerLink" href="register.html?role=STUDENT">Go to Register</a>
+        </div>
+
+        <p class="hint">Demo accounts: student1 / author1 / librarian1, password: Password1!</p>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="login.js"></script>
+</body>
+</html>

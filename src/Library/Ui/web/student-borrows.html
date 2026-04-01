@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Student Borrows</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>My Active Borrows</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainStudent.html">Student Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="STUDENT">
+    <section class="panel glass-panel">
+        <div class="toolbar">
+            <select id="borrowStatusFilter" aria-label="Borrow status filter">
+                <option value="active" selected>Active Only</option>
+                <option value="returned">Returned</option>
+                <option value="overdue">Overdue</option>
+            </select>
+            <select id="borrowSortBy" aria-label="Borrow sort by">
+                <option value="" selected>No Sort</option>
+                <option value="borrowDate">Borrow Date</option>
+                <option value="dueDate">Due Date</option>
+            </select>
+            <select id="borrowSortDir" aria-label="Borrow sort direction">
+                <option value="asc" selected>Asc</option>
+                <option value="desc">Desc</option>
+            </select>
+            <button id="applyBorrowFiltersBtn" type="button">Apply Borrow Filters</button>
+            <button id="resetBorrowFiltersBtn" class="secondary" type="button">Reset Borrow Filters</button>
+            <button id="checkBorrowRemindersBtn" class="secondary" type="button">Check Reminders</button>
+        </div>
+        <ul id="borrows"></ul>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="student-borrows.js"></script>
+</body>
+</html>

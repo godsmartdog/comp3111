@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Author Submitted</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>My Submitted Books</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainAuthor.html">Author Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="AUTHOR">
+    <section class="panel glass-panel">
+        <p id="submittedStatus">Loading submitted books...</p>
+        <button id="loadSubmittedBtn" class="secondary" type="button">Refresh Submitted Books</button>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Submitted Date</th>
+                    <th>File</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="submittedBooksBody"></tbody>
+            </table>
+        </div>
+
+        <h3>Preview</h3>
+        <pre id="authorPreview"></pre>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="author-submitted.js"></script>
+</body>
+</html>

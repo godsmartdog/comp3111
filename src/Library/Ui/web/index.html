@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Main</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<main class="hero-wrap">
+    <section class="panel glass-panel hero-panel">
+        <h1>COMP3111 E-Library System</h1>
+        <p>
+            Welcome to our E-Library System. This platform supports Student, Staff, Author, and Librarian workflows in one place.
+            You can register and sign in by role, search and borrow approved books, submit drafts and publications as an author,
+            and review pending submissions as a librarian.
+        </p>
+        <p>
+            The system is built with role-based access, secure password policy, recommendation support, and complete submission review flow.
+        </p>
+
+        <div class="menu-row">
+            <div class="menu-button">
+                <button class="big-btn">Sign In</button>
+                <ul class="dropdown">
+                    <li><a href="login.html?role=STUDENT">Student</a></li>
+                    <li><a href="login.html?role=STAFF">Staff</a></li>
+                    <li><a href="login.html?role=AUTHOR">Author</a></li>
+                    <li><a href="login.html?role=LIBRARIAN">Librarian</a></li>
+                </ul>
+            </div>
+
+            <div class="menu-button">
+                <button class="big-btn secondary">Register</button>
+                <ul class="dropdown">
+                    <li><a href="register.html?role=STUDENT">Student</a></li>
+                    <li><a href="register.html?role=STAFF">Staff</a></li>
+                    <li><a href="register-author.html?role=AUTHOR">Author</a></li>
+                    <li><a href="register.html?role=LIBRARIAN">Librarian</a></li>
+                </ul>
+            </div>
+        </div>
+    </section>
+</main>
+
+<script src="background-animation.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Student Recommendations</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Popular Recommendations</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainStudent.html">Student Main</a>
+        <a class="link-btn" href="profile-user.html">Profile</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="STUDENT">
+    <section class="panel glass-panel">
+        <h2>Top Picks For You</h2>
+        <div class="toolbar">
+            <button id="refreshRecommendationsBtn" type="button">Refresh Recommendations</button>
+        </div>
+        <ul id="recommendations"></ul>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="student-recommendations.js"></script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Librarian Records</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .borrowed-record-overdue {
+            color: #b71c1c;
+            font-weight: 700;
+            background: rgba(183, 28, 28, 0.08);
+        }
+
+        .overdue-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #b71c1c;
+            color: #fff;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+    </style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Borrowed Books Records</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <p id="borrowedRecordsStatus">Loading borrowed books records...</p>
+        <button id="refreshBorrowedRecordsBtn" class="secondary" type="button">Refresh Borrowed Records</button>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Borrow ID</th>
+                    <th>Book</th>
+                    <th>Borrower</th>
+                    <th>Borrow Date</th>
+                    <th>Due Date</th>
+                    <th>Return Date</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody id="borrowedRecordsBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-records.js"></script>
+</body>
+</html>

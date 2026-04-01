@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Author Main</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Author Main Portal</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="profile-author.html">Profile</a>
+        <a class="link-btn" href="index.html">Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="AUTHOR">
+    <section class="panel glass-panel">
+        <h2>Author Functions</h2>
+        <p class="hint">Use one page per function.</p>
+        <div class="quick-links author-main-quick-links">
+            <a class="link-btn" href="author-submission.html">Book Submission</a>
+            <a class="link-btn" href="author-submitted.html">My Submitted Books</a>
+            <a class="link-btn" href="author-published.html">My Published Books</a>
+        </div>
+
+        <h3>Notification Board</h3>
+        <div id="notificationBox" class="panel-subtle">
+            <p id="notificationStatus">Loading notifications...</p>
+            <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
+            <ul id="notificationsList"></ul>
+            <div class="pager-row">
+                <button id="notificationPrevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
+                <span id="notificationPageInfo">1/1</span>
+                <button id="notificationNextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
+            </div>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="main-author.js"></script>
+</body>
+</html>

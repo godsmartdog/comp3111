@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Librarian Portal</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .borrowed-record-overdue {
+            color: #b71c1c;
+            font-weight: 700;
+            background: rgba(183, 28, 28, 0.08);
+        }
+
+        .overdue-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #b71c1c;
+            color: #fff;
+            font-size: 0.76rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+    </style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Librarian Portal</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="profile-librarian.html">Profile</a>
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <h2 id="pending-section">Pending Submissions</h2>
+        <div class="toolbar">
+            <input id="submissionSearchInput" type="text" placeholder="Search by title or author">
+            <select id="submissionStatusFilter">
+                <option value="pending" selected>Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+            </select>
+            <select id="submissionSortDirFilter">
+                <option value="asc" selected>Submitted Date: Oldest First</option>
+                <option value="desc">Submitted Date: Newest First</option>
+            </select>
+            <button id="applySubmissionFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetSubmissionFiltersBtn" class="secondary" type="button">Reset</button>
+        </div>
+        <button id="refreshPendingBtn" class="secondary">Refresh Pending Submissions</button>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th>File</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="pendingBody"></tbody>
+            </table>
+        </div>
+
+        <h2 id="approved-section">Approved Books</h2>
+        <p id="approvedBooksStatus">Loading approved books...</p>
+        <button id="refreshApprovedBooksBtn" class="secondary" type="button">Refresh Approved Books</button>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Publish Date</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody id="approvedBooksBody"></tbody>
+            </table>
+        </div>
+
+        <h2 id="records-section">Borrowed Books Records</h2>
+        <p id="borrowedRecordsStatus">Loading borrowed books records...</p>
+        <button id="refreshBorrowedRecordsBtn" class="secondary" type="button">Refresh Borrowed Records</button>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Borrow ID</th>
+                    <th>Book</th>
+                    <th>Borrower</th>
+                    <th>Borrow Date</th>
+                    <th>Due Date</th>
+                    <th>Return Date</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody id="borrowedRecordsBody"></tbody>
+            </table>
+        </div>
+
+        <h2 id="notifications-section">Notification Board</h2>
+        <p id="librarianNotificationStatus">Loading notifications...</p>
+        <button id="refreshLibrarianNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
+        <ul id="librarianNotificationsList"></ul>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="portal-librarian.js"></script>
+</body>
+</html>

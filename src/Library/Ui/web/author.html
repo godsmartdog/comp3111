@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Author Portal</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Author Portal</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="profile-author.html">Profile</a>
+        <a class="link-btn" href="mainAuthor.html">Author Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="AUTHOR">
+    <section class="panel glass-panel">
+        <h2 id="submission-section">Book Submission</h2>
+
+        <div class="form-grid">
+            <label>Title</label>
+            <input id="authorTitle" type="text" placeholder="Book title">
+
+            <label>Genres (comma separated)</label>
+            <input id="authorGenres" type="text" placeholder="Science, Technology">
+
+            <label>File Path</label>
+            <div class="file-row">
+                <input id="authorFilePath" type="text" placeholder="C:/path/to/file.pdf">
+                <button id="pickFileBtn" type="button" class="secondary file-btn">Browse...</button>
+                <input id="authorFileInput" type="file" class="hidden" accept=".pdf,.docx,.jpg,.jpeg,.png,.doc,.txt,.md">
+            </div>
+
+            <label>Description</label>
+            <textarea id="authorDescription" rows="6" placeholder="Book description"></textarea>
+        </div>
+
+        <div class="toolbar">
+            <button id="autoSaveBtn" class="secondary">Auto Save Draft</button>
+            <button id="loadDraftsBtn" class="secondary">Load Drafts</button>
+            <button id="previewBtn" class="secondary">Preview</button>
+            <button id="submitBtn">Submit for Review</button>
+        </div>
+
+        <h3>Saved Drafts</h3>
+        <ul id="drafts"></ul>
+
+        <h3 id="submitted-section">My Submitted Books</h3>
+        <div class="panel-subtle">
+            <p id="submittedStatus">Loading submitted books...</p>
+            <button id="loadSubmittedBtn" class="secondary" type="button">Refresh Submitted Books</button>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Status</th>
+                        <th>Submitted Date</th>
+                        <th>File</th>
+                        <th>Action</th>
+                    </tr>
+                    </thead>
+                    <tbody id="submittedBooksBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <h3 id="published-section">My Published Books</h3>
+        <div class="panel-subtle">
+            <p id="publishedStatus">Loading published books...</p>
+            <button id="loadPublishedBtn" class="secondary" type="button">Refresh Published Books</button>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Genres</th>
+                        <th>Description</th>
+                        <th>Publish Date</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                    </thead>
+                    <tbody id="publishedBooksBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <h3 id="notifications-section">Notification Board</h3>
+        <div class="panel-subtle">
+            <p id="authorNotificationStatus">Loading notifications...</p>
+            <p id="authorNotificationUnread" class="muted">Unread: --</p>
+            <button id="loadAuthorNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
+            <ul id="authorNotificationsList"></ul>
+        </div>
+
+        <h3>Preview</h3>
+        <pre id="authorPreview"></pre>
+
+        <h3>File Preview</h3>
+        <div id="filePreview" class="file-preview">Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).</div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+    <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="portal-author.js"></script>
+</body>
+</html>
