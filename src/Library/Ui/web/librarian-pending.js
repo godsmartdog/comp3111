@@ -35,11 +35,20 @@ function renderPending(items) {
         approveBtn.textContent = "Approve";
         approveBtn.addEventListener("click", () => review(item.id, "approve"));
 
+        const readBtn = document.createElement("button");
+        readBtn.className = "secondary";
+        readBtn.textContent = "Read";
+        readBtn.addEventListener("click", () => {
+            window.location.href = `librarian-submission-reader.html?submissionId=${encodeURIComponent(item.id)}`;
+        });
+
         const rejectBtn = document.createElement("button");
         rejectBtn.className = "danger";
         rejectBtn.textContent = "Reject";
         rejectBtn.addEventListener("click", () => review(item.id, "reject"));
 
+        actionCell.appendChild(readBtn);
+        actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(approveBtn);
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(rejectBtn);

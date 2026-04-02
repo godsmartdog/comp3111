@@ -16,6 +16,66 @@ let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
 const MAX_BORROW_LIMIT = 5;
+let selectedBookCoverObjectUrl = null;
+let selectedBookPreviewObjectUrl = null;
+
+function clearSelectedBookObjectUrls() {
+    if (selectedBookCoverObjectUrl) {
+        URL.revokeObjectURL(selectedBookCoverObjectUrl);
+        selectedBookCoverObjectUrl = null;
+    }
+    if (selectedBookPreviewObjectUrl) {
+        URL.revokeObjectURL(selectedBookPreviewObjectUrl);
+        selectedBookPreviewObjectUrl = null;
+    }
+}
+
+async function fetchProtectedBlob(url) {
+    const headers = {};
+    const current = getCurrentUser();
+    if (current?.sessionId) {
+        headers["X-Session-Id"] = current.sessionId;
+    }
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+        throw new Error(await response.text());
+    }
+    return response.blob();
+}
+
+async function renderPdfPreviewPages(previewBlob, container) {
+    if (!container || typeof pdfjsLib === "undefined") {
+        return false;
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const arrayBuffer = await previewBlob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pageCount = Math.min(2, Number(pdf.numPages || 0));
+    container.innerHTML = "";
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.15 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = "100%";
+        canvas.style.maxWidth = "100%";
+        canvas.style.border = "1px solid #d9d9d9";
+        canvas.style.borderRadius = "8px";
+
+        const context = canvas.getContext("2d");
+        await page.render({ canvasContext: context, viewport }).promise;
+        container.appendChild(canvas);
+    }
+
+    return pageCount > 0;
+}
 
 function updateSearchQuota() {
     const searchQuota = document.getElementById("searchQuota");
@@ -92,23 +152,37 @@ async function loadSelectedBookSummary(bookId) {
     description.textContent = payload.summary || "No description available for this book.";
 
     if (cover) {
+        cover.style.display = "none";
+        cover.src = "";
         if (payload.coverImageUrl) {
-            cover.src = payload.coverImageUrl;
-            cover.style.display = "block";
-        } else {
-            cover.style.display = "none";
-            cover.src = "";
+            try {
+                const coverBlob = await fetchProtectedBlob(payload.coverImageUrl);
+                selectedBookCoverObjectUrl = URL.createObjectURL(coverBlob);
+                cover.src = selectedBookCoverObjectUrl;
+                cover.style.display = "block";
+            } catch (error) {
+                cover.style.display = "none";
+                cover.src = "";
+            }
         }
     }
 
     if (filePreview) {
+        filePreview.style.display = "none";
+        filePreview.src = "";
         if (payload.previewType === "file" && payload.previewUrl) {
-            filePreview.src = `${payload.previewUrl}#page=1`;
-            filePreview.style.display = "block";
-            preview.textContent = "Embedded file preview loaded. Scroll to view the first pages.";
+            try {
+                const previewBlob = await fetchProtectedBlob(payload.previewUrl);
+                selectedBookPreviewObjectUrl = URL.createObjectURL(previewBlob);
+                const rendered = await renderPdfPreviewPages(previewBlob, filePreview);
+                filePreview.style.display = rendered ? "flex" : "none";
+                preview.textContent = rendered
+                    ? "Showing first 2 page(s) of the PDF preview."
+                    : (payload.preview || "First 2-page preview is not available.");
+            } catch (error) {
+                preview.textContent = payload.preview || "First 2-page preview is not available.";
+            }
         } else {
-            filePreview.style.display = "none";
-            filePreview.src = "";
             preview.textContent = payload.preview || "First 2-page preview is not available.";
         }
     } else {
@@ -448,3 +522,7 @@ if (currentUser) {
     refreshBooks().catch((e) => showToast(e.message, true));
     refreshBorrowQuota().catch((e) => showToast(e.message, true));
 }
+
+window.addEventListener("beforeunload", () => {
+    clearSelectedBookObjectUrls();
+});

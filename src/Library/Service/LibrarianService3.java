@@ -385,6 +385,14 @@ public class LibrarianService3 {
         return false;
     }
 
+    public BookSubmission2 getSubmissionByIdForReview(String submissionId) {
+        if (submissionId == null || submissionId.isBlank()) {
+            throw new ValidationException("Submission ID is required.");
+        }
+        return submissionRepository.findById(submissionId.trim())
+                .orElseThrow(() -> new NotFoundException("Submission not found."));
+    }
+
     // Method to approve a book submission, validating the submission's existence and status before marking it as approved, saving the updated submission, and converting it into a published book in the system, which allows approved submissions to become part of the library's collection.
     public BookSubmission2 approveSubmission(String submissionId, String comment) {
         BookSubmission2 s = submissionRepository.findById(submissionId)

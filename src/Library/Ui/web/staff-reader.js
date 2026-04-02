@@ -13,6 +13,52 @@ let selectedBorrowedBookId = null;
 let readerFileObjectUrl = null;
 let currentPdfPageCount = 0;
 let activeReaderType = "text";
+let readerCoverObjectUrl = null;
+
+async function fetchProtectedBlob(url) {
+    const headers = {};
+    if (currentUser?.sessionId) {
+        headers["X-Session-Id"] = currentUser.sessionId;
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+        throw new Error(await response.text());
+    }
+    return response.blob();
+}
+
+function clearReaderCoverObjectUrl() {
+    if (readerCoverObjectUrl) {
+        URL.revokeObjectURL(readerCoverObjectUrl);
+        readerCoverObjectUrl = null;
+    }
+}
+
+async function loadBookCover(bookId) {
+    const coverImage = document.getElementById("readerCoverImage");
+    if (!coverImage) {
+        return;
+    }
+
+    clearReaderCoverObjectUrl();
+    coverImage.style.display = "none";
+    coverImage.src = "";
+
+    try {
+        const summary = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
+        if (!summary.coverImageUrl) {
+            return;
+        }
+
+        const blob = await fetchProtectedBlob(summary.coverImageUrl);
+        readerCoverObjectUrl = URL.createObjectURL(blob);
+        coverImage.src = readerCoverObjectUrl;
+        coverImage.style.display = "block";
+    } catch (_) {
+        coverImage.style.display = "none";
+        coverImage.src = "";
+    }
+}
 
 async function detectPdfPageCountFromBytes(arrayBuffer) {
     if (typeof pdfjsLib === "undefined") {
@@ -90,9 +136,45 @@ function clearReaderObjectUrl() {
     }
 }
 
+async function renderPdfPagesFromBlob(blob) {
+    const pagesContainer = document.getElementById("readerPdfPages");
+    if (!pagesContainer || typeof pdfjsLib === "undefined") {
+        return 0;
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const bytes = await blob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    pagesContainer.innerHTML = "";
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = "100%";
+        canvas.style.maxWidth = "100%";
+        canvas.style.border = "1px solid #d9d9d9";
+        canvas.style.borderRadius = "8px";
+        canvas.style.background = "#fff";
+
+        const context = canvas.getContext("2d");
+        await page.render({ canvasContext: context, viewport }).promise;
+        pagesContainer.appendChild(canvas);
+    }
+
+    pagesContainer.style.display = "flex";
+    return Number(pdf.numPages || 0);
+}
+
 function resetReaderUi(statusText) {
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
+    const readerPdfPages = document.getElementById("readerPdfPages");
     const readerText = document.getElementById("readerText");
 
     clearReaderObjectUrl();
@@ -103,11 +185,21 @@ function resetReaderUi(statusText) {
         readerPdf.style.display = "none";
         readerPdf.src = "";
     }
+    if (readerPdfPages) {
+        readerPdfPages.style.display = "none";
+        readerPdfPages.innerHTML = "";
+    }
     if (readerText) {
         readerText.style.display = "none";
         readerText.textContent = "";
     }
     activeReaderType = "text";
+    clearReaderCoverObjectUrl();
+    const coverImage = document.getElementById("readerCoverImage");
+    if (coverImage) {
+        coverImage.style.display = "none";
+        coverImage.src = "";
+    }
 
     const bookmark = document.getElementById("bookmarkPage");
     const highlights = document.getElementById("highlightsInput");
@@ -136,9 +228,8 @@ async function loadBorrowedContent(bookId) {
 
         clearReaderObjectUrl();
         const blob = await response.blob();
-        const bytes = await blob.arrayBuffer();
         readerFileObjectUrl = URL.createObjectURL(blob);
-        const pageCount = await detectPdfPageCountFromBytes(bytes);
+        const pageCount = await renderPdfPagesFromBlob(blob);
         applyBookmarkControlMode(pageCount, 1);
 
         if (readerText) {
@@ -146,8 +237,8 @@ async function loadBorrowedContent(bookId) {
             readerText.textContent = "";
         }
         if (readerPdf) {
-            readerPdf.style.display = "block";
-            readerPdf.src = readerFileObjectUrl;
+            readerPdf.style.display = "none";
+            readerPdf.src = "";
         }
         return;
     }
@@ -206,9 +297,11 @@ async function loadReadingProgress(bookId) {
         applyBookmarkControlMode(0, preferred);
     }
     if (activeReaderType === "pdf" && readerFileObjectUrl) {
-        const readerPdf = document.getElementById("readerPdf");
-        if (readerPdf) {
-            readerPdf.src = `${readerFileObjectUrl}#page=${Math.max(1, preferred)}`;
+        const readerPdfPages = document.getElementById("readerPdfPages");
+        if (readerPdfPages && readerPdfPages.children.length > 0) {
+            const targetIndex = Math.max(1, preferred) - 1;
+            const target = readerPdfPages.children[Math.min(targetIndex, readerPdfPages.children.length - 1)];
+            target?.scrollIntoView({ behavior: "smooth", block: "start" });
         }
     }
     const highlights = document.getElementById("highlightsInput");
@@ -253,6 +346,7 @@ async function refreshBorrows(autoBookId = "") {
                 if (status) {
                     status.textContent = `Reading: ${item.bookTitle}`;
                 }
+                await loadBookCover(item.bookId);
                 await loadBorrowedContent(item.bookId);
                 await loadReadingProgress(item.bookId);
             } catch (error) {
@@ -271,6 +365,7 @@ async function refreshBorrows(autoBookId = "") {
             if (status) {
                 status.textContent = `Reading: ${target.bookTitle}`;
             }
+            await loadBookCover(target.bookId);
             await loadBorrowedContent(target.bookId);
             await loadReadingProgress(target.bookId);
         }
@@ -304,6 +399,7 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
 
 window.addEventListener("beforeunload", () => {
     clearReaderObjectUrl();
+    clearReaderCoverObjectUrl();
 });
 
 if (currentUser) {

@@ -1688,6 +1688,101 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/submission/read", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String submissionId = required(query, "submissionId");
+
+                BookSubmission2 submission = librarianService.getSubmissionByIdForReview(submissionId);
+                FileService.FilePreviewDetails details = fileService.readPreviewDetails(submission.getFileName());
+                String coverImageUrl = nullToEmpty(submission.getCoverImagePath()).isBlank()
+                        ? ""
+                        : ("/api/librarian/submission/cover?submissionId=" + JsonUtil.escape(submission.getId()));
+
+                String payload = "{" +
+                        "\"submissionId\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
+                        "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
+                        "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
+                        "\"previewType\":\"" + JsonUtil.escape(details.previewType()) + "\"," +
+                        "\"previewText\":\"" + JsonUtil.escape(details.previewText()) + "\"," +
+                        "\"fileUrl\":\"/api/librarian/submission/file?submissionId=" + JsonUtil.escape(submission.getId()) + "\"," +
+                        "\"coverImageUrl\":\"" + JsonUtil.escape(coverImageUrl) + "\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/submission/file", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String submissionId = required(query, "submissionId");
+
+                BookSubmission2 submission = librarianService.getSubmissionByIdForReview(submissionId);
+                Path file = Paths.get(submission.getFileName());
+                if (!Files.isRegularFile(file)) {
+                    throw new IllegalArgumentException("Submission file not found on server.");
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                exchange.getResponseHeaders().set("Content-Type", detectContentType(fileName));
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/submission/cover", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String submissionId = required(query, "submissionId");
+
+                BookSubmission2 submission = librarianService.getSubmissionByIdForReview(submissionId);
+                String coverPath = required(Map.of("coverPath", nullToEmpty(submission.getCoverImagePath()).trim()), "coverPath");
+                Path file = Paths.get(coverPath);
+                if (!Files.isRegularFile(file)) {
+                    throw new IllegalArgumentException("Cover image not found on server.");
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                exchange.getResponseHeaders().set("Content-Type", detectContentType(fileName));
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/users", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");

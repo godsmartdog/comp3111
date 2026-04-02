@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Librarian Submission Reader</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Submission Reader</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="librarian-pending.html">Pending Submissions</a>
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <p id="readerStatus">Loading submission...</p>
+        <img id="submissionCoverImage" alt="Submission cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
+        <div id="submissionPdfPages" style="display:none;gap:10px;flex-direction:column;"></div>
+        <pre id="submissionTextPreview" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<script src="librarian-submission-reader.js"></script>
+</body>
+</html>
