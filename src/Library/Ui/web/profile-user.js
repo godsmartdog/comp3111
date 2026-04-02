@@ -146,7 +146,9 @@ async function saveProfile() {
         if (newPassword !== confirmPassword) {
             throw new Error("New password and confirmation do not match.");
         }
-
+        if (currentPassword === newPassword) {
+            throw new Error("New password must be different from the current password.");
+        }
         const issues = getPasswordPolicyViolations(newPassword);
         if (issues.length > 0) {
             throw new Error(issues[0]);

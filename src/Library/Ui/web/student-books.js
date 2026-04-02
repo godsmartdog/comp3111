@@ -251,7 +251,7 @@ function renderBooks(books) {
 
     if (!Array.isArray(books) || books.length === 0) {
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No books available for the current filter.</td>';
+        row.innerHTML = '<td colspan="5" class="muted">No books available for the current filter.</td>';
         tbody.appendChild(row);
         return;
     }
@@ -261,6 +261,7 @@ function renderBooks(books) {
         const alreadyBorrowed = activeBorrowedBookIds.has(book.id);
         const availableCopies = Number(book.availableCopies ?? 0);
         const totalCopies = Number(book.totalCopies ?? 0);
+        const publishDate = book.publishDate || "";
         const borrowable = book.available && !alreadyBorrowed;
         const statusClass = borrowable ? "status-available" : "status-unavailable";
         const statusText = alreadyBorrowed
@@ -279,6 +280,7 @@ function renderBooks(books) {
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
+            <td>${publishDate}</td>
             <td class="${statusClass}">${statusText}</td>
             <td>
                 <label>

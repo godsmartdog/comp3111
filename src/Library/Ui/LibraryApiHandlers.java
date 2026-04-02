@@ -55,6 +55,13 @@ public class LibraryApiHandlers {
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private static final String SESSION_HEADER = "X-Session-Id";
     private static final String CRASH_TEST_HEADER = "X-Crash-Test-Hook";
+    private static final String[] BASIC_NOTIFICATION_CATEGORIES = {
+            "submission",
+            "account-update",
+            "borrow-reminder",
+            "book-deleted",
+            "announcement"
+    };
     // Local/dev internal testing token only.
     // TODO: Externalize this to environment/config before any production deployment.
     private static final String CRASH_TEST_TOKEN = "enable";
@@ -156,7 +163,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         username,
                         "Welcome to E-Library",
-                        "Your account is ready. Explore your portal functions from the main page."
+                    "Your account is ready. Explore your portal functions from the main page.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "announcement")
                 );
                 appendUserActivity(username, "Registered new account as " + role + ".");
 
@@ -576,7 +586,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Profile Updated",
-                        "Your profile details were updated successfully."
+                    "Your profile details were updated successfully.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "account-update")
                 );
 
                 sendText(exchange, 200, passwordChanged
@@ -636,6 +649,7 @@ public class LibraryApiHandlers {
                 String keyword = RequestFilters.getTrimmed(query, "q", "");
                 NotificationService.NotificationReadFilter readFilter = parseNotificationReadFilter(query);
                 NotificationPriority priorityFilter = parseNotificationPriorityFilter(query);
+                String categoryFilter = RequestFilters.getTrimmed(query, "category", "all");
                 NotificationService.NotificationSortBy sortBy = parseNotificationSortBy(query);
                 NotificationService.NotificationSortDirection sortDir = parseNotificationSortDir(query);
                 List<NotificationItem> items = notificationService.listByUser(
@@ -647,6 +661,7 @@ public class LibraryApiHandlers {
                         sortBy,
                         sortDir
                 );
+                items = filterNotificationsByCategory(items, categoryFilter);
                 sendJson(exchange, 200, notificationsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -774,7 +789,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Borrowed",
-                    "You borrow this book (" + borrowedBookTitle + "). Due date: " + record.getDueDate()
+                    "You borrow this book (" + borrowedBookTitle + "). Due date: " + record.getDueDate(),
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "borrow-reminder", "bookId", bookId)
                 );
                 generateBorrowReminderNotifications(user.getUsername());
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
@@ -812,7 +830,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Books Borrowed",
-                    "You borrowed " + records.size() + " book(s): " + String.join(", ", borrowedTitles) + ". Due date: " + sample.getDueDate()
+                    "You borrowed " + records.size() + " book(s): " + String.join(", ", borrowedTitles) + ". Due date: " + sample.getDueDate(),
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "borrow-reminder", "count", String.valueOf(records.size()))
                 );
                 generateBorrowReminderNotifications(user.getUsername());
 
@@ -879,7 +900,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Returned",
-                    "You return this book (" + returnedBookTitle + "). Due date was: " + record.getDueDate()
+                    "You return this book (" + returnedBookTitle + "). Due date was: " + record.getDueDate(),
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "borrow-reminder", "bookId", bookId)
                 );
                 sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
             } catch (ApiAuthException e) {
@@ -1191,7 +1215,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Published Book Updated",
-                        "Your published book metadata was updated: " + updated.getTitle()
+                    "Your published book metadata was updated: " + updated.getTitle(),
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission", "bookId", updated.getId())
                 );
                 sendText(exchange, 200, "Published book updated: " + updated.getId());
             } catch (ApiAuthException e) {
@@ -1211,13 +1238,28 @@ public class LibraryApiHandlers {
                 User user = requireRole(exchange, Role.AUTHOR);
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
+                String deletedTitle = bookService.findBookById(bookId)
+                        .map(Book::getTitle)
+                        .orElse(bookId);
+
+                java.util.Set<String> affectedUsers = new java.util.LinkedHashSet<>();
+                for (BorrowRecord record : borrowService.listAllBorrowRecords()) {
+                    if (bookId.equals(record.getBookId())) {
+                        affectedUsers.add(record.getUsername());
+                    }
+                }
 
                 authorService.deleteOwnedPublishedBook(user.getUsername(), bookId);
-                notificationService.addNotification(
-                        user.getUsername(),
-                        "Published Book Deleted",
-                        "Your published book was removed from the catalog."
-                );
+                for (String username : affectedUsers) {
+                    notificationService.addNotification(
+                            username,
+                            "Book Deleted",
+                            "The book \"" + deletedTitle + "\" you borrowed has been removed from the catalog.",
+                            NotificationPriority.HIGH,
+                            null,
+                            Map.of("type", "book-deleted", "bookId", bookId)
+                    );
+                }
                 sendText(exchange, 200, "Published book deleted: " + bookId);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1273,7 +1315,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Author Profile Updated",
-                        "Your author profile has been updated successfully."
+                    "Your author profile has been updated successfully.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "account-update")
                 );
                 sendText(exchange, 200, passwordChanged
                     ? "Password updated successfully. Please log in again."
@@ -1424,7 +1469,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Submission Created",
-                        "Your book submission is now pending librarian review."
+                    "Your book submission is now pending librarian review.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission", "submissionId", submission.getId())
                 );
                 sendText(exchange, 200, "Submission created successfully.");
             } catch (ApiAuthException e) {
@@ -1481,7 +1529,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Submission Updated",
-                        "Your pending submission was updated: " + updated.getTitle()
+                    "Your pending submission was updated: " + updated.getTitle(),
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission", "submissionId", updated.getId())
                 );
                 sendText(exchange, 200, "Submission updated successfully.");
             } catch (ApiAuthException e) {
@@ -1506,7 +1557,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Submission Deleted",
-                        "Your pending submission was deleted."
+                    "Your pending submission was deleted.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission")
                 );
                 sendText(exchange, 200, "Submission deleted successfully.");
             } catch (ApiAuthException e) {
@@ -2129,7 +2183,10 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                     user.getUsername(),
                     "Librarian Profile Updated",
-                    "Your librarian profile has been updated successfully."
+                    "Your librarian profile has been updated successfully.",
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "account-update")
                 );
 
                 if (passwordChanged) {
@@ -2221,7 +2278,10 @@ public class LibraryApiHandlers {
                         notificationService.addNotification(
                                 approved.getAuthorUsername(),
                                 "Submission Approved",
-                                notificationMessage
+                        notificationMessage,
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "submission", "submissionId", approved.getId())
                         );
                     }
                     sendText(exchange, 200, "Submission approved.");
@@ -2238,7 +2298,10 @@ public class LibraryApiHandlers {
                         notificationService.addNotification(
                                 rejected.getAuthorUsername(),
                                 "Submission Rejected",
-                                notificationMessage
+                            notificationMessage,
+                            NotificationPriority.NORMAL,
+                            null,
+                            Map.of("type", "submission", "submissionId", rejected.getId())
                         );
                     }
                     sendText(exchange, 200, "Submission rejected.");
@@ -2425,9 +2488,9 @@ public class LibraryApiHandlers {
                     "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
+                "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
-                    "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"status\":\"" + JsonUtil.escape(status) + "\"," +
                     "\"available\":" + book.isAvailable() + "," +
@@ -2669,6 +2732,7 @@ public class LibraryApiHandlers {
     private static String notificationsToJson(List<NotificationItem> items) {
         List<String> values = new ArrayList<>();
         for (NotificationItem item : items) {
+            String categoryKey = notificationCategoryKey(item);
             List<String> metadataValues = new ArrayList<>();
             for (Map.Entry<String, String> metadata : item.getMetadata().entrySet()) {
                 metadataValues.add("\"" + JsonUtil.escape(metadata.getKey()) + "\":\"" + JsonUtil.escape(metadata.getValue()) + "\"");
@@ -2688,6 +2752,8 @@ public class LibraryApiHandlers {
                     "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
                     "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
+                    "\"category\":\"" + JsonUtil.escape(notificationCategoryLabel(categoryKey)) + "\"," +
+                    "\"categoryKey\":\"" + JsonUtil.escape(categoryKey) + "\"," +
                     "\"priority\":\"" + item.getPriority() + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() + "," +
@@ -2713,6 +2779,62 @@ public class LibraryApiHandlers {
                 "\"total\":" + items.size() + "," +
                 "\"unreadCount\":" + unreadCount +
                 "}";
+    }
+
+    private static List<NotificationItem> filterNotificationsByCategory(List<NotificationItem> items, String categoryFilter) {
+        String normalizedFilter = normalizeNotificationCategoryFilter(categoryFilter);
+        if ("all".equals(normalizedFilter)) {
+            return items;
+        }
+
+        List<NotificationItem> filtered = new ArrayList<>();
+        for (NotificationItem item : items) {
+            if (normalizedFilter.equals(notificationCategoryKey(item))) {
+                filtered.add(item);
+            }
+        }
+        return filtered;
+    }
+
+    private static String normalizeNotificationCategoryFilter(String raw) {
+        if (raw == null || raw.isBlank() || "all".equalsIgnoreCase(raw.trim())) {
+            return "all";
+        }
+
+        String normalized = raw.trim().toLowerCase(Locale.ROOT).replace(' ', '-');
+        for (String basicCategory : BASIC_NOTIFICATION_CATEGORIES) {
+            if (basicCategory.equals(normalized)) {
+                return normalized;
+            }
+        }
+        return "other";
+    }
+
+    private static String notificationCategoryKey(NotificationItem item) {
+        String metadataType = normalizeNotificationCategoryFilter(
+                nullToEmpty(item.getMetadata().get("type")).replace('_', '-'));
+        if (!"all".equals(metadataType)) {
+            return metadataType;
+        }
+
+        String metadataCategory = normalizeNotificationCategoryFilter(
+                nullToEmpty(item.getMetadata().get("category")).replace('_', '-'));
+        if (!"all".equals(metadataCategory)) {
+            return metadataCategory;
+        }
+
+        return "other";
+    }
+
+    private static String notificationCategoryLabel(String categoryKey) {
+        return switch (normalizeNotificationCategoryFilter(categoryKey)) {
+            case "submission" -> "Submission";
+            case "account-update" -> "Account Update";
+            case "borrow-reminder" -> "Borrow Reminder";
+            case "book-deleted" -> "Book Deleted";
+            case "announcement" -> "Announcement";
+            default -> "Other";
+        };
     }
 
     private String sessionSnapshotToJson(SessionSnapshot snapshot, boolean exists) {
@@ -2801,6 +2923,7 @@ public class LibraryApiHandlers {
                     "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
                     "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
                     "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +

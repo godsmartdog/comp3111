@@ -131,6 +131,9 @@ async function saveLibrarianProfile() {
         if (password !== confirmPassword) {
             throw new Error("New password and confirmation do not match.");
         }
+        if (currentPassword === password) {
+            throw new Error("New password must be different from the current password.");
+        }
         const issues = getPasswordPolicyViolations(password);
         if (issues.length > 0) {
             throw new Error(issues[0]);

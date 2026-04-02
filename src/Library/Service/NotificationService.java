@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class NotificationService {
@@ -136,6 +137,7 @@ public class NotificationService {
                                             NotificationPriority priority,
                                             NotificationAction action,
                                             Map<String, String> metadata) {
+        Map<String, String> normalizedMetadata = normalizeMetadataWithType(metadata);
         NotificationItem item = new NotificationItem(
                 username,
                 safeTitle(title),
@@ -143,7 +145,7 @@ public class NotificationService {
                 LocalDateTime.now(),
                 priority,
                 action,
-                metadata
+            normalizedMetadata
         );
         notificationRepository.save(item);
         return item;
@@ -312,5 +314,49 @@ public class NotificationService {
             return "";
         }
         return value;
+    }
+
+    private static Map<String, String> normalizeMetadataWithType(Map<String, String> metadata) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        if (metadata != null && !metadata.isEmpty()) {
+            for (Map.Entry<String, String> entry : metadata.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                String key = entry.getKey().trim();
+                String value = entry.getValue().trim();
+                if (!key.isEmpty()) {
+                    normalized.put(key, value);
+                }
+            }
+        }
+
+        String type = normalizeNotificationType(normalized.get("type"));
+        if (type.isEmpty()) {
+            String category = normalizeNotificationType(normalized.get("category"));
+            if (isSupportedNotificationType(category)) {
+                type = category;
+            } else {
+                type = "other";
+            }
+        }
+        normalized.put("type", type);
+        return normalized;
+    }
+
+    private static String normalizeNotificationType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return "";
+        }
+        return rawType.trim().toLowerCase(Locale.ROOT).replace(' ', '-').replace('_', '-');
+    }
+
+    private static boolean isSupportedNotificationType(String type) {
+        return "submission".equals(type)
+                || "account-update".equals(type)
+                || "borrow-reminder".equals(type)
+                || "book-deleted".equals(type)
+                || "announcement".equals(type)
+                || "other".equals(type);
     }
 }

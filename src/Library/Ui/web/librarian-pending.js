@@ -20,10 +20,13 @@ function renderPending(items) {
 
     items.forEach((item) => {
         const submissionId = item.id || item.submissionId || "";
+        const genres = Array.isArray(item.genres) ? item.genres.join(", ") : "";
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${item.title}</td>
+            <td>${item.authorUsername || ""}</td>
             <td>${item.authorFullName}</td>
+            <td>${genres}</td>
             <td>${item.status || ""}</td>
             <td>${item.submittedDate}</td>
             <td>${item.fileName}</td>
@@ -35,7 +38,7 @@ function renderPending(items) {
         const approveBtn = document.createElement("button");
         approveBtn.className = "secondary";
         approveBtn.textContent = "Approve";
-        approveBtn.addEventListener("click", () => review(submissionId, "approve"));
+        approveBtn.addEventListener("click", () => review(submissionId, "approve", item));
 
         const readBtn = document.createElement("button");
         readBtn.className = "secondary";
@@ -51,7 +54,7 @@ function renderPending(items) {
         const rejectBtn = document.createElement("button");
         rejectBtn.className = "danger";
         rejectBtn.textContent = "Reject";
-        rejectBtn.addEventListener("click", () => review(submissionId, "reject"));
+        rejectBtn.addEventListener("click", () => review(submissionId, "reject", item));
 
         actionCell.appendChild(readBtn);
         actionCell.appendChild(document.createTextNode(" "));
@@ -150,10 +153,24 @@ function resetSubmissionFilters() {
     }
 }
 
-async function review(submissionId, action) {
+async function review(submissionId, action, item = {}) {
     try {
         let comment = "";
         let reason = "";
+        let sendFeedback = true;
+        const title = item.title || submissionId;
+        const author = item.authorFullName || item.authorUsername || "unknown author";
+        const genres = Array.isArray(item.genres) && item.genres.length > 0
+            ? item.genres.join(", ")
+            : "No genres listed";
+
+        const confirmMessage = action === "approve"
+            ? `Confirm approve this submission?\n\nTitle: ${title}\nAuthor: ${author}\nGenres: ${genres}`
+            : `Confirm reject this submission?\n\nTitle: ${title}\nAuthor: ${author}\nGenres: ${genres}`;
+
+        if (!confirm(confirmMessage)) {
+            return;
+        }
 
         if (action === "reject") {
             reason = (prompt("Rejection reason (optional, max 500 characters)") || "").trim();
@@ -166,14 +183,16 @@ async function review(submissionId, action) {
                 showToast("Reviewer comment must be at most 500 characters.", true);
                 return;
             }
+            sendFeedback = confirm("Send rejection feedback to the author now?");
         } else {
             comment = (prompt(`Comment for ${action} (optional)`) || "").trim();
+            sendFeedback = confirm("Send approval feedback to the author now?");
         }
 
         const text = await api("/api/librarian/review", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({ submissionId, action, comment, reason })
+            body: formBody({ submissionId, action, comment, reason, sendFeedback })
         }, false);
 
         showToast(text, false);

@@ -60,11 +60,13 @@ function renderCurrentNotificationPage() {
         const readLabel = item.read ? "Read" : "Unread";
         const created = item.createdAt || "";
         const priority = (item.priority || "NORMAL").toUpperCase();
+        const category = item.category || "Other";
         const highLabel = priority === "HIGH" ? " !" : "";
 
         li.innerHTML = `
             <div>
                 <strong>[${readLabel}] ${item.title}${highLabel}</strong>
+                <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#2f4968;color:#fff;font-size:0.75rem;font-weight:700;">${category}</span>
                 <div>${item.message || ""}</div>
                 <small>${created} | ${priority}</small>
             </div>
@@ -125,11 +127,15 @@ async function refreshNotifications() {
     params.set("sortDir", "desc");
     const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
     const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
+    const categoryFilter = document.getElementById("notificationCategoryFilter")?.value || "all";
     if (keyword) {
         params.set("q", keyword);
     }
     if (priorityFilter !== "all") {
         params.set("priority", priorityFilter);
+    }
+    if (categoryFilter !== "all") {
+        params.set("category", categoryFilter);
     }
 
     const items = await api(`/api/notifications?${params.toString()}`);

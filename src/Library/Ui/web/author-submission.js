@@ -5,6 +5,10 @@ if (currentUser) {
     if (welcomeLine) {
         welcomeLine.textContent = `Welcome, ${currentUser.fullName} (${currentUser.role})`;
     }
+    const authorName = document.getElementById("authorName");
+    if (authorName) {
+        authorName.value = currentUser.fullName || "";
+    }
     attachLogout("logoutBtn");
 }
 

@@ -126,6 +126,9 @@ public class AuthService {
         if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
             throw new AuthenticationException("Current password is incorrect.");
         }
+        if (PasswordHasher.matches(newPassword, user.getPasswordHash())) {
+            throw new ValidationException("New password must be different from the current password.");
+        }
     }
 
     // Private helper method to validate basic input fields such as username and full name, ensuring they are not null or blank before proceeding with registration or other operations.

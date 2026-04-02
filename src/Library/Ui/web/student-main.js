@@ -61,6 +61,7 @@ function renderCurrentNotificationPage() {
         const readLabel = item.read ? "Read" : "Unread";
         const created = item.createdAt || "";
         const priority = (item.priority || "NORMAL").toUpperCase();
+        const category = item.category || "Other";
         const highLabel = priority === "HIGH" ? " !" : "";
         const priorityClass = `priority-${priority.toLowerCase()}`;
 
@@ -73,6 +74,7 @@ function renderCurrentNotificationPage() {
         li.innerHTML = `
             <div>
                 <strong>[${readLabel}] ${item.title}${highLabel}</strong>
+                <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#2f4968;color:#fff;font-size:0.75rem;font-weight:700;">${category}</span>
                 <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                 <div>${item.message || ""}</div>
                 <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
@@ -140,11 +142,15 @@ async function refreshNotifications() {
         params.set("sortDir", "desc");
         const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
         const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
+        const categoryFilter = document.getElementById("notificationCategoryFilter")?.value || "all";
         if (keyword) {
             params.set("q", keyword);
         }
         if (priorityFilter !== "all") {
             params.set("priority", priorityFilter);
+        }
+        if (categoryFilter !== "all") {
+            params.set("category", categoryFilter);
         }
 
         const items = await api(`/api/notifications?${params.toString()}`);
