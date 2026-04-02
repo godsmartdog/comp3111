@@ -29,10 +29,12 @@
         <h3>Reader</h3>
         <div id="readerBox" class="panel-subtle">
             <img id="readerCoverImage" alt="Book cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
-            <p id="readerStatus">Select a borrowed book and click Read.</p>
-            <iframe id="readerPdf" style="display:none;width:100%;height:360px;border:1px solid #d9d9d9;border-radius:8px;"></iframe>
-            <div id="readerPdfPages" style="display:none;gap:10px;flex-direction:column;"></div>
-            <pre id="readerText" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
+            <div class="reader-scroll-block">
+                <p id="readerStatus">Select a borrowed book and click Read.</p>
+                <iframe id="readerPdf" style="display:none;width:100%;height:360px;border:1px solid #d9d9d9;border-radius:8px;"></iframe>
+                <div id="readerPdfPages" style="display:none;gap:10px;flex-direction:column;"></div>
+                <pre id="readerText" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
+            </div>
             <div class="inline-row" style="margin-top:10px;">
                 <label for="bookmarkPage">Bookmark Page</label>
                 <input id="bookmarkPage" type="number" min="1" value="1">
