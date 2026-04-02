@@ -2229,13 +2229,8 @@ public class LibraryApiHandlers {
                     BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
                     if (sendFeedback) {
                         String safeComment = nullToEmpty(comment).trim();
-                        String safeReason = nullToEmpty(rejected.getRejectionReason()).trim();
                         String notificationMessage;
-                        if (!safeReason.isBlank() && !safeComment.isBlank()) {
-                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason + " | Comment: " + safeComment;
-                        } else if (!safeReason.isBlank()) {
-                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason;
-                        } else if (!safeComment.isBlank()) {
+                        if (!safeComment.isBlank()) {
                             notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + safeComment;
                         } else {
                             notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
