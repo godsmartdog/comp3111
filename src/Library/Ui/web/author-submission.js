@@ -11,12 +11,15 @@ if (currentUser) {
 let selectedFile = null;
 let selectedCoverImageFile = null;
 let previewObjectUrl = null;
+let coverPreviewObjectUrl = null;
 
 const filePathInput = document.getElementById("authorFilePath");
 const fileInput = document.getElementById("authorFileInput");
 const coverImagePathInput = document.getElementById("authorCoverImagePath");
 const coverImageInput = document.getElementById("authorCoverImageInput");
 const filePreview = document.getElementById("filePreview");
+const coverPreviewWrap = document.getElementById("coverPreviewWrap");
+const coverPreviewImage = document.getElementById("coverPreviewImage");
 
 function getSelectedGenres() {
     const genresSelect = document.getElementById("authorGenres");
@@ -50,6 +53,68 @@ function clearFilePreviewUrl() {
     }
 }
 
+function clearCoverPreviewUrl() {
+    if (coverPreviewObjectUrl) {
+        URL.revokeObjectURL(coverPreviewObjectUrl);
+        coverPreviewObjectUrl = null;
+    }
+}
+
+async function renderPdfPagesFromFile(file) {
+    if (!filePreview || typeof pdfjsLib === "undefined") {
+        if (filePreview) {
+            filePreview.textContent = "PDF preview dependency is missing.";
+        }
+        return;
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const bytes = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    filePreview.innerHTML = "";
+    filePreview.style.display = "flex";
+    filePreview.style.flexDirection = "column";
+    filePreview.style.gap = "10px";
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = "100%";
+        canvas.style.maxWidth = "100%";
+        canvas.style.border = "1px solid #d9d9d9";
+        canvas.style.borderRadius = "8px";
+        canvas.style.background = "#fff";
+
+        const context = canvas.getContext("2d");
+        await page.render({ canvasContext: context, viewport }).promise;
+        filePreview.appendChild(canvas);
+    }
+}
+
+function renderCoverPreview(file) {
+    if (!coverPreviewWrap || !coverPreviewImage) {
+        return;
+    }
+
+    clearCoverPreviewUrl();
+    coverPreviewWrap.style.display = "none";
+    coverPreviewImage.removeAttribute("src");
+
+    if (!file) {
+        return;
+    }
+
+    coverPreviewObjectUrl = URL.createObjectURL(file);
+    coverPreviewImage.src = coverPreviewObjectUrl;
+    coverPreviewWrap.style.display = "block";
+}
+
 async function renderLocalFilePreview(file) {
     if (!filePreview) {
         return;
@@ -64,15 +129,12 @@ async function renderLocalFilePreview(file) {
     const isDocx = fileName.endsWith(".docx") || file.type.includes("wordprocessingml");
 
     if (isPdf) {
-        previewObjectUrl = URL.createObjectURL(file);
-        const iframe = document.createElement("iframe");
-        iframe.src = previewObjectUrl;
-        iframe.title = "PDF Preview";
-        filePreview.appendChild(iframe);
+        await renderPdfPagesFromFile(file);
         return;
     }
 
     if (isImage) {
+        filePreview.style.display = "block";
         previewObjectUrl = URL.createObjectURL(file);
         const image = document.createElement("img");
         image.src = previewObjectUrl;
@@ -82,6 +144,7 @@ async function renderLocalFilePreview(file) {
     }
 
     if (isDocx) {
+        filePreview.style.display = "block";
         if (typeof mammoth === "undefined") {
             filePreview.textContent = "DOCX preview dependency not loaded.";
             return;
@@ -93,6 +156,14 @@ async function renderLocalFilePreview(file) {
         return;
     }
 
+    if (fileName.endsWith(".txt") || fileName.endsWith(".md") || file.type.startsWith("text/")) {
+        filePreview.style.display = "block";
+        const text = await file.text();
+        filePreview.textContent = text.length > 4000 ? `${text.slice(0, 4000)}...` : text;
+        return;
+    }
+
+    filePreview.style.display = "block";
     filePreview.textContent = "Preview is supported for PDF, DOCX, JPG, JPEG, and PNG files.";
 }
 
@@ -118,8 +189,16 @@ async function refreshDrafts() {
             selectedFile = null;
             fileInput.value = "";
             clearFilePreviewUrl();
+            clearCoverPreviewUrl();
             if (filePreview) {
+                filePreview.style.display = "block";
                 filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
+            }
+            if (coverPreviewWrap) {
+                coverPreviewWrap.style.display = "none";
+            }
+            if (coverPreviewImage) {
+                coverPreviewImage.removeAttribute("src");
             }
             showToast("Draft loaded.", false);
         });
@@ -139,6 +218,12 @@ document.getElementById("pickCoverImageBtn")?.addEventListener("click", () => {
 fileInput?.addEventListener("change", async () => {
     const file = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
     if (!file) {
+        selectedFile = null;
+        clearFilePreviewUrl();
+        if (filePreview) {
+            filePreview.style.display = "block";
+            filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
+        }
         return;
     }
 
@@ -146,21 +231,13 @@ fileInput?.addEventListener("change", async () => {
     if (filePathInput) {
         filePathInput.value = file.name;
     }
-
-    try {
-        await renderLocalFilePreview(file);
-        showToast("File selected for preview.", false);
-    } catch (error) {
-        if (filePreview) {
-            filePreview.textContent = "Failed to render local preview.";
-        }
-        showToast(error.message || "Preview failed.", true);
-    }
+    showToast("File selected. Click Preview to render it.", false);
 });
 
 coverImageInput?.addEventListener("change", () => {
     const file = coverImageInput.files && coverImageInput.files[0] ? coverImageInput.files[0] : null;
     if (!file) {
+        renderCoverPreview(null);
         return;
     }
 
@@ -168,6 +245,7 @@ coverImageInput?.addEventListener("change", () => {
     if (coverImagePathInput) {
         coverImagePathInput.value = file.name;
     }
+    renderCoverPreview(file);
     showToast("Cover image selected.", false);
 });
 
@@ -209,6 +287,13 @@ document.getElementById("previewBtn")?.addEventListener("click", async () => {
         const previewBox = document.getElementById("authorPreview");
         if (previewBox) {
             previewBox.textContent = preview;
+        }
+
+        if (selectedFile) {
+            await renderLocalFilePreview(selectedFile);
+        } else if (filePreview) {
+            filePreview.style.display = "block";
+            filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
         }
     } catch (error) {
         showToast(error.message, true);
@@ -265,13 +350,26 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
             coverImageInput.value = "";
         }
         clearFilePreviewUrl();
+        clearCoverPreviewUrl();
         if (filePreview) {
+            filePreview.style.display = "block";
             filePreview.textContent = "Choose a file to preview (PDF, DOCX, JPG/JPEG/PNG).";
+        }
+        if (coverPreviewWrap) {
+            coverPreviewWrap.style.display = "none";
+        }
+        if (coverPreviewImage) {
+            coverPreviewImage.removeAttribute("src");
         }
         await refreshDrafts();
     } catch (error) {
         showToast(error.message, true);
     }
+});
+
+window.addEventListener("beforeunload", () => {
+    clearFilePreviewUrl();
+    clearCoverPreviewUrl();
 });
 
 if (currentUser) {

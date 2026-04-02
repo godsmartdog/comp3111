@@ -1700,18 +1700,41 @@ public class LibraryApiHandlers {
                 String submissionId = required(query, "submissionId");
 
                 BookSubmission2 submission = librarianService.getSubmissionByIdForReview(submissionId);
-                FileService.FilePreviewDetails details = fileService.readPreviewDetails(submission.getFileName());
-                String coverImageUrl = nullToEmpty(submission.getCoverImagePath()).isBlank()
-                        ? ""
-                        : ("/api/librarian/submission/cover?submissionId=" + JsonUtil.escape(submission.getId()));
+                String submissionPath = nullToEmpty(submission.getFileName()).trim();
+                String previewType = resolvePreviewTypeFromPath(submissionPath);
+                String previewText = "";
+                String fileUrl = "";
+
+                if (!submissionPath.isBlank()) {
+                    Path submissionFile = Paths.get(submissionPath);
+                    if (Files.isRegularFile(submissionFile)) {
+                        FileService.FilePreviewDetails details = fileService.readPreviewDetails(submissionPath);
+                        previewType = details.previewType();
+                        previewText = details.previewText();
+                        fileUrl = "/api/librarian/submission/file?submissionId=" + JsonUtil.escape(submission.getId());
+                    } else {
+                        previewText = "Submission file is not available on server. Please verify and re-upload the file if needed.";
+                    }
+                } else {
+                    previewText = "Submission file path is missing.";
+                }
+
+                String coverImageUrl = "";
+                String coverPath = nullToEmpty(submission.getCoverImagePath()).trim();
+                if (!coverPath.isBlank()) {
+                    Path coverFile = Paths.get(coverPath);
+                    if (Files.isRegularFile(coverFile)) {
+                        coverImageUrl = "/api/librarian/submission/cover?submissionId=" + JsonUtil.escape(submission.getId());
+                    }
+                }
 
                 String payload = "{" +
                         "\"submissionId\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
                         "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
                         "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
-                        "\"previewType\":\"" + JsonUtil.escape(details.previewType()) + "\"," +
-                        "\"previewText\":\"" + JsonUtil.escape(details.previewText()) + "\"," +
-                        "\"fileUrl\":\"/api/librarian/submission/file?submissionId=" + JsonUtil.escape(submission.getId()) + "\"," +
+                        "\"previewType\":\"" + JsonUtil.escape(previewType) + "\"," +
+                        "\"previewText\":\"" + JsonUtil.escape(previewText) + "\"," +
+                        "\"fileUrl\":\"" + JsonUtil.escape(fileUrl) + "\"," +
                         "\"coverImageUrl\":\"" + JsonUtil.escape(coverImageUrl) + "\"" +
                         "}";
                 sendJson(exchange, 200, payload);
@@ -2714,6 +2737,23 @@ public class LibraryApiHandlers {
                 "\"fileUrl\":\"" + JsonUtil.escape(fileUrl) + "\"," +
                 "\"previewText\":\"" + JsonUtil.escape(preview.previewText()) + "\"" +
                 "}";
+    }
+
+    private static String resolvePreviewTypeFromPath(String filePath) {
+        String lower = nullToEmpty(filePath).trim().toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".txt") || lower.endsWith(".md")) {
+            return "text";
+        }
+        if (lower.endsWith(".pdf")) {
+            return "pdf";
+        }
+        if (lower.endsWith(".docx")) {
+            return "docx";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")) {
+            return "image";
+        }
+        return "binary";
     }
 
     private String managedUsersToJson(List<User> users, List<BorrowRecord> borrows, String actingLibrarianUsername) {

@@ -102,7 +102,27 @@ async function loadSubmission() {
         textPreview.textContent = "";
     }
 
-    const blob = await fetchProtectedBlob(payload.fileUrl);
+    if (!payload.fileUrl || payload.previewType === "text") {
+        if (textPreview) {
+            textPreview.textContent = payload.previewText || "No preview available for this submission.";
+            textPreview.style.display = "block";
+            textPreview.style.whiteSpace = "pre-wrap";
+        }
+        return;
+    }
+
+    let blob;
+    try {
+        blob = await fetchProtectedBlob(payload.fileUrl);
+    } catch (error) {
+        if (textPreview) {
+            textPreview.textContent = payload.previewText || error.message || "Failed to load submission file.";
+            textPreview.style.display = "block";
+            textPreview.style.whiteSpace = "pre-wrap";
+        }
+        return;
+    }
+
     if (payload.previewType === "pdf") {
         await renderPdfPagesFromBlob(blob);
         return;

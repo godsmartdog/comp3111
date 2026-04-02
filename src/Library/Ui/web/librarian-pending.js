@@ -18,6 +18,7 @@ function renderPending(items) {
     tbody.innerHTML = "";
 
     items.forEach((item) => {
+        const submissionId = item.id || item.submissionId || "";
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${item.title}</td>
@@ -33,19 +34,23 @@ function renderPending(items) {
         const approveBtn = document.createElement("button");
         approveBtn.className = "secondary";
         approveBtn.textContent = "Approve";
-        approveBtn.addEventListener("click", () => review(item.id, "approve"));
+        approveBtn.addEventListener("click", () => review(submissionId, "approve"));
 
         const readBtn = document.createElement("button");
         readBtn.className = "secondary";
         readBtn.textContent = "Read";
         readBtn.addEventListener("click", () => {
-            window.location.href = `librarian-submission-reader.html?submissionId=${encodeURIComponent(item.id)}`;
+            if (!submissionId) {
+                showToast("Submission ID is missing for this row.", true);
+                return;
+            }
+            window.location.href = `librarian-submission-reader.html?submissionId=${encodeURIComponent(submissionId)}`;
         });
 
         const rejectBtn = document.createElement("button");
         rejectBtn.className = "danger";
         rejectBtn.textContent = "Reject";
-        rejectBtn.addEventListener("click", () => review(item.id, "reject"));
+        rejectBtn.addEventListener("click", () => review(submissionId, "reject"));
 
         actionCell.appendChild(readBtn);
         actionCell.appendChild(document.createTextNode(" "));
