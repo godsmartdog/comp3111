@@ -251,7 +251,7 @@ function renderBooks(books) {
 
     if (!Array.isArray(books) || books.length === 0) {
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="5" class="muted">No books available for the current filter.</td>';
+        row.innerHTML = '<td colspan="6" class="muted">No books available for the current filter.</td>';
         tbody.appendChild(row);
         return;
     }
@@ -262,6 +262,9 @@ function renderBooks(books) {
         const availableCopies = Number(book.availableCopies ?? 0);
         const totalCopies = Number(book.totalCopies ?? 0);
         const publishDate = book.publishDate || "";
+        const genresText = Array.isArray(book.genres) && book.genres.length > 0
+            ? book.genres.join(", ")
+            : "-";
         const borrowable = book.available && !alreadyBorrowed;
         const statusClass = borrowable ? "status-available" : "status-unavailable";
         const statusText = alreadyBorrowed
@@ -280,6 +283,7 @@ function renderBooks(books) {
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
+            <td>${genresText}</td>
             <td>${publishDate}</td>
             <td class="${statusClass}">${statusText}</td>
             <td>
@@ -349,17 +353,35 @@ function matchesAnyAdvancedFilter(values, filterText, matchMode) {
     return normalizedValues.some((value) => value.includes(normalizedFilter));
 }
 
+function getSelectedGenreFilters() {
+    const genreSelect = document.getElementById("genreFilter");
+    if (!genreSelect) {
+        return [];
+    }
+
+    return Array.from(genreSelect.selectedOptions || [])
+        .map((option) => String(option.value || "").trim())
+        .filter(Boolean);
+}
+
+function matchesSelectedGenres(bookGenres, selectedGenres, matchMode) {
+    if (!Array.isArray(selectedGenres) || selectedGenres.length === 0) {
+        return true;
+    }
+    return selectedGenres.some((genre) => matchesAnyAdvancedFilter(bookGenres, genre, matchMode));
+}
+
 function applyAdvancedFilters(books) {
     const titleFilter = document.getElementById("titleFilter")?.value || "";
     const authorFilter = document.getElementById("authorFilter")?.value || "";
-    const genreFilter = document.getElementById("genreFilter")?.value || "";
+    const selectedGenres = getSelectedGenreFilters();
     const publishedDateFilter = document.getElementById("publishedDateFilter")?.value || "";
     const matchMode = document.getElementById("advancedMatchMode")?.value || "contains";
 
     return books.filter((book) => {
         const titleMatch = matchesAdvancedFilter(book.title, titleFilter, matchMode);
         const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
-        const genreMatch = matchesAnyAdvancedFilter(book.genres, genreFilter, matchMode);
+        const genreMatch = matchesSelectedGenres(book.genres, selectedGenres, matchMode);
         const publishedDateMatch = !publishedDateFilter
             || String(book.publishDate || "").trim() === publishedDateFilter.trim();
         return titleMatch && authorMatch && genreMatch && publishedDateMatch;
@@ -422,7 +444,9 @@ document.getElementById("showAllBtn")?.addEventListener("click", () => {
         authorFilter.value = "";
     }
     if (genreFilter) {
-        genreFilter.value = "";
+        Array.from(genreFilter.options || []).forEach((option) => {
+            option.selected = false;
+        });
     }
     if (publishedDateFilter) {
         publishedDateFilter.value = "";
@@ -450,7 +474,9 @@ document.getElementById("clearAdvancedSearchBtn")?.addEventListener("click", () 
         authorFilter.value = "";
     }
     if (genreFilter) {
-        genreFilter.value = "";
+        Array.from(genreFilter.options || []).forEach((option) => {
+            option.selected = false;
+        });
     }
     if (publishedDateFilter) {
         publishedDateFilter.value = "";
@@ -477,11 +503,7 @@ document.getElementById("authorFilter")?.addEventListener("keydown", (event) => 
     refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("genreFilter")?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") {
-        return;
-    }
-    event.preventDefault();
+document.getElementById("genreFilter")?.addEventListener("change", () => {
     refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
 });
 

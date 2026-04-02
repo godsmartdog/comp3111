@@ -327,7 +327,7 @@ function renderBooks(books) {
 
     if (!Array.isArray(books) || books.length === 0) {
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No books available for the current filter.</td>';
+        row.innerHTML = '<td colspan="6" class="muted">No books available for the current filter.</td>';
         tbody.appendChild(row);
         return;
     }
@@ -344,6 +344,10 @@ function renderBooks(books) {
             : (book.available
                 ? `Available (${availableCopies}/${totalCopies} copies)`
                 : `Unavailable (${availableCopies}/${totalCopies} copies)`);
+        const genresText = Array.isArray(book.genres) && book.genres.length > 0
+            ? book.genres.join(", ")
+            : "-";
+        const publishDateText = String(book.publishDate || "").trim() || "-";
 
         if (!borrowable) {
             selectedBookIds.delete(book.id);
@@ -355,6 +359,8 @@ function renderBooks(books) {
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
+            <td>${genresText}</td>
+            <td>${publishDateText}</td>
             <td class="${statusClass}">${statusText}</td>
             <td>
                 <label>
