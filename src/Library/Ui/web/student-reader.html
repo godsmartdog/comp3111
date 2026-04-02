@@ -41,6 +41,16 @@
             <p id="bookmarkRangeHint" class="hint">Bookmark page range will be detected after opening a PDF.</p>
             <label for="highlightsInput">Highlights (one line per highlight)</label>
             <textarea id="highlightsInput" rows="4" placeholder="Important quote on line 1&#10;Important quote on line 2"></textarea>
+            <div class="inline-row" style="margin-top:8px;gap:8px;">
+                <button id="addPdfHighlightBtn" class="secondary" type="button">Add Selected PDF Text To Highlights</button>
+                <button id="applyPdfHighlightsBtn" class="secondary" type="button">Apply Highlight Marks To PDF</button>
+            </div>
+            <div class="inline-row" style="margin-top:8px;gap:8px;">
+                <button id="togglePdfDrawModeBtn" class="secondary" type="button">Drawing Mode: OFF</button>
+                <button id="undoPdfDrawBtn" class="secondary" type="button">Undo Draw</button>
+                <button id="clearPdfDrawBtn" class="secondary" type="button">Clear Drawings</button>
+            </div>
+            <p id="pdfDrawHint" class="hint">Turn on drawing mode, then drag on PDF to highlight.</p>
             <button id="saveProgressBtn" class="secondary" type="button">Save Bookmark/Highlights</button>
         </div>
     </section>

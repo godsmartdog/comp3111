@@ -14,6 +14,272 @@ let readerFileObjectUrl = null;
 let currentPdfPageCount = 0;
 let activeReaderType = "text";
 let readerCoverObjectUrl = null;
+const PDF_DRAWING_PREFIX = "__PDF_DRAWING__=";
+let drawModeEnabled = false;
+let pdfDrawingStrokes = [];
+let currentDrawingStroke = null;
+let pageDrawCanvasMap = new Map();
+
+function encodeDrawingPayload(strokes) {
+    const compact = {
+        v: 1,
+        s: (Array.isArray(strokes) ? strokes : []).map((stroke) => ({
+            p: Number(stroke.p || 0),
+            w: Number(stroke.w || 14),
+            c: String(stroke.c || "rgba(255, 235, 59, 0.35)"),
+            pts: Array.isArray(stroke.pts)
+                ? stroke.pts.map((point) => [
+                    Number(Number(point[0] || 0).toFixed(4)),
+                    Number(Number(point[1] || 0).toFixed(4))
+                ])
+                : []
+        }))
+    };
+    const json = JSON.stringify(compact);
+    return PDF_DRAWING_PREFIX + btoa(unescape(encodeURIComponent(json)));
+}
+
+function decodeDrawingPayload(line) {
+    if (!line || !line.startsWith(PDF_DRAWING_PREFIX)) {
+        return [];
+    }
+
+    try {
+        const encoded = line.substring(PDF_DRAWING_PREFIX.length);
+        const decoded = decodeURIComponent(escape(atob(encoded)));
+        const payload = JSON.parse(decoded);
+        if (!payload || !Array.isArray(payload.s)) {
+            return [];
+        }
+
+        return payload.s
+            .map((stroke) => ({
+                p: Number(stroke.p || 0),
+                w: Number(stroke.w || 14),
+                c: String(stroke.c || "rgba(255, 235, 59, 0.35)"),
+                pts: Array.isArray(stroke.pts)
+                    ? stroke.pts
+                        .map((point) => [Number(point[0]), Number(point[1])])
+                        .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+                    : []
+            }))
+            .filter((stroke) => stroke.p > 0 && stroke.pts.length > 0);
+    } catch (_) {
+        return [];
+    }
+}
+
+function splitHighlightsAndDrawings(lines) {
+    const safeLines = Array.isArray(lines) ? lines : [];
+    const userLines = [];
+    let drawingStrokes = [];
+
+    safeLines.forEach((line) => {
+        if (typeof line !== "string") {
+            return;
+        }
+        if (line.startsWith(PDF_DRAWING_PREFIX)) {
+            drawingStrokes = decodeDrawingPayload(line);
+            return;
+        }
+        userLines.push(line);
+    });
+
+    return { userLines, drawingStrokes };
+}
+
+function buildHighlightsPayloadForSave() {
+    const inputValue = document.getElementById("highlightsInput")?.value || "";
+    const userLines = inputValue
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    if (pdfDrawingStrokes.length > 0) {
+        userLines.push(encodeDrawingPayload(pdfDrawingStrokes));
+    }
+    return userLines.join("\n");
+}
+
+function updateDrawModeUi() {
+    const toggleBtn = document.getElementById("togglePdfDrawModeBtn");
+    const hint = document.getElementById("pdfDrawHint");
+    if (toggleBtn) {
+        toggleBtn.textContent = drawModeEnabled ? "Drawing Mode: ON" : "Drawing Mode: OFF";
+    }
+    if (hint) {
+        hint.textContent = drawModeEnabled
+            ? "Drag on PDF to paint highlight strokes."
+            : "Turn on drawing mode, then drag on PDF to highlight.";
+    }
+
+    pageDrawCanvasMap.forEach((canvas) => {
+        canvas.style.pointerEvents = drawModeEnabled ? "auto" : "none";
+        canvas.style.cursor = drawModeEnabled ? "crosshair" : "default";
+    });
+}
+
+function normalizedPointFromEvent(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return [0, 0];
+    }
+    const x = Math.min(Math.max(0, event.clientX - rect.left), rect.width);
+    const y = Math.min(Math.max(0, event.clientY - rect.top), rect.height);
+    return [x / rect.width, y / rect.height];
+}
+
+function drawStrokeOnCanvas(canvas, stroke) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
+    }
+
+    const points = Array.isArray(stroke.pts) ? stroke.pts : [];
+    if (points.length === 0) {
+        return;
+    }
+
+    ctx.strokeStyle = stroke.c || "rgba(255, 235, 59, 0.35)";
+    ctx.fillStyle = stroke.c || "rgba(255, 235, 59, 0.35)";
+    ctx.lineWidth = Number(stroke.w || 14);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (points.length === 1) {
+        const x = points[0][0] * canvas.width;
+        const y = points[0][1] * canvas.height;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2, ctx.lineWidth / 2), 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(points[0][0] * canvas.width, points[0][1] * canvas.height);
+    for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i][0] * canvas.width, points[i][1] * canvas.height);
+    }
+    ctx.stroke();
+}
+
+function redrawPdfDrawingStrokes() {
+    pageDrawCanvasMap.forEach((canvas) => {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    });
+
+    pdfDrawingStrokes.forEach((stroke) => {
+        const canvas = pageDrawCanvasMap.get(Number(stroke.p));
+        if (!canvas) {
+            return;
+        }
+        drawStrokeOnCanvas(canvas, stroke);
+    });
+}
+
+function bindDrawCanvas(pageNumber, drawCanvas) {
+    pageDrawCanvasMap.set(pageNumber, drawCanvas);
+
+    drawCanvas.addEventListener("pointerdown", (event) => {
+        if (!drawModeEnabled) {
+            return;
+        }
+        event.preventDefault();
+        drawCanvas.setPointerCapture(event.pointerId);
+        const point = normalizedPointFromEvent(drawCanvas, event);
+        currentDrawingStroke = {
+            p: pageNumber,
+            w: 16,
+            c: "rgba(255, 235, 59, 0.35)",
+            pts: [point]
+        };
+        pdfDrawingStrokes.push(currentDrawingStroke);
+        redrawPdfDrawingStrokes();
+    });
+
+    drawCanvas.addEventListener("pointermove", (event) => {
+        if (!drawModeEnabled || !currentDrawingStroke || currentDrawingStroke.p !== pageNumber) {
+            return;
+        }
+        event.preventDefault();
+        currentDrawingStroke.pts.push(normalizedPointFromEvent(drawCanvas, event));
+        redrawPdfDrawingStrokes();
+    });
+
+    const endStroke = () => {
+        currentDrawingStroke = null;
+    };
+    drawCanvas.addEventListener("pointerup", endStroke);
+    drawCanvas.addEventListener("pointercancel", endStroke);
+    drawCanvas.addEventListener("pointerleave", () => {
+        if (currentDrawingStroke && currentDrawingStroke.p === pageNumber) {
+            currentDrawingStroke = null;
+        }
+    });
+}
+
+function collectHighlightTerms() {
+    const raw = document.getElementById("highlightsInput")?.value || "";
+    return raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+}
+
+function applyPdfTextHighlights() {
+    const readerPdfPages = document.getElementById("readerPdfPages");
+    if (!readerPdfPages) {
+        return;
+    }
+
+    const terms = collectHighlightTerms();
+    const spans = readerPdfPages.querySelectorAll(".pdf-text-layer span");
+    spans.forEach((span) => {
+        const text = (span.textContent || "").trim().toLowerCase();
+        const matched = text.length > 0 && terms.some((term) => text.includes(term.toLowerCase()));
+        span.classList.toggle("pdf-text-highlight", matched);
+    });
+}
+
+function appendSelectedPdfTextToHighlights() {
+    if (activeReaderType !== "pdf") {
+        showToast("Open a PDF first, then select text to highlight.", true);
+        return;
+    }
+
+    const selection = window.getSelection();
+    const selected = (selection?.toString() || "").replace(/\s+/g, " ").trim();
+    if (!selected) {
+        showToast("Please select some PDF text first.", true);
+        return;
+    }
+
+    const readerPdfPages = document.getElementById("readerPdfPages");
+    const anchorNode = selection?.anchorNode || null;
+    if (!readerPdfPages || !anchorNode || !readerPdfPages.contains(anchorNode)) {
+        showToast("Please select text inside the PDF preview area.", true);
+        return;
+    }
+
+    const highlightsInput = document.getElementById("highlightsInput");
+    if (!highlightsInput) {
+        return;
+    }
+
+    const lines = collectHighlightTerms();
+    if (!lines.includes(selected)) {
+        highlightsInput.value = lines.length > 0
+            ? `${lines.join("\n")}\n${selected}`
+            : selected;
+    }
+
+    applyPdfTextHighlights();
+    selection.removeAllRanges();
+    showToast("Selected PDF text added to highlights.", false);
+}
 
 async function fetchProtectedBlob(url) {
     const headers = {};
@@ -149,25 +415,79 @@ async function renderPdfPagesFromBlob(blob) {
     const bytes = await blob.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
     pagesContainer.innerHTML = "";
+    pageDrawCanvasMap = new Map();
 
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
         const page = await pdf.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 1.2 });
+
+        const pageWrap = document.createElement("div");
+        pageWrap.style.position = "relative";
+        pageWrap.style.width = "100%";
+        pageWrap.style.background = "#fff";
+        pageWrap.style.border = "1px solid #d9d9d9";
+        pageWrap.style.borderRadius = "8px";
+        pageWrap.style.overflow = "hidden";
+
         const canvas = document.createElement("canvas");
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         canvas.style.width = "100%";
         canvas.style.maxWidth = "100%";
-        canvas.style.border = "1px solid #d9d9d9";
-        canvas.style.borderRadius = "8px";
         canvas.style.background = "#fff";
+        canvas.style.display = "block";
 
         const context = canvas.getContext("2d");
         await page.render({ canvasContext: context, viewport }).promise;
-        pagesContainer.appendChild(canvas);
+
+        const textLayer = document.createElement("div");
+        textLayer.className = "pdf-text-layer";
+        textLayer.style.position = "absolute";
+        textLayer.style.left = "0";
+        textLayer.style.top = "0";
+        textLayer.style.right = "0";
+        textLayer.style.bottom = "0";
+        textLayer.style.userSelect = "text";
+        textLayer.style.webkitUserSelect = "text";
+        textLayer.style.cursor = "text";
+        textLayer.style.lineHeight = "1";
+        textLayer.style.color = "transparent";
+
+        const textContent = await page.getTextContent();
+        const textTask = pdfjsLib.renderTextLayer({
+            textContent,
+            container: textLayer,
+            viewport,
+            textDivs: []
+        });
+        if (textTask?.promise) {
+            await textTask.promise;
+        }
+
+        const drawCanvas = document.createElement("canvas");
+        drawCanvas.width = viewport.width;
+        drawCanvas.height = viewport.height;
+        drawCanvas.style.position = "absolute";
+        drawCanvas.style.left = "0";
+        drawCanvas.style.top = "0";
+        drawCanvas.style.width = "100%";
+        drawCanvas.style.height = "100%";
+        drawCanvas.style.zIndex = "2";
+        drawCanvas.style.pointerEvents = "none";
+        drawCanvas.style.touchAction = "none";
+
+        bindDrawCanvas(pageNumber, drawCanvas);
+
+        pageWrap.appendChild(canvas);
+        pageWrap.appendChild(textLayer);
+        pageWrap.appendChild(drawCanvas);
+        pagesContainer.appendChild(pageWrap);
     }
 
     pagesContainer.style.display = "flex";
+    redrawPdfDrawingStrokes();
+    updateDrawModeUi();
+    applyPdfTextHighlights();
     return Number(pdf.numPages || 0);
 }
 
@@ -207,6 +527,11 @@ function resetReaderUi(statusText) {
     if (highlights) {
         highlights.value = "";
     }
+    pdfDrawingStrokes = [];
+    currentDrawingStroke = null;
+    pageDrawCanvasMap = new Map();
+    drawModeEnabled = false;
+    updateDrawModeUi();
 }
 
 async function loadBorrowedContent(bookId) {
@@ -305,9 +630,14 @@ async function loadReadingProgress(bookId) {
         }
     }
     const highlights = document.getElementById("highlightsInput");
+    const parsed = splitHighlightsAndDrawings(progress.highlights);
+    pdfDrawingStrokes = parsed.drawingStrokes;
     if (highlights) {
-        highlights.value = Array.isArray(progress.highlights) ? progress.highlights.join("\n") : "";
+        highlights.value = parsed.userLines.join("\n");
     }
+    redrawPdfDrawingStrokes();
+    updateDrawModeUi();
+    applyPdfTextHighlights();
 }
 
 async function refreshBorrows(autoBookId = "") {
@@ -380,7 +710,7 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
         }
 
         const bookmark = getSelectedBookmarkPage();
-        const highlights = document.getElementById("highlightsInput")?.value || "";
+        const highlights = buildHighlightsPayloadForSave();
 
         await api("/api/reading-progress", {
             method: "POST",
@@ -395,6 +725,44 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
     } catch (error) {
         showToast(error.message, true);
     }
+});
+
+document.getElementById("addPdfHighlightBtn")?.addEventListener("click", () => {
+    appendSelectedPdfTextToHighlights();
+});
+
+document.getElementById("applyPdfHighlightsBtn")?.addEventListener("click", () => {
+    applyPdfTextHighlights();
+    showToast("Saved highlight marks applied to PDF view.", false);
+});
+
+document.getElementById("highlightsInput")?.addEventListener("input", () => {
+    applyPdfTextHighlights();
+});
+
+document.getElementById("togglePdfDrawModeBtn")?.addEventListener("click", () => {
+    if (activeReaderType !== "pdf") {
+        showToast("Open a PDF first to draw highlights.", true);
+        return;
+    }
+    drawModeEnabled = !drawModeEnabled;
+    updateDrawModeUi();
+});
+
+document.getElementById("undoPdfDrawBtn")?.addEventListener("click", () => {
+    if (pdfDrawingStrokes.length === 0) {
+        showToast("No drawing highlight to undo.", true);
+        return;
+    }
+    pdfDrawingStrokes.pop();
+    redrawPdfDrawingStrokes();
+    showToast("Last drawing highlight removed.", false);
+});
+
+document.getElementById("clearPdfDrawBtn")?.addEventListener("click", () => {
+    pdfDrawingStrokes = [];
+    redrawPdfDrawingStrokes();
+    showToast("All drawing highlights cleared from view.", false);
 });
 
 window.addEventListener("beforeunload", () => {
