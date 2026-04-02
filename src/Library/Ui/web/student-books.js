@@ -61,24 +61,59 @@ async function refreshActiveBorrowedBookIds() {
 function resetSelectedBookSummary() {
     const description = document.getElementById("selectedBookDescription");
     const preview = document.getElementById("selectedBookPreview");
+    const cover = document.getElementById("selectedBookCover");
+    const filePreview = document.getElementById("selectedBookFilePreview");
     if (description) {
         description.textContent = "Select a book to view description.";
     }
     if (preview) {
         preview.textContent = "First 2-page preview will appear here if available.";
     }
+    if (cover) {
+        cover.style.display = "none";
+        cover.src = "";
+    }
+    if (filePreview) {
+        filePreview.style.display = "none";
+        filePreview.src = "";
+    }
 }
 
 async function loadSelectedBookSummary(bookId) {
     const description = document.getElementById("selectedBookDescription");
     const preview = document.getElementById("selectedBookPreview");
+    const cover = document.getElementById("selectedBookCover");
+    const filePreview = document.getElementById("selectedBookFilePreview");
     if (!description || !preview || !bookId) {
         return;
     }
 
     const payload = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
     description.textContent = payload.summary || "No description available for this book.";
-    preview.textContent = payload.preview || "First 2-page preview is not available.";
+
+    if (cover) {
+        if (payload.coverImageUrl) {
+            cover.src = payload.coverImageUrl;
+            cover.style.display = "block";
+        } else {
+            cover.style.display = "none";
+            cover.src = "";
+        }
+    }
+
+    if (filePreview) {
+        if (payload.previewType === "file" && payload.previewUrl) {
+            filePreview.src = `${payload.previewUrl}#page=1`;
+            filePreview.style.display = "block";
+            preview.textContent = "Embedded file preview loaded. Scroll to view the first pages.";
+        } else {
+            filePreview.style.display = "none";
+            filePreview.src = "";
+            preview.textContent = payload.preview || "First 2-page preview is not available.";
+        }
+    } else {
+        preview.textContent = payload.preview || "First 2-page preview is not available.";
+    }
 }
 
 function updateSelectedBookLabel() {

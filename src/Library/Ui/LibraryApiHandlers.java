@@ -423,14 +423,97 @@ public class LibraryApiHandlers {
 
                 String summary = nullToEmpty(book.getSummary()).trim();
                 String preview = readFirstTwoLinesIfTextFile(book.getFilePath());
+                String filePath = nullToEmpty(book.getFilePath()).trim();
+                String lower = filePath.toLowerCase(Locale.ROOT);
+                String previewType = (lower.endsWith(".pdf") || lower.endsWith(".docx")) ? "file" : "text";
+                String previewUrl = previewType.equals("file") ? ("/api/books/preview-file?bookId=" + JsonUtil.escape(book.getId())) : "";
+                String coverImageUrl = nullToEmpty(book.getCoverImagePath()).isBlank()
+                        ? ""
+                        : ("/api/books/cover?bookId=" + JsonUtil.escape(book.getId()));
 
                 String payload = "{" +
                         "\"bookId\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                         "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                         "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
-                        "\"preview\":\"" + JsonUtil.escape(preview) + "\"" +
+                        "\"preview\":\"" + JsonUtil.escape(preview) + "\"," +
+                        "\"previewType\":\"" + JsonUtil.escape(previewType) + "\"," +
+                        "\"previewUrl\":\"" + JsonUtil.escape(previewUrl) + "\"," +
+                        "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
+                        "\"coverImageUrl\":\"" + JsonUtil.escape(coverImageUrl) + "\"" +
                         "}";
                 sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/books/preview-file", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = required(query, "bookId");
+
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                if (!book.isApproved()) {
+                    throw new IllegalArgumentException("Book is not approved yet.");
+                }
+
+                String filePath = required(Map.of("filePath", nullToEmpty(book.getFilePath()).trim()), "filePath");
+                Path file = Paths.get(filePath);
+                if (!Files.isRegularFile(file)) {
+                    throw new IllegalArgumentException("Book file not found on server.");
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                exchange.getResponseHeaders().set("Content-Type", detectContentType(fileName));
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/books/cover", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = required(query, "bookId");
+
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                if (!book.isApproved()) {
+                    throw new IllegalArgumentException("Book is not approved yet.");
+                }
+
+                String coverPath = required(Map.of("coverPath", nullToEmpty(book.getCoverImagePath()).trim()), "coverPath");
+                Path file = Paths.get(coverPath);
+                if (!Files.isRegularFile(file)) {
+                    throw new IllegalArgumentException("Cover image not found on server.");
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                exchange.getResponseHeaders().set("Content-Type", detectContentType(fileName));
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -642,7 +725,7 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Borrowed",
-                    "You borrowed \"" + borrowedBookTitle + "\". Due date: " + record.getDueDate()
+                    "You borrow this book (" + borrowedBookTitle + "). Due date: " + record.getDueDate()
                 );
                 generateBorrowReminderNotifications(user.getUsername());
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
@@ -747,7 +830,7 @@ public class LibraryApiHandlers {
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Returned",
-                    "You returned \"" + returnedBookTitle + "\". Due date was: " + record.getDueDate()
+                    "You return this book (" + returnedBookTitle + "). Due date was: " + record.getDueDate()
                 );
                 sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
             } catch (ApiAuthException e) {
@@ -1932,13 +2015,31 @@ public class LibraryApiHandlers {
                 String reason = form.getOrDefault("reason", "");
 
                 if ("approve".equals(action)) {
-                    librarianService.approveSubmission(submissionId, comment);
+                    BookSubmission2 approved = librarianService.approveSubmission(submissionId, comment);
+                    String safeComment = nullToEmpty(comment).trim();
+                    String notificationMessage = safeComment.isBlank()
+                            ? "Your submission \"" + approved.getTitle() + "\" was approved by a librarian."
+                            : "Your submission \"" + approved.getTitle() + "\" was approved. Comment: " + safeComment;
+                    notificationService.addNotification(
+                            approved.getAuthorUsername(),
+                            "Submission Approved",
+                            notificationMessage
+                    );
                     sendText(exchange, 200, "Submission approved.");
                 } else if ("reject".equals(action)) {
                     BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
-                    String notificationMessage = rejected.getRejectionReason().isBlank()
-                            ? "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian."
-                            : "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + rejected.getRejectionReason();
+                    String safeComment = nullToEmpty(comment).trim();
+                    String safeReason = nullToEmpty(rejected.getRejectionReason()).trim();
+                    String notificationMessage;
+                    if (!safeReason.isBlank() && !safeComment.isBlank()) {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason + " | Comment: " + safeComment;
+                    } else if (!safeReason.isBlank()) {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason;
+                    } else if (!safeComment.isBlank()) {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + safeComment;
+                    } else {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
+                    }
                     notificationService.addNotification(
                             rejected.getAuthorUsername(),
                             "Submission Rejected",

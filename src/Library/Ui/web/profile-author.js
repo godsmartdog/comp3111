@@ -91,8 +91,13 @@ async function saveAuthorProfile() {
     }, false);
 
     if (passwordChanged) {
-        localStorage.removeItem("currentUser");
-        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "AUTHOR")}`;
+        const successMessage = text || "Password updated successfully. Please log in again.";
+        document.getElementById("authorProfileFeedback").textContent = successMessage;
+        showToast(successMessage, false);
+        setTimeout(() => {
+            localStorage.removeItem("currentUser");
+            window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "AUTHOR")}`;
+        }, 1500);
         return;
     }
 

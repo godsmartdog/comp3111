@@ -94,15 +94,20 @@ async function saveProfile() {
         }
     }
 
-    await api("/api/profile", {
+    const text = await api("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formBody({ fullName, password: newPassword, currentPassword })
     }, false);
 
     if (passwordChanged) {
-        localStorage.removeItem("currentUser");
-        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || expectedRole)}`;
+        const successMessage = text || "Password updated successfully. Please log in again.";
+        document.getElementById("profileFeedback").textContent = successMessage;
+        showToast(successMessage, false);
+        setTimeout(() => {
+            localStorage.removeItem("currentUser");
+            window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || expectedRole)}`;
+        }, 1500);
         return;
     }
 

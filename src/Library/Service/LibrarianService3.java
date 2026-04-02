@@ -386,7 +386,7 @@ public class LibrarianService3 {
     }
 
     // Method to approve a book submission, validating the submission's existence and status before marking it as approved, saving the updated submission, and converting it into a published book in the system, which allows approved submissions to become part of the library's collection.
-    public void approveSubmission(String submissionId, String comment) {
+    public BookSubmission2 approveSubmission(String submissionId, String comment) {
         BookSubmission2 s = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found."));
         if (s.getStatus() != SubmissionState.PENDING) {
@@ -403,6 +403,7 @@ public class LibrarianService3 {
         book.setCoverImagePath(s.getCoverImagePath());
         book.approve(LocalDate.now());
         bookRepository.save(book);
+        return s;
     }
 
     private static String detectContentType(String fileName) {

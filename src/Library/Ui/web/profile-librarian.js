@@ -92,8 +92,13 @@ async function saveLibrarianProfile() {
     }, false);
 
     if (passwordChanged) {
-        localStorage.removeItem("currentUser");
-        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "LIBRARIAN")}`;
+        const successMessage = text || "Password updated successfully. Please log in again.";
+        document.getElementById("librarianProfileFeedback").textContent = successMessage;
+        showToast(successMessage, false);
+        setTimeout(() => {
+            localStorage.removeItem("currentUser");
+            window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "LIBRARIAN")}`;
+        }, 1500);
         return;
     }
 

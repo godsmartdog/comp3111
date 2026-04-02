@@ -11,6 +11,77 @@ if (currentUser) {
 
 let selectedBorrowedBookId = null;
 let readerFileObjectUrl = null;
+let currentPdfPageCount = 0;
+let activeReaderType = "text";
+
+async function detectPdfPageCountFromBytes(arrayBuffer) {
+    if (typeof pdfjsLib === "undefined") {
+        return 0;
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    return Number(pdf.numPages || 0);
+}
+
+function applyBookmarkControlMode(pageCount, preferredPage = 1) {
+    const bookmarkInput = document.getElementById("bookmarkPage");
+    const bookmarkSelect = document.getElementById("bookmarkPageSelect");
+    const rangeHint = document.getElementById("bookmarkRangeHint");
+    const safePreferred = Number.isFinite(Number(preferredPage)) ? Number(preferredPage) : 1;
+
+    if (!bookmarkInput || !bookmarkSelect) {
+        return;
+    }
+
+    if (pageCount > 0) {
+        currentPdfPageCount = pageCount;
+        bookmarkInput.style.display = "none";
+        bookmarkSelect.style.display = "inline-block";
+        bookmarkSelect.innerHTML = "";
+
+        for (let page = 1; page <= pageCount; page += 1) {
+            const option = document.createElement("option");
+            option.value = String(page);
+            option.textContent = `Page ${page}`;
+            bookmarkSelect.appendChild(option);
+        }
+
+        const bounded = Math.min(Math.max(1, safePreferred), pageCount);
+        bookmarkSelect.value = String(bounded);
+        bookmarkInput.value = String(bounded);
+        bookmarkInput.min = "1";
+        bookmarkInput.max = String(pageCount);
+        if (rangeHint) {
+            rangeHint.textContent = `PDF page range detected: 1 to ${pageCount}. Select one page as bookmark.`;
+        }
+        return;
+    }
+
+    currentPdfPageCount = 0;
+    bookmarkSelect.style.display = "none";
+    bookmarkSelect.innerHTML = "";
+    bookmarkInput.style.display = "inline-block";
+    bookmarkInput.min = "1";
+    bookmarkInput.max = "";
+    bookmarkInput.value = String(Math.max(1, safePreferred));
+    if (rangeHint) {
+        rangeHint.textContent = "Bookmark page range is not available for this format. Enter a page number manually.";
+    }
+}
+
+function getSelectedBookmarkPage() {
+    const bookmarkInput = document.getElementById("bookmarkPage");
+    const bookmarkSelect = document.getElementById("bookmarkPageSelect");
+    if (bookmarkSelect && bookmarkSelect.style.display !== "none") {
+        return Number(bookmarkSelect.value || "1");
+    }
+    return Number(bookmarkInput?.value || "1");
+}
 
 function clearReaderObjectUrl() {
     if (readerFileObjectUrl) {
@@ -36,12 +107,11 @@ function resetReaderUi(statusText) {
         readerText.style.display = "none";
         readerText.textContent = "";
     }
+    activeReaderType = "text";
 
     const bookmark = document.getElementById("bookmarkPage");
     const highlights = document.getElementById("highlightsInput");
-    if (bookmark) {
-        bookmark.value = "1";
-    }
+    applyBookmarkControlMode(0, 1);
     if (highlights) {
         highlights.value = "";
     }
@@ -58,6 +128,7 @@ async function loadBorrowedContent(bookId) {
     }
 
     if (payload.type === "pdf") {
+        activeReaderType = "pdf";
         const response = await fetch(payload.url, { headers });
         if (!response.ok) {
             throw new Error("Failed to load PDF preview.");
@@ -65,7 +136,10 @@ async function loadBorrowedContent(bookId) {
 
         clearReaderObjectUrl();
         const blob = await response.blob();
+        const bytes = await blob.arrayBuffer();
         readerFileObjectUrl = URL.createObjectURL(blob);
+        const pageCount = await detectPdfPageCountFromBytes(bytes);
+        applyBookmarkControlMode(pageCount, 1);
 
         if (readerText) {
             readerText.style.display = "none";
@@ -79,6 +153,8 @@ async function loadBorrowedContent(bookId) {
     }
 
     if (payload.type === "docx") {
+        activeReaderType = "docx";
+        applyBookmarkControlMode(0, 1);
         if (readerPdf) {
             readerPdf.style.display = "none";
             readerPdf.src = "";
@@ -108,6 +184,8 @@ async function loadBorrowedContent(bookId) {
         return;
     }
 
+    activeReaderType = "text";
+    applyBookmarkControlMode(0, 1);
     if (readerPdf) {
         readerPdf.style.display = "none";
         readerPdf.src = "";
@@ -121,11 +199,19 @@ async function loadBorrowedContent(bookId) {
 
 async function loadReadingProgress(bookId) {
     const progress = await api(`/api/reading-progress?bookId=${encodeURIComponent(bookId)}`);
-    const bookmark = document.getElementById("bookmarkPage");
-    const highlights = document.getElementById("highlightsInput");
-    if (bookmark) {
-        bookmark.value = String(progress.bookmark || 1);
+    const preferred = Number(progress.bookmark || 1);
+    if (currentPdfPageCount > 0) {
+        applyBookmarkControlMode(currentPdfPageCount, preferred);
+    } else {
+        applyBookmarkControlMode(0, preferred);
     }
+    if (activeReaderType === "pdf" && readerFileObjectUrl) {
+        const readerPdf = document.getElementById("readerPdf");
+        if (readerPdf) {
+            readerPdf.src = `${readerFileObjectUrl}#page=${Math.max(1, preferred)}`;
+        }
+    }
+    const highlights = document.getElementById("highlightsInput");
     if (highlights) {
         highlights.value = Array.isArray(progress.highlights) ? progress.highlights.join("\n") : "";
     }
@@ -198,7 +284,7 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
             return;
         }
 
-        const bookmark = Number(document.getElementById("bookmarkPage")?.value || "1");
+        const bookmark = getSelectedBookmarkPage();
         const highlights = document.getElementById("highlightsInput")?.value || "";
 
         await api("/api/reading-progress", {

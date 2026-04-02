@@ -18,7 +18,78 @@ let allNotifications = [];
 let currentNotificationPage = 1;
 const notificationPageSize = 5;
 let readerFileObjectUrl = null;
+let currentPdfPageCount = 0;
+let activeReaderType = "text";
 const MAX_BORROW_LIMIT = 5;
+
+async function detectPdfPageCountFromBytes(arrayBuffer) {
+    if (typeof pdfjsLib === "undefined") {
+        return 0;
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    return Number(pdf.numPages || 0);
+}
+
+function applyBookmarkControlMode(pageCount, preferredPage = 1) {
+    const bookmarkInput = document.getElementById("bookmarkPage");
+    const bookmarkSelect = document.getElementById("bookmarkPageSelect");
+    const rangeHint = document.getElementById("bookmarkRangeHint");
+    const safePreferred = Number.isFinite(Number(preferredPage)) ? Number(preferredPage) : 1;
+
+    if (!bookmarkInput || !bookmarkSelect) {
+        return;
+    }
+
+    if (pageCount > 0) {
+        currentPdfPageCount = pageCount;
+        bookmarkInput.style.display = "none";
+        bookmarkSelect.style.display = "inline-block";
+        bookmarkSelect.innerHTML = "";
+
+        for (let page = 1; page <= pageCount; page += 1) {
+            const option = document.createElement("option");
+            option.value = String(page);
+            option.textContent = `Page ${page}`;
+            bookmarkSelect.appendChild(option);
+        }
+
+        const bounded = Math.min(Math.max(1, safePreferred), pageCount);
+        bookmarkSelect.value = String(bounded);
+        bookmarkInput.value = String(bounded);
+        bookmarkInput.min = "1";
+        bookmarkInput.max = String(pageCount);
+        if (rangeHint) {
+            rangeHint.textContent = `PDF page range detected: 1 to ${pageCount}. Select one page as bookmark.`;
+        }
+        return;
+    }
+
+    currentPdfPageCount = 0;
+    bookmarkSelect.style.display = "none";
+    bookmarkSelect.innerHTML = "";
+    bookmarkInput.style.display = "inline-block";
+    bookmarkInput.min = "1";
+    bookmarkInput.max = "";
+    bookmarkInput.value = String(Math.max(1, safePreferred));
+    if (rangeHint) {
+        rangeHint.textContent = "Bookmark page range is not available for this format. Enter a page number manually.";
+    }
+}
+
+function getSelectedBookmarkPage() {
+    const bookmarkInput = document.getElementById("bookmarkPage");
+    const bookmarkSelect = document.getElementById("bookmarkPageSelect");
+    if (bookmarkSelect && bookmarkSelect.style.display !== "none") {
+        return Number(bookmarkSelect.value || "1");
+    }
+    return Number(bookmarkInput?.value || "1");
+}
 
 function updateSearchQuota() {
     const searchQuota = document.getElementById("searchQuota");
@@ -64,24 +135,59 @@ async function refreshActiveBorrowedBookIds() {
 function resetSelectedBookSummary() {
     const description = document.getElementById("selectedBookDescription");
     const preview = document.getElementById("selectedBookPreview");
+    const cover = document.getElementById("selectedBookCover");
+    const filePreview = document.getElementById("selectedBookFilePreview");
     if (description) {
         description.textContent = "Select a book to view description.";
     }
     if (preview) {
         preview.textContent = "First 2-page preview will appear here if available.";
     }
+    if (cover) {
+        cover.style.display = "none";
+        cover.src = "";
+    }
+    if (filePreview) {
+        filePreview.style.display = "none";
+        filePreview.src = "";
+    }
 }
 
 async function loadSelectedBookSummary(bookId) {
     const description = document.getElementById("selectedBookDescription");
     const preview = document.getElementById("selectedBookPreview");
+    const cover = document.getElementById("selectedBookCover");
+    const filePreview = document.getElementById("selectedBookFilePreview");
     if (!description || !preview || !bookId) {
         return;
     }
 
     const payload = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
     description.textContent = payload.summary || "No description available for this book.";
-    preview.textContent = payload.preview || "First 2-page preview is not available.";
+
+    if (cover) {
+        if (payload.coverImageUrl) {
+            cover.src = payload.coverImageUrl;
+            cover.style.display = "block";
+        } else {
+            cover.style.display = "none";
+            cover.src = "";
+        }
+    }
+
+    if (filePreview) {
+        if (payload.previewType === "file" && payload.previewUrl) {
+            filePreview.src = `${payload.previewUrl}#page=1`;
+            filePreview.style.display = "block";
+            preview.textContent = "Embedded file preview loaded. Scroll to view the first pages.";
+        } else {
+            filePreview.style.display = "none";
+            filePreview.src = "";
+            preview.textContent = payload.preview || "First 2-page preview is not available.";
+        }
+    } else {
+        preview.textContent = payload.preview || "First 2-page preview is not available.";
+    }
 }
 
 function clearReaderObjectUrl() {
@@ -508,7 +614,8 @@ function resetReaderUi(statusText) {
     readerPdf.src = "";
     readerText.style.display = "none";
     readerText.textContent = "";
-    document.getElementById("bookmarkPage").value = "1";
+    activeReaderType = "text";
+    applyBookmarkControlMode(0, 1);
     document.getElementById("highlightsInput").value = "";
 }
 
@@ -522,6 +629,7 @@ async function loadBorrowedContent(bookId) {
     }
 
     if (payload.type === "pdf") {
+        activeReaderType = "pdf";
         const response = await fetch(payload.url, { headers });
         if (!response.ok) {
             throw new Error("Failed to load PDF preview.");
@@ -529,7 +637,10 @@ async function loadBorrowedContent(bookId) {
 
         clearReaderObjectUrl();
         const blob = await response.blob();
+        const bytes = await blob.arrayBuffer();
         readerFileObjectUrl = URL.createObjectURL(blob);
+        const pageCount = await detectPdfPageCountFromBytes(bytes);
+        applyBookmarkControlMode(pageCount, 1);
 
         readerText.style.display = "none";
         readerText.textContent = "";
@@ -539,6 +650,8 @@ async function loadBorrowedContent(bookId) {
     }
 
     if (payload.type === "docx") {
+        activeReaderType = "docx";
+        applyBookmarkControlMode(0, 1);
         readerPdf.style.display = "none";
         readerPdf.src = "";
         readerText.style.display = "block";
@@ -560,6 +673,8 @@ async function loadBorrowedContent(bookId) {
         return;
     }
 
+    activeReaderType = "text";
+    applyBookmarkControlMode(0, 1);
     readerPdf.style.display = "none";
     readerPdf.src = "";
     readerText.style.display = "block";
@@ -569,7 +684,18 @@ async function loadBorrowedContent(bookId) {
 
 async function loadReadingProgress(bookId) {
     const progress = await api(`/api/reading-progress?bookId=${encodeURIComponent(bookId)}`);
-    document.getElementById("bookmarkPage").value = String(progress.bookmark || 1);
+    const preferred = Number(progress.bookmark || 1);
+    if (currentPdfPageCount > 0) {
+        applyBookmarkControlMode(currentPdfPageCount, preferred);
+    } else {
+        applyBookmarkControlMode(0, preferred);
+    }
+    if (activeReaderType === "pdf" && readerFileObjectUrl) {
+        const readerPdf = document.getElementById("readerPdf");
+        if (readerPdf) {
+            readerPdf.src = `${readerFileObjectUrl}#page=${Math.max(1, preferred)}`;
+        }
+    }
     document.getElementById("highlightsInput").value = Array.isArray(progress.highlights)
         ? progress.highlights.join("\n")
         : "";
@@ -582,7 +708,7 @@ document.getElementById("saveProgressBtn").addEventListener("click", async () =>
             return;
         }
 
-        const bookmark = Number(document.getElementById("bookmarkPage").value || "1");
+        const bookmark = getSelectedBookmarkPage();
         const highlights = document.getElementById("highlightsInput").value;
         await api("/api/reading-progress", {
             method: "POST",
