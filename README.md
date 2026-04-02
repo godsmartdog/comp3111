@@ -50,7 +50,7 @@ Relevant top-level source areas:
 - `src/Library/Test`: integration test suite
 
 ## Running the Project
-
+after setting the path of java in ps1/sh file or you use codespace
 The repository includes a shell script for macOS/Linux execution:
 
 ```bash
