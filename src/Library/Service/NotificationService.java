@@ -246,7 +246,12 @@ public class NotificationService {
         }
         String title = safeLower(item.getTitle());
         String message = safeLower(item.getMessage());
-        return title.contains(normalizedKeyword) || message.contains(normalizedKeyword);
+        String createdAt = item.getCreatedAt() == null ? "" : item.getCreatedAt().toString().toLowerCase(Locale.ROOT);
+        String createdDate = item.getCreatedAt() == null ? "" : item.getCreatedAt().toLocalDate().toString().toLowerCase(Locale.ROOT);
+        return title.contains(normalizedKeyword)
+                || message.contains(normalizedKeyword)
+                || createdAt.contains(normalizedKeyword)
+                || createdDate.contains(normalizedKeyword);
     }
 
     private static boolean matchesReadFilter(NotificationItem item, NotificationReadFilter readFilter) {

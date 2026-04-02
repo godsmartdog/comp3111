@@ -600,6 +600,8 @@ async function refreshNotifications() {
         const keyword = document.getElementById("notificationKeyword")?.value?.trim() || "";
         const priorityFilter = document.getElementById("notificationPriorityFilter")?.value || "all";
         const categoryFilter = document.getElementById("notificationCategoryFilter")?.value || "all";
+        const createdDateFrom = document.getElementById("notificationDateFrom")?.value || "";
+        const createdDateTo = document.getElementById("notificationDateTo")?.value || "";
         if (keyword) {
             params.set("q", keyword);
         }
@@ -608,6 +610,12 @@ async function refreshNotifications() {
         }
         if (categoryFilter !== "all") {
             params.set("category", categoryFilter);
+        }
+        if (createdDateFrom) {
+            params.set("createdDateFrom", createdDateFrom);
+        }
+        if (createdDateTo) {
+            params.set("createdDateTo", createdDateTo);
         }
 
         const items = await api(`/api/notifications?${params.toString()}`);
@@ -666,7 +674,7 @@ function renderCurrentNotificationPage() {
     currentItems.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
-            const created = item.createdAt || "";
+            const created = item.createdDate || item.createdAt || "";
             const priority = (item.priority || "NORMAL").toUpperCase();
             const category = item.category || "Other";
             const priorityClass = `priority-${priority.toLowerCase()}`;

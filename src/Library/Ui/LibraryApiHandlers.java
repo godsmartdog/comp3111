@@ -650,6 +650,8 @@ public class LibraryApiHandlers {
                 NotificationService.NotificationReadFilter readFilter = parseNotificationReadFilter(query);
                 NotificationPriority priorityFilter = parseNotificationPriorityFilter(query);
                 String categoryFilter = RequestFilters.getTrimmed(query, "category", "all");
+                LocalDate createdDateFrom = parseDateFilter(query, "createdDateFrom");
+                LocalDate createdDateTo = parseDateFilter(query, "createdDateTo");
                 NotificationService.NotificationSortBy sortBy = parseNotificationSortBy(query);
                 NotificationService.NotificationSortDirection sortDir = parseNotificationSortDir(query);
                 List<NotificationItem> items = notificationService.listByUser(
@@ -662,6 +664,7 @@ public class LibraryApiHandlers {
                         sortDir
                 );
                 items = filterNotificationsByCategory(items, categoryFilter);
+                items = filterNotificationsByCreatedDate(items, createdDateFrom, createdDateTo);
                 sendJson(exchange, 200, notificationsToJson(items));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -2761,6 +2764,7 @@ public class LibraryApiHandlers {
                     "\"category\":\"" + JsonUtil.escape(notificationCategoryLabel(categoryKey)) + "\"," +
                     "\"categoryKey\":\"" + JsonUtil.escape(categoryKey) + "\"," +
                     "\"priority\":\"" + item.getPriority() + "\"," +
+                    "\"createdDate\":\"" + JsonUtil.escape(item.getCreatedAt() == null ? "" : item.getCreatedAt().toLocalDate().toString()) + "\"," +
                     "\"createdAt\":\"" + DATE_TIME_FORMATTER.format(item.getCreatedAt()) + "\"," +
                     "\"read\":" + item.isRead() + "," +
                     "\"readAt\":\"" + JsonUtil.escape(item.getReadAt() == null ? "" : DATE_TIME_FORMATTER.format(item.getReadAt())) + "\"," +
@@ -2812,6 +2816,30 @@ public class LibraryApiHandlers {
             if (normalizedFilter.equals(notificationCategoryKey(item))) {
                 filtered.add(item);
             }
+        }
+        return filtered;
+    }
+
+    private static List<NotificationItem> filterNotificationsByCreatedDate(List<NotificationItem> items,
+                                                                           LocalDate createdDateFrom,
+                                                                           LocalDate createdDateTo) {
+        if (createdDateFrom == null && createdDateTo == null) {
+            return items;
+        }
+
+        List<NotificationItem> filtered = new ArrayList<>();
+        for (NotificationItem item : items) {
+            LocalDate createdDate = item.getCreatedAt() == null ? null : item.getCreatedAt().toLocalDate();
+            if (createdDate == null) {
+                continue;
+            }
+            if (createdDateFrom != null && createdDate.isBefore(createdDateFrom)) {
+                continue;
+            }
+            if (createdDateTo != null && createdDate.isAfter(createdDateTo)) {
+                continue;
+            }
+            filtered.add(item);
         }
         return filtered;
     }
