@@ -671,7 +671,17 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
         }
 
         const days = Number(document.getElementById("borrowDays").value);
-        if (!confirm(`Confirm borrow ${selectedBookIds.size} selected book(s) for ${days} day(s)?`)) {
+        const selectedTitles = Array.from(selectedBookIds)
+            .map((id) => allBooks.find((book) => book.id === id)?.title || id)
+            .join("\n- ");
+        const confirmationMessage = [
+            `Confirm borrow ${selectedBookIds.size} selected book(s) for ${days} day(s)?`,
+            "",
+            "Selected books:",
+            `- ${selectedTitles}`
+        ].join("\n");
+
+        if (!confirm(confirmationMessage)) {
             return;
         }
         const text = await api("/api/borrow/bulk", {
