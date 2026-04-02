@@ -2855,35 +2855,6 @@ public class LibraryApiHandlers {
 
     private static String profilePhotoUrl(User user) {
         String photoPath = user == null ? "" : nullToEmpty(user.getProfilePhotoPath()).trim();
-
-    private static String profilePhotoUrl(User user) {
-        String photoPath = user == null ? "" : nullToEmpty(user.getProfilePhotoPath()).trim();
-        return photoPath.isBlank() ? "" : "/api/profile/photo";
-    }
-
-    private String storeProfilePhoto(String username, Role role, UploadedFile uploadedPhoto) throws IOException {
-        if (uploadedPhoto == null || uploadedPhoto.path() == null) {
-            return "";
-        }
-
-        fileService.validateCoverImageFile(uploadedPhoto.path().toString());
-        Files.createDirectories(PROFILE_PHOTO_DIR);
-
-        String originalName = nullToEmpty(uploadedPhoto.originalFileName()).trim().toLowerCase(Locale.ROOT);
-        String extension = ".png";
-        if (originalName.endsWith(".jpg") || originalName.endsWith(".jpeg")) {
-            extension = ".jpg";
-        } else if (originalName.endsWith(".png")) {
-            extension = ".png";
-        }
-
-        String safeUsername = nullToEmpty(username).replaceAll("[^A-Za-z0-9._-]", "_");
-        String safeRole = role == null ? "user" : role.name().toLowerCase(Locale.ROOT);
-        String fileName = safeUsername + "-" + safeRole + "-photo" + extension;
-        Path destination = PROFILE_PHOTO_DIR.resolve(fileName);
-        Files.copy(uploadedPhoto.path(), destination, StandardCopyOption.REPLACE_EXISTING);
-        return destination.toAbsolutePath().toString();
-    }
         return photoPath.isBlank() ? "" : "/api/profile/photo";
     }
 
