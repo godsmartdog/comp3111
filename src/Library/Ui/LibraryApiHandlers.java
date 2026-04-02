@@ -636,10 +636,13 @@ public class LibraryApiHandlers {
                 int days = RequestFilters.parseIntInRange(form, "days", 14, 1, 14);
 
                 BorrowRecord record = borrowService.borrowBook(user.getUsername(), bookId, days);
+                String borrowedBookTitle = bookService.findBookById(bookId)
+                    .map(Book::getTitle)
+                    .orElse(bookId);
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Borrowed",
-                        "You borrowed this book. Due date: " + record.getDueDate()
+                    "You borrowed \"" + borrowedBookTitle + "\". Due date: " + record.getDueDate()
                 );
                 generateBorrowReminderNotifications(user.getUsername());
                 sendText(exchange, 200, "Borrowed successfully. Due date: " + record.getDueDate());
@@ -667,10 +670,17 @@ public class LibraryApiHandlers {
 
                 List<BorrowRecord> records = borrowService.borrowBooks(user.getUsername(), bookIds, days);
                 BorrowRecord sample = records.get(0);
+                List<String> borrowedTitles = new ArrayList<>();
+                for (BorrowRecord record : records) {
+                    String title = bookService.findBookById(record.getBookId())
+                        .map(Book::getTitle)
+                        .orElse(record.getBookId());
+                    borrowedTitles.add(title);
+                }
                 notificationService.addNotification(
                         user.getUsername(),
                         "Books Borrowed",
-                        "You borrowed " + records.size() + " books. Due date: " + sample.getDueDate()
+                    "You borrowed " + records.size() + " book(s): " + String.join(", ", borrowedTitles) + ". Due date: " + sample.getDueDate()
                 );
                 generateBorrowReminderNotifications(user.getUsername());
 
@@ -731,10 +741,13 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String bookId = required(form, "bookId");
                 BorrowRecord record = borrowService.returnBook(user.getUsername(), bookId);
+                String returnedBookTitle = bookService.findBookById(bookId)
+                    .map(Book::getTitle)
+                    .orElse(bookId);
                 notificationService.addNotification(
                         user.getUsername(),
                         "Book Returned",
-                        "You returned a book. Due date was: " + record.getDueDate()
+                    "You returned \"" + returnedBookTitle + "\". Due date was: " + record.getDueDate()
                 );
                 sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
             } catch (ApiAuthException e) {
