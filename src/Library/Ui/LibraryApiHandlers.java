@@ -2264,8 +2264,8 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String submissionId = required(form, "submissionId");
                 String action = required(form, "action").toLowerCase();
-                String comment = form.getOrDefault("comment", "");
-                String reason = form.getOrDefault("reason", "");
+                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
+                String reason = nullToEmpty(form.getOrDefault("reason", "")).trim();
                 boolean sendFeedback = Boolean.parseBoolean(RequestFilters.getTrimmed(form, "sendFeedback", "true"));
 
                 if ("approve".equals(action)) {
@@ -2287,23 +2287,20 @@ public class LibraryApiHandlers {
                     sendText(exchange, 200, "Submission approved.");
                 } else if ("reject".equals(action)) {
                     BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
-                    if (sendFeedback) {
-                        String safeComment = nullToEmpty(comment).trim();
-                        String notificationMessage;
-                        if (!safeComment.isBlank()) {
-                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + safeComment;
-                        } else {
-                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
-                        }
-                        notificationService.addNotification(
-                                rejected.getAuthorUsername(),
-                                "Submission Rejected",
+                    String notificationMessage;
+                    if (!comment.isBlank()) {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + comment;
+                    } else {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
+                    }
+                    notificationService.addNotification(
+                            rejected.getAuthorUsername(),
+                            "Submission Rejected",
                             notificationMessage,
                             NotificationPriority.NORMAL,
                             null,
                             Map.of("type", "submission", "submissionId", rejected.getId())
-                        );
-                    }
+                    );
                     sendText(exchange, 200, "Submission rejected.");
                 } else {
                     sendText(exchange, 400, "Action must be approve or reject.");
@@ -2925,7 +2922,6 @@ public class LibraryApiHandlers {
                     "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
-                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
                     "\"status\":\"" + submission.getStatus() + "\"," +
                     "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +

@@ -62,13 +62,21 @@ function renderCurrentNotificationPage() {
         const priority = (item.priority || "NORMAL").toUpperCase();
         const category = item.category || "Other";
         const highLabel = priority === "HIGH" ? " !" : "";
+        const priorityClass = `priority-${priority.toLowerCase()}`;
+
+        li.style.padding = "10px";
+        li.style.borderRadius = "8px";
+        li.style.marginBottom = "8px";
+        li.style.background = item.read ? "rgba(60, 80, 120, 0.12)" : "rgba(32, 53, 79, 0.2)";
+        li.style.border = item.read ? "1px solid rgba(120, 140, 180, 0.35)" : "1px solid rgba(74, 116, 173, 0.45)";
 
         li.innerHTML = `
             <div>
                 <strong>[${readLabel}] ${item.title}${highLabel}</strong>
                 <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#2f4968;color:#fff;font-size:0.75rem;font-weight:700;">${category}</span>
+                <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                 <div>${item.message || ""}</div>
-                <small>${created} | ${priority}</small>
+                <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
             </div>
             <div class="notification-actions">
                 <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
@@ -85,6 +93,9 @@ function renderCurrentNotificationPage() {
                 });
                 showToast(payload.message || "Notification marked as read.", false);
                 item.read = true;
+                if (payload.readAt) {
+                    item.readAt = payload.readAt;
+                }
                 renderCurrentNotificationPage();
             } catch (error) {
                 showToast(error.message, true);

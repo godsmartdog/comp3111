@@ -157,7 +157,6 @@ async function review(submissionId, action, item = {}) {
     try {
         let comment = "";
         let reason = "";
-        let sendFeedback = true;
         const title = item.title || submissionId;
         const author = item.authorFullName || item.authorUsername || "unknown author";
         const genres = Array.isArray(item.genres) && item.genres.length > 0
@@ -183,16 +182,14 @@ async function review(submissionId, action, item = {}) {
                 showToast("Reviewer comment must be at most 500 characters.", true);
                 return;
             }
-            sendFeedback = confirm("Send rejection feedback to the author now?");
         } else {
             comment = (prompt(`Comment for ${action} (optional)`) || "").trim();
-            sendFeedback = confirm("Send approval feedback to the author now?");
         }
 
         const text = await api("/api/librarian/review", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({ submissionId, action, comment, reason, sendFeedback })
+            body: formBody({ submissionId, action, comment, reason })
         }, false);
 
         showToast(text, false);
