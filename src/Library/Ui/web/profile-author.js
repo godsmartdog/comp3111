@@ -60,6 +60,7 @@ async function saveAuthorProfile() {
     const currentPassword = document.getElementById("authorProfileCurrentPassword").value.trim();
     const password = document.getElementById("authorProfilePassword").value;
     const confirmPassword = document.getElementById("authorProfileConfirmPassword").value;
+    const passwordChanged = Boolean(password.trim());
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -88,6 +89,12 @@ async function saveAuthorProfile() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formBody({ fullName, bio, password, currentPassword })
     }, false);
+
+    if (passwordChanged) {
+        localStorage.removeItem("currentUser");
+        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "AUTHOR")}`;
+        return;
+    }
 
     if (currentUser) {
         currentUser.fullName = fullName;

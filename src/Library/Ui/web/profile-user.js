@@ -72,6 +72,7 @@ async function saveProfile() {
     const currentPassword = document.getElementById("profileCurrentPassword").value.trim();
     const newPassword = document.getElementById("profilePassword").value.trim();
     const confirmPassword = document.getElementById("profileConfirmPassword").value.trim();
+    const passwordChanged = Boolean(newPassword);
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -98,6 +99,12 @@ async function saveProfile() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formBody({ fullName, password: newPassword, currentPassword })
     }, false);
+
+    if (passwordChanged) {
+        localStorage.removeItem("currentUser");
+        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || expectedRole)}`;
+        return;
+    }
 
     if (currentUser) {
         currentUser.fullName = fullName;

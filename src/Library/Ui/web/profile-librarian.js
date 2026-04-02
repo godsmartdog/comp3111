@@ -60,6 +60,7 @@ async function saveLibrarianProfile() {
     const currentPassword = document.getElementById("librarianProfileCurrentPassword").value.trim();
     const password = document.getElementById("librarianProfilePassword").value;
     const confirmPassword = document.getElementById("librarianProfileConfirmPassword").value;
+    const passwordChanged = Boolean(password.trim());
 
     if (!fullName) {
         throw new Error("Full Name cannot be empty.");
@@ -89,6 +90,12 @@ async function saveLibrarianProfile() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formBody({ fullName, employeeId, password, currentPassword })
     }, false);
+
+    if (passwordChanged) {
+        localStorage.removeItem("currentUser");
+        window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "LIBRARIAN")}`;
+        return;
+    }
 
     if (currentUser) {
         currentUser.fullName = fullName;

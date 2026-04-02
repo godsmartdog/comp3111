@@ -460,13 +460,18 @@ public class LibraryApiHandlers {
                 String fullName = required(form, "fullName");
                 String newPassword = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
+                boolean passwordChanged = !nullToEmpty(newPassword).isBlank();
                 User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword, currentPassword);
 
-                String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
-                if (!sessionId.isEmpty()) {
-                    sessions.put(sessionId, updated);
-                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
-                    refreshSessionSnapshot();
+                if (passwordChanged) {
+                    invalidateSessionsByUsername(user.getUsername());
+                } else {
+                    String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+                    if (!sessionId.isEmpty()) {
+                        sessions.put(sessionId, updated);
+                        sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
+                        refreshSessionSnapshot();
+                    }
                 }
 
                 notificationService.addNotification(
@@ -475,7 +480,9 @@ public class LibraryApiHandlers {
                         "Your profile details were updated successfully."
                 );
 
-                sendText(exchange, 200, "Profile updated successfully.");
+                sendText(exchange, 200, passwordChanged
+                    ? "Password updated successfully. Please log in again."
+                    : "Profile updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1098,14 +1105,20 @@ public class LibraryApiHandlers {
                 String bio = required(form, "bio");
                 String password = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
+                boolean passwordChanged = !nullToEmpty(password).isBlank();
 
                 authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password, currentPassword);
+                if (passwordChanged) {
+                    invalidateSessionsByUsername(user.getUsername());
+                }
                 notificationService.addNotification(
                         user.getUsername(),
                         "Author Profile Updated",
                         "Your author profile has been updated successfully."
                 );
-                sendText(exchange, 200, "Author profile updated successfully.");
+                sendText(exchange, 200, passwordChanged
+                    ? "Password updated successfully. Please log in again."
+                    : "Author profile updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1810,6 +1823,7 @@ public class LibraryApiHandlers {
                 String employeeId = required(form, "employeeId");
                 String password = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
+                boolean passwordChanged = !nullToEmpty(password).isBlank();
 
                 LibrarianService3.LibrarianProfileSnapshot updated = librarianService.updateLibrarianProfile(
                         user.getUsername(),
@@ -1826,15 +1840,21 @@ public class LibraryApiHandlers {
                     "Your librarian profile has been updated successfully."
                 );
 
-                String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
-                if (!sessionId.isEmpty()) {
-                    user.updateFullName(updated.fullName());
-                    sessions.put(sessionId, user);
-                    sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
-                    refreshSessionSnapshot();
+                if (passwordChanged) {
+                    invalidateSessionsByUsername(user.getUsername());
+                } else {
+                    String sessionId = nullToEmpty(exchange.getRequestHeaders().getFirst(SESSION_HEADER)).trim();
+                    if (!sessionId.isEmpty()) {
+                        user.updateFullName(updated.fullName());
+                        sessions.put(sessionId, user);
+                        sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
+                        refreshSessionSnapshot();
+                    }
                 }
 
-                sendText(exchange, 200, "Librarian profile updated successfully.");
+                sendText(exchange, 200, passwordChanged
+                        ? "Password updated successfully. Please log in again."
+                        : "Librarian profile updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
