@@ -67,7 +67,7 @@ public class BorrowService {
         BorrowRecord record = new BorrowRecord(username, bookId, now, due);
         borrowRepository.save(record);
 
-        book.setAvailable(false);
+        book.markBorrowedCopy();
         return record;
     }
 
@@ -104,7 +104,7 @@ public class BorrowService {
         for (Book book : booksToBorrow) {
             BorrowRecord record = new BorrowRecord(username, book.getId(), now, due);
             borrowRepository.save(record);
-            book.setAvailable(false);
+            book.markBorrowedCopy();
             records.add(record);
         }
         return records;
@@ -120,7 +120,7 @@ public class BorrowService {
         BorrowRecord record = requireActiveBorrow(username, bookId);
 
         record.markReturned();
-        book.setAvailable(true);
+        book.markReturnedCopy();
         return record;
     }
 
@@ -154,7 +154,7 @@ public class BorrowService {
 
         for (BorrowRecord record : overdue) {
             record.markReturned(today, true);
-            bookRepository.findById(record.getBookId()).ifPresent(book -> book.setAvailable(true));
+            bookRepository.findById(record.getBookId()).ifPresent(Book::markReturnedCopy);
         }
         return overdue.size();
     }

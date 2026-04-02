@@ -1488,17 +1488,48 @@ public class LibraryApiHandlers {
                 List<String> jsonItems = new ArrayList<>();
                 for (Book book : items) {
                     String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
-                    String availability = book.isAvailable() ? "Available" : "Unavailable";
+                    String availability = book.isAvailable()
+                        ? "Available (" + book.getAvailableCopies() + " copy/copies)"
+                        : "Unavailable";
                     jsonItems.add("{" +
                             "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                             "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                             "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
                             "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                             "\"status\":\"" + availability + "\"," +
-                            "\"available\":" + book.isAvailable() +
+                        "\"available\":" + book.isAvailable() + "," +
+                        "\"totalCopies\":" + book.getTotalCopies() + "," +
+                        "\"availableCopies\":" + book.getAvailableCopies() +
                             "}");
                 }
                 sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/approved-book/copies", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                int totalCopies = RequestFilters.parseIntInRange(form, "totalCopies", 1, 1, 1000);
+
+                Book book = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                if (!book.isApproved()) {
+                    throw new IllegalArgumentException("Only approved books can update copies.");
+                }
+
+                book.setTotalCopies(totalCopies);
+                sendText(exchange, 200, "Book copies updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -2052,14 +2083,19 @@ public class LibraryApiHandlers {
     private String booksToJson(List<Book> books) {
         List<String> items = new ArrayList<>();
         for (Book book : books) {
+            String status = book.isAvailable()
+                    ? "Available (" + book.getAvailableCopies() + " copy/copies)"
+                    : "Unavailable";
             items.add("{" +
                     "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
-                    "\"status\":\"" + (book.isAvailable() ? "Available" : "Unavailable") + "\"," +
-                    "\"available\":" + book.isAvailable() +
+                    "\"status\":\"" + JsonUtil.escape(status) + "\"," +
+                    "\"available\":" + book.isAvailable() + "," +
+                    "\"totalCopies\":" + book.getTotalCopies() + "," +
+                    "\"availableCopies\":" + book.getAvailableCopies() +
                     "}");
         }
         return "[" + String.join(",", items) + "]";

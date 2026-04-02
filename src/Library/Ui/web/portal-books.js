@@ -17,6 +17,34 @@ let allNotifications = [];
 let currentNotificationPage = 1;
 const notificationPageSize = 5;
 let readerFileObjectUrl = null;
+const MAX_BORROW_LIMIT = 5;
+
+function updateSearchQuota() {
+    const searchQuota = document.getElementById("searchQuota");
+    if (!searchQuota) {
+        return;
+    }
+
+    const total = allBooks.length;
+    const shown = Math.max(0, Math.min(pageSize, total - (currentPage - 1) * pageSize));
+    searchQuota.textContent = `Search quota: showing ${shown} of ${total} result(s).`;
+}
+
+async function refreshBorrowQuota() {
+    const borrowQuota = document.getElementById("borrowQuota");
+    if (!borrowQuota) {
+        return;
+    }
+
+    try {
+        const activeBorrows = await api("/api/borrows?status=active");
+        const used = Array.isArray(activeBorrows) ? activeBorrows.length : 0;
+        const remaining = Math.max(0, MAX_BORROW_LIMIT - used);
+        borrowQuota.textContent = `Borrow quota: ${used}/${MAX_BORROW_LIMIT} used (${remaining} remaining).`;
+    } catch (_) {
+        borrowQuota.textContent = `Borrow quota: max ${MAX_BORROW_LIMIT}.`;
+    }
+}
 
 function resetSelectedBookSummary() {
     const description = document.getElementById("selectedBookDescription");
@@ -95,6 +123,7 @@ function renderCurrentPageBooks() {
     const end = start + pageSize;
     renderBooks(allBooks.slice(start, end));
     updatePagerUi();
+    updateSearchQuota();
 }
 
 function renderBooks(books) {
@@ -596,6 +625,7 @@ document.getElementById("borrowBtn").addEventListener("click", async () => {
         await refreshBooks();
         await refreshRecommendations();
         await refreshBorrows();
+        await refreshBorrowQuota();
     } catch (error) {
         showToast(error.message, true);
     }
@@ -626,6 +656,7 @@ document.getElementById("borrowBulkBtn")?.addEventListener("click", async () => 
         await refreshBooks();
         await refreshRecommendations();
         await refreshBorrows();
+        await refreshBorrowQuota();
     } catch (error) {
         showToast(error.message, true);
     }
@@ -688,6 +719,7 @@ document.getElementById("checkBorrowRemindersBtn")?.addEventListener("click", as
         });
         showToast(`Reminder check complete. Generated ${payload.generated || 0} reminder(s).`, false);
         await refreshBorrows();
+        await refreshBorrowQuota();
         await refreshNotifications();
     } catch (error) {
         showToast(error.message, true);
@@ -712,6 +744,7 @@ if (currentUser) {
     resetSelectedBookSummary();
     refreshRecommendations().catch((e) => showToast(e.message, true));
     refreshBorrows().catch((e) => showToast(e.message, true));
+    refreshBorrowQuota().catch((e) => showToast(e.message, true));
     refreshNotifications().catch((e) => showToast(e.message, true));
     sessionSnapshotController.checkForRestore().catch((e) => showToast(e.message, true));
 }

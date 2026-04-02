@@ -30,7 +30,30 @@ function renderApprovedBooks(items) {
             <td>${item.author}</td>
             <td>${item.publishDate || ""}</td>
             <td>${item.status}</td>
+            <td>${item.availableCopies ?? 0}/${item.totalCopies ?? 0}</td>
+            <td>
+                <input class="copies-input" type="number" min="1" max="1000" value="${item.totalCopies ?? 1}" style="width:80px;">
+                <button class="secondary update-copies-btn" type="button">Update</button>
+            </td>
         `;
+
+        const updateBtn = row.querySelector(".update-copies-btn");
+        const copiesInput = row.querySelector(".copies-input");
+        updateBtn?.addEventListener("click", async () => {
+            try {
+                const totalCopies = Number(copiesInput?.value || "1");
+                const text = await api("/api/librarian/approved-book/copies", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({ bookId: item.id, totalCopies })
+                }, false);
+                showToast(text, false);
+                await refreshApprovedBooks();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
         tbody.appendChild(row);
     });
 }
