@@ -11,6 +11,7 @@ if (currentUser) {
 
 let selectedBookId = null;
 const selectedBookIds = new Set();
+const activeBorrowedBookIds = new Set();
 let allBooks = [];
 let currentPage = 1;
 const pageSize = 5;
@@ -41,6 +42,20 @@ async function refreshBorrowQuota() {
     } catch (_) {
         borrowQuota.textContent = `Borrow quota: max ${MAX_BORROW_LIMIT}.`;
     }
+}
+
+async function refreshActiveBorrowedBookIds() {
+    activeBorrowedBookIds.clear();
+    const activeBorrows = await api("/api/borrows?status=active");
+    if (!Array.isArray(activeBorrows)) {
+        return;
+    }
+
+    activeBorrows.forEach((record) => {
+        if (record?.bookId) {
+            activeBorrowedBookIds.add(record.bookId);
+        }
+    });
 }
 
 function resetSelectedBookSummary() {
@@ -134,18 +149,34 @@ function renderBooks(books) {
 
     books.forEach((book) => {
         const row = document.createElement("tr");
-        const statusClass = book.available ? "status-available" : "status-unavailable";
+        const alreadyBorrowed = activeBorrowedBookIds.has(book.id);
+        const availableCopies = Number(book.availableCopies ?? 0);
+        const totalCopies = Number(book.totalCopies ?? 0);
+        const borrowable = book.available && !alreadyBorrowed;
+        const statusClass = borrowable ? "status-available" : "status-unavailable";
+        const statusText = alreadyBorrowed
+            ? `Unavailable (already borrowed by you, ${availableCopies}/${totalCopies} copies left)`
+            : (book.available
+                ? `Available (${availableCopies}/${totalCopies} copies)`
+                : `Unavailable (${availableCopies}/${totalCopies} copies)`);
+
+        if (!borrowable) {
+            selectedBookIds.delete(book.id);
+            if (selectedBookId === book.id) {
+                selectedBookId = null;
+            }
+        }
 
         row.innerHTML = `
             <td>${book.title}</td>
             <td>${book.author}</td>
-            <td class="${statusClass}">${book.available ? "Available" : "Unavailable"}</td>
+            <td class="${statusClass}">${statusText}</td>
             <td>
                 <label>
-                    <input class="book-multi-select" type="checkbox" ${selectedBookIds.has(book.id) ? "checked" : ""}>
+                    <input class="book-multi-select" type="checkbox" ${selectedBookIds.has(book.id) ? "checked" : ""} ${borrowable ? "" : "disabled"}>
                     Multi
                 </label>
-                <button class="secondary" type="button">Select</button>
+                <button class="secondary" type="button" ${borrowable ? "" : "disabled"}>Select</button>
             </td>
         `;
 
@@ -203,6 +234,7 @@ function applyAdvancedFilters(books) {
 }
 
 async function refreshBooks(keyword = "") {
+    await refreshActiveBorrowedBookIds();
     const normalizedKeyword = typeof keyword === "string" ? keyword.trim() : "";
     const availability = document.getElementById("availabilityFilter")?.value || "all";
     const params = new URLSearchParams();
