@@ -36,6 +36,20 @@
         </div>
         <p id="searchQuota" class="hint">Search quota: showing 0 result(s).</p>
 
+        <h3>Advanced Search</h3>
+        <div class="toolbar">
+            <input id="titleFilter" type="text" placeholder="Title contains..." aria-label="Title filter">
+            <input id="authorFilter" type="text" placeholder="Author contains..." aria-label="Author filter">
+            <input id="genreFilter" type="text" placeholder="Genre contains..." aria-label="Genre filter">
+            <input id="publishedDateFilter" type="date" aria-label="Published date filter">
+            <select id="advancedMatchMode" aria-label="Advanced match mode">
+                <option value="contains" selected>Contains</option>
+                <option value="exact">Exact</option>
+            </select>
+            <button id="applyAdvancedSearchBtn" class="secondary" type="button">Apply Advanced Search</button>
+            <button id="clearAdvancedSearchBtn" class="secondary" type="button">Clear Advanced Search</button>
+        </div>
+
         <div class="table-wrap">
             <table>
                 <thead>

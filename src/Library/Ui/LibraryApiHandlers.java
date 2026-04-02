@@ -2416,12 +2416,19 @@ public class LibraryApiHandlers {
             String status = book.isAvailable()
                     ? "Available (" + book.getAvailableCopies() + " copy/copies)"
                     : "Unavailable";
+            String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
             items.add("{" +
                     "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
                     "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
                     "\"summary\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
                     "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
+                    "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"status\":\"" + JsonUtil.escape(status) + "\"," +
                     "\"available\":" + book.isAvailable() + "," +
                     "\"totalCopies\":" + book.getTotalCopies() + "," +
@@ -2785,12 +2792,17 @@ public class LibraryApiHandlers {
     private static String librarianSubmissionsToJson(List<BookSubmission2> submissions) {
         List<String> values = new ArrayList<>();
         for (BookSubmission2 submission : submissions) {
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : submission.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
                     "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
                     "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
                     "\"status\":\"" + submission.getStatus() + "\"" +
                     "}");

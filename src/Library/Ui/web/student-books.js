@@ -330,15 +330,37 @@ function matchesAdvancedFilter(value, filterText, matchMode) {
     return normalizedValue.includes(normalizedFilter);
 }
 
+function matchesAnyAdvancedFilter(values, filterText, matchMode) {
+    if (!filterText) {
+        return true;
+    }
+
+    const normalizedFilter = filterText.trim().toLowerCase();
+    const normalizedValues = Array.isArray(values)
+        ? values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+
+    if (matchMode === "exact") {
+        return normalizedValues.some((value) => value === normalizedFilter);
+    }
+
+    return normalizedValues.some((value) => value.includes(normalizedFilter));
+}
+
 function applyAdvancedFilters(books) {
     const titleFilter = document.getElementById("titleFilter")?.value || "";
     const authorFilter = document.getElementById("authorFilter")?.value || "";
+    const genreFilter = document.getElementById("genreFilter")?.value || "";
+    const publishedDateFilter = document.getElementById("publishedDateFilter")?.value || "";
     const matchMode = document.getElementById("advancedMatchMode")?.value || "contains";
 
     return books.filter((book) => {
         const titleMatch = matchesAdvancedFilter(book.title, titleFilter, matchMode);
         const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
-        return titleMatch && authorMatch;
+        const genreMatch = matchesAnyAdvancedFilter(book.genres, genreFilter, matchMode);
+        const publishedDateMatch = !publishedDateFilter
+            || String(book.publishDate || "").trim() === publishedDateFilter.trim();
+        return titleMatch && authorMatch && genreMatch && publishedDateMatch;
     });
 }
 
@@ -382,6 +404,8 @@ document.getElementById("showAllBtn")?.addEventListener("click", () => {
     const availabilityFilter = document.getElementById("availabilityFilter");
     const titleFilter = document.getElementById("titleFilter");
     const authorFilter = document.getElementById("authorFilter");
+    const genreFilter = document.getElementById("genreFilter");
+    const publishedDateFilter = document.getElementById("publishedDateFilter");
     const advancedMatchMode = document.getElementById("advancedMatchMode");
     if (keyword) {
         keyword.value = "";
@@ -394,6 +418,12 @@ document.getElementById("showAllBtn")?.addEventListener("click", () => {
     }
     if (authorFilter) {
         authorFilter.value = "";
+    }
+    if (genreFilter) {
+        genreFilter.value = "";
+    }
+    if (publishedDateFilter) {
+        publishedDateFilter.value = "";
     }
     if (advancedMatchMode) {
         advancedMatchMode.value = "contains";
@@ -408,12 +438,20 @@ document.getElementById("applyAdvancedSearchBtn")?.addEventListener("click", () 
 document.getElementById("clearAdvancedSearchBtn")?.addEventListener("click", () => {
     const titleFilter = document.getElementById("titleFilter");
     const authorFilter = document.getElementById("authorFilter");
+    const genreFilter = document.getElementById("genreFilter");
+    const publishedDateFilter = document.getElementById("publishedDateFilter");
     const advancedMatchMode = document.getElementById("advancedMatchMode");
     if (titleFilter) {
         titleFilter.value = "";
     }
     if (authorFilter) {
         authorFilter.value = "";
+    }
+    if (genreFilter) {
+        genreFilter.value = "";
+    }
+    if (publishedDateFilter) {
+        publishedDateFilter.value = "";
     }
     if (advancedMatchMode) {
         advancedMatchMode.value = "contains";
@@ -430,6 +468,14 @@ document.getElementById("titleFilter")?.addEventListener("keydown", (event) => {
 });
 
 document.getElementById("authorFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("genreFilter")?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
         return;
     }

@@ -1,5 +1,6 @@
 const currentUser = requireRole("LIBRARIAN");
 let submissionSortEnabled = false;
+let cachedPendingItems = [];
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -62,17 +63,61 @@ function renderPending(items) {
     });
 }
 
-async function refreshPending() {
+function matchesTextFilter(value, filterText, matchMode) {
+    if (!filterText) {
+        return true;
+    }
+
+    const normalizedValue = String(value || "").trim().toLowerCase();
+    const normalizedFilter = filterText.trim().toLowerCase();
+    if (matchMode === "exact") {
+        return normalizedValue === normalizedFilter;
+    }
+    return normalizedValue.includes(normalizedFilter);
+}
+
+function matchesAnyFilter(values, filterText, matchMode) {
+    if (!filterText) {
+        return true;
+    }
+
+    const normalizedValues = Array.isArray(values)
+        ? values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+    const normalizedFilter = filterText.trim().toLowerCase();
+
+    if (matchMode === "exact") {
+        return normalizedValues.some((value) => value === normalizedFilter);
+    }
+    return normalizedValues.some((value) => value.includes(normalizedFilter));
+}
+
+function applyPendingAdvancedFilters(items) {
     const searchInput = document.getElementById("submissionSearchInput");
+    const genreInput = document.getElementById("submissionGenreFilter");
+    const dateInput = document.getElementById("submissionDateFilter");
+    const matchMode = "contains";
+
+    const keyword = searchInput ? searchInput.value.trim() : "";
+    const genreFilter = genreInput ? genreInput.value.trim() : "";
+    const submittedDateFilter = dateInput ? dateInput.value.trim() : "";
+
+    return items.filter((item) => {
+        const titleMatch = matchesTextFilter(item.title, keyword, matchMode);
+        const authorMatch = matchesTextFilter(item.authorFullName, keyword, matchMode);
+        const usernameMatch = matchesTextFilter(item.authorUsername, keyword, matchMode);
+        const genreMatch = matchesAnyFilter(item.genres, genreFilter, matchMode);
+        const dateMatch = !submittedDateFilter || String(item.submittedDate || "").trim() === submittedDateFilter;
+        return (titleMatch || authorMatch || usernameMatch) && genreMatch && dateMatch;
+    });
+}
+
+async function refreshPending() {
     const sortDirFilter = document.getElementById("submissionSortDirFilter");
 
     const query = new URLSearchParams();
-    const keyword = searchInput ? searchInput.value.trim() : "";
     const sortDir = sortDirFilter ? sortDirFilter.value : "asc";
 
-    if (keyword) {
-        query.set("q", keyword);
-    }
     query.set("status", "pending");
     if (submissionSortEnabled) {
         query.set("sortBy", "submittedDate");
@@ -81,15 +126,24 @@ async function refreshPending() {
 
     const path = `/api/librarian/pending?${query.toString()}`;
     const items = await api(path);
-    renderPending(items);
+    cachedPendingItems = Array.isArray(items) ? items : [];
+    renderPending(applyPendingAdvancedFilters(cachedPendingItems));
 }
 
 function resetSubmissionFilters() {
     const searchInput = document.getElementById("submissionSearchInput");
+    const genreInput = document.getElementById("submissionGenreFilter");
+    const dateInput = document.getElementById("submissionDateFilter");
     const sortDirFilter = document.getElementById("submissionSortDirFilter");
 
     if (searchInput) {
         searchInput.value = "";
+    }
+    if (genreInput) {
+        genreInput.value = "";
+    }
+    if (dateInput) {
+        dateInput.value = "";
     }
     if (sortDirFilter) {
         sortDirFilter.value = "asc";
@@ -127,6 +181,18 @@ async function review(submissionId, action) {
 
 document.getElementById("refreshPendingBtn")?.addEventListener("click", () => {
     refreshPending().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("submissionSearchInput")?.addEventListener("input", () => {
+    renderPending(applyPendingAdvancedFilters(cachedPendingItems));
+});
+
+document.getElementById("submissionGenreFilter")?.addEventListener("input", () => {
+    renderPending(applyPendingAdvancedFilters(cachedPendingItems));
+});
+
+document.getElementById("submissionDateFilter")?.addEventListener("change", () => {
+    renderPending(applyPendingAdvancedFilters(cachedPendingItems));
 });
 
 document.getElementById("applySubmissionFiltersBtn")?.addEventListener("click", () => {

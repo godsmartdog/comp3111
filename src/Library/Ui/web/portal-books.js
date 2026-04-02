@@ -385,6 +385,53 @@ function renderBooks(books) {
     });
 }
 
+function matchesAdvancedFilter(value, filterText, matchMode) {
+    if (!filterText) {
+        return true;
+    }
+
+    const normalizedValue = String(value || "").trim().toLowerCase();
+    const normalizedFilter = filterText.trim().toLowerCase();
+    if (matchMode === "exact") {
+        return normalizedValue === normalizedFilter;
+    }
+    return normalizedValue.includes(normalizedFilter);
+}
+
+function matchesAnyAdvancedFilter(values, filterText, matchMode) {
+    if (!filterText) {
+        return true;
+    }
+
+    const normalizedValues = Array.isArray(values)
+        ? values.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+    const normalizedFilter = filterText.trim().toLowerCase();
+
+    if (matchMode === "exact") {
+        return normalizedValues.some((value) => value === normalizedFilter);
+    }
+
+    return normalizedValues.some((value) => value.includes(normalizedFilter));
+}
+
+function applyAdvancedFilters(books) {
+    const titleFilter = document.getElementById("titleFilter")?.value || "";
+    const authorFilter = document.getElementById("authorFilter")?.value || "";
+    const genreFilter = document.getElementById("genreFilter")?.value || "";
+    const publishedDateFilter = document.getElementById("publishedDateFilter")?.value || "";
+    const matchMode = document.getElementById("advancedMatchMode")?.value || "contains";
+
+    return books.filter((book) => {
+        const titleMatch = matchesAdvancedFilter(book.title, titleFilter, matchMode);
+        const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
+        const genreMatch = matchesAnyAdvancedFilter(book.genres, genreFilter, matchMode);
+        const publishedDateMatch = !publishedDateFilter
+            || String(book.publishDate || "").trim() === publishedDateFilter.trim();
+        return titleMatch && authorMatch && genreMatch && publishedDateMatch;
+    });
+}
+
 async function refreshBooks(keyword = "") {
     await refreshActiveBorrowedBookIds();
     const normalizedKeyword = typeof keyword === "string" ? keyword.trim() : "";
@@ -400,7 +447,8 @@ async function refreshBooks(keyword = "") {
     const query = params.toString();
     const url = query ? `/api/books?${query}` : "/api/books";
     const books = await api(url);
-    allBooks = [...books].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+    allBooks = applyAdvancedFilters(books)
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
     syncMultiSelectionWithVisibleBooks();
     currentPage = 1;
     renderCurrentPageBooks();
@@ -817,7 +865,79 @@ document.getElementById("showAllBtn").addEventListener("click", () => {
     if (availabilityFilter) {
         availabilityFilter.value = "all";
     }
+    const titleFilter = document.getElementById("titleFilter");
+    const authorFilter = document.getElementById("authorFilter");
+    const genreFilter = document.getElementById("genreFilter");
+    const publishedDateFilter = document.getElementById("publishedDateFilter");
+    const advancedMatchMode = document.getElementById("advancedMatchMode");
+    if (titleFilter) {
+        titleFilter.value = "";
+    }
+    if (authorFilter) {
+        authorFilter.value = "";
+    }
+    if (genreFilter) {
+        genreFilter.value = "";
+    }
+    if (publishedDateFilter) {
+        publishedDateFilter.value = "";
+    }
+    if (advancedMatchMode) {
+        advancedMatchMode.value = "contains";
+    }
     refreshBooks().catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("applyAdvancedSearchBtn")?.addEventListener("click", () => {
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("clearAdvancedSearchBtn")?.addEventListener("click", () => {
+    const titleFilter = document.getElementById("titleFilter");
+    const authorFilter = document.getElementById("authorFilter");
+    const genreFilter = document.getElementById("genreFilter");
+    const publishedDateFilter = document.getElementById("publishedDateFilter");
+    const advancedMatchMode = document.getElementById("advancedMatchMode");
+    if (titleFilter) {
+        titleFilter.value = "";
+    }
+    if (authorFilter) {
+        authorFilter.value = "";
+    }
+    if (genreFilter) {
+        genreFilter.value = "";
+    }
+    if (publishedDateFilter) {
+        publishedDateFilter.value = "";
+    }
+    if (advancedMatchMode) {
+        advancedMatchMode.value = "contains";
+    }
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("titleFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("authorFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("genreFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+        return;
+    }
+    event.preventDefault();
+    refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
 });
 
 document.getElementById("prevPageBtn").addEventListener("click", () => {
