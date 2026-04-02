@@ -36,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.io.BufferedReader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -57,6 +58,7 @@ public class LibraryApiHandlers {
     // Local/dev internal testing token only.
     // TODO: Externalize this to environment/config before any production deployment.
     private static final String CRASH_TEST_TOKEN = "enable";
+    private static final Path PROFILE_PHOTO_DIR = Paths.get(System.getProperty("user.dir"), "profile-photos");
 
     private final AuthService authService;
     private final BookService bookService;
@@ -533,18 +535,32 @@ public class LibraryApiHandlers {
                     String payload = "{" +
                             "\"username\":\"" + JsonUtil.escape(user.getUsername()) + "\"," +
                             "\"fullName\":\"" + JsonUtil.escape(user.getFullName()) + "\"," +
-                            "\"role\":\"" + user.getRole() + "\"" +
+                            "\"role\":\"" + user.getRole() + "\"," +
+                            "\"photoUrl\":\"" + JsonUtil.escape(profilePhotoUrl(user)) + "\"" +
                             "}";
                     sendJson(exchange, 200, payload);
                     return;
                 }
 
-                Map<String, String> form = readForm(exchange);
+                Map<String, String> form;
+                UploadedFile uploadedPhoto = null;
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                if (contentType.startsWith("multipart/form-data")) {
+                    MultipartData multipartData = readMultipartForm(exchange);
+                    form = multipartData.fields();
+                    uploadedPhoto = multipartData.uploadedFile("photo");
+                } else {
+                    form = readForm(exchange);
+                }
                 String fullName = required(form, "fullName");
                 String newPassword = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
                 boolean passwordChanged = !nullToEmpty(newPassword).isBlank();
-                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword, currentPassword);
+                String profilePhotoPath = uploadedPhoto == null ? "" : storeProfilePhoto(user.getUsername(), user.getRole(), uploadedPhoto);
+                User updated = authService.updateStudentOrStaffProfile(user.getUsername(), fullName, newPassword, currentPassword, profilePhotoPath);
+                if (!profilePhotoPath.isBlank()) {
+                    updated.updateProfilePhotoPath(profilePhotoPath);
+                }
 
                 if (passwordChanged) {
                     invalidateSessionsByUsername(user.getUsername());
@@ -566,6 +582,39 @@ public class LibraryApiHandlers {
                 sendText(exchange, 200, passwordChanged
                     ? "Password updated successfully. Please log in again."
                     : "Profile updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/profile/photo", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                String photoPath = nullToEmpty(user.getProfilePhotoPath()).trim();
+                if (photoPath.isEmpty()) {
+                    sendText(exchange, 404, "Profile photo not found.");
+                    return;
+                }
+
+                Path file = Paths.get(photoPath);
+                if (!Files.isRegularFile(file)) {
+                    sendText(exchange, 404, "Profile photo not found.");
+                    return;
+                }
+
+                byte[] bytes = Files.readAllBytes(file);
+                String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                exchange.getResponseHeaders().set("Content-Type", detectContentType(fileName));
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1190,20 +1239,34 @@ public class LibraryApiHandlers {
                     String payload = "{" +
                             "\"username\":\"" + JsonUtil.escape(profile.username()) + "\"," +
                             "\"fullName\":\"" + JsonUtil.escape(profile.fullName()) + "\"," +
-                            "\"bio\":\"" + JsonUtil.escape(profile.bio()) + "\"" +
+                            "\"bio\":\"" + JsonUtil.escape(profile.bio()) + "\"," +
+                            "\"photoUrl\":\"" + JsonUtil.escape(profilePhotoUrl(user)) + "\"" +
                             "}";
                     sendJson(exchange, 200, payload);
                     return;
                 }
 
-                Map<String, String> form = readForm(exchange);
+                Map<String, String> form;
+                UploadedFile uploadedPhoto = null;
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                if (contentType.startsWith("multipart/form-data")) {
+                    MultipartData multipartData = readMultipartForm(exchange);
+                    form = multipartData.fields();
+                    uploadedPhoto = multipartData.uploadedFile("photo");
+                } else {
+                    form = readForm(exchange);
+                }
                 String fullName = required(form, "fullName");
                 String bio = required(form, "bio");
                 String password = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
                 boolean passwordChanged = !nullToEmpty(password).isBlank();
+                String profilePhotoPath = uploadedPhoto == null ? "" : storeProfilePhoto(user.getUsername(), user.getRole(), uploadedPhoto);
 
-                authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password, currentPassword);
+                authorService.updateAuthorProfile(user.getUsername(), user.getUsername(), fullName, bio, password, currentPassword, profilePhotoPath);
+                if (!profilePhotoPath.isBlank()) {
+                    user.updateProfilePhotoPath(profilePhotoPath);
+                }
                 if (passwordChanged) {
                     invalidateSessionsByUsername(user.getUsername());
                 }
@@ -2026,18 +2089,29 @@ public class LibraryApiHandlers {
                     String payload = "{" +
                             "\"username\":\"" + JsonUtil.escape(profile.username()) + "\"," +
                             "\"fullName\":\"" + JsonUtil.escape(profile.fullName()) + "\"," +
-                            "\"employeeId\":\"" + JsonUtil.escape(profile.employeeId()) + "\"" +
+                            "\"employeeId\":\"" + JsonUtil.escape(profile.employeeId()) + "\"," +
+                            "\"photoUrl\":\"" + JsonUtil.escape(profilePhotoUrl(user)) + "\"" +
                             "}";
                     sendJson(exchange, 200, payload);
                     return;
                 }
 
-                Map<String, String> form = readForm(exchange);
+                Map<String, String> form;
+                UploadedFile uploadedPhoto = null;
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                if (contentType.startsWith("multipart/form-data")) {
+                    MultipartData multipartData = readMultipartForm(exchange);
+                    form = multipartData.fields();
+                    uploadedPhoto = multipartData.uploadedFile("photo");
+                } else {
+                    form = readForm(exchange);
+                }
                 String fullName = required(form, "fullName");
                 String employeeId = required(form, "employeeId");
                 String password = form.getOrDefault("password", "");
                 String currentPassword = form.getOrDefault("currentPassword", "");
                 boolean passwordChanged = !nullToEmpty(password).isBlank();
+                String profilePhotoPath = uploadedPhoto == null ? "" : storeProfilePhoto(user.getUsername(), user.getRole(), uploadedPhoto);
 
                 LibrarianService3.LibrarianProfileSnapshot updated = librarianService.updateLibrarianProfile(
                         user.getUsername(),
@@ -2045,8 +2119,12 @@ public class LibraryApiHandlers {
                         fullName,
                         employeeId,
                     password,
-                    currentPassword
+                    currentPassword,
+                    profilePhotoPath
                 );
+                if (!profilePhotoPath.isBlank()) {
+                    user.updateProfilePhotoPath(profilePhotoPath);
+                }
 
                 notificationService.addNotification(
                     user.getUsername(),
@@ -2754,6 +2832,64 @@ public class LibraryApiHandlers {
             return "image";
         }
         return "binary";
+    }
+
+    private static String profilePhotoUrl(User user) {
+        String photoPath = user == null ? "" : nullToEmpty(user.getProfilePhotoPath()).trim();
+
+    private static String profilePhotoUrl(User user) {
+        String photoPath = user == null ? "" : nullToEmpty(user.getProfilePhotoPath()).trim();
+        return photoPath.isBlank() ? "" : "/api/profile/photo";
+    }
+
+    private String storeProfilePhoto(String username, Role role, UploadedFile uploadedPhoto) throws IOException {
+        if (uploadedPhoto == null || uploadedPhoto.path() == null) {
+            return "";
+        }
+
+        fileService.validateCoverImageFile(uploadedPhoto.path().toString());
+        Files.createDirectories(PROFILE_PHOTO_DIR);
+
+        String originalName = nullToEmpty(uploadedPhoto.originalFileName()).trim().toLowerCase(Locale.ROOT);
+        String extension = ".png";
+        if (originalName.endsWith(".jpg") || originalName.endsWith(".jpeg")) {
+            extension = ".jpg";
+        } else if (originalName.endsWith(".png")) {
+            extension = ".png";
+        }
+
+        String safeUsername = nullToEmpty(username).replaceAll("[^A-Za-z0-9._-]", "_");
+        String safeRole = role == null ? "user" : role.name().toLowerCase(Locale.ROOT);
+        String fileName = safeUsername + "-" + safeRole + "-photo" + extension;
+        Path destination = PROFILE_PHOTO_DIR.resolve(fileName);
+        Files.copy(uploadedPhoto.path(), destination, StandardCopyOption.REPLACE_EXISTING);
+        return destination.toAbsolutePath().toString();
+    }
+        return photoPath.isBlank() ? "" : "/api/profile/photo";
+    }
+
+    private String storeProfilePhoto(String username, Role role, UploadedFile uploadedPhoto) throws IOException {
+        if (uploadedPhoto == null || uploadedPhoto.path() == null) {
+            return "";
+        }
+
+        fileService.validateCoverImageFile(uploadedPhoto.path().toString());
+        Files.createDirectories(PROFILE_PHOTO_DIR);
+
+        String originalName = nullToEmpty(uploadedPhoto.originalFileName()).trim().toLowerCase(Locale.ROOT);
+        String extension = ".png";
+        if (originalName.endsWith(".jpg") || originalName.endsWith(".jpeg")) {
+            extension = ".jpg";
+        } else if (originalName.endsWith(".png")) {
+            extension = ".png";
+        }
+
+        String safeUsername = nullToEmpty(username).replaceAll("[^A-Za-z0-9._-]", "_");
+        String safeRole = role == null ? "user" : role.name().toLowerCase(Locale.ROOT);
+        String fileName = safeUsername + "-" + safeRole + "-photo" + extension;
+        Path destination = PROFILE_PHOTO_DIR.resolve(fileName);
+        Files.copy(uploadedPhoto.path(), destination, StandardCopyOption.REPLACE_EXISTING);
+        return destination.toAbsolutePath().toString();
     }
 
     private String managedUsersToJson(List<User> users, List<BorrowRecord> borrows, String actingLibrarianUsername) {

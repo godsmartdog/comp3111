@@ -7,6 +7,45 @@ if (currentUser) {
 let approvedItems = [];
 let approvedPage = 1;
 const approvedPageSize = 10;
+let selectedLibrarianProfilePhotoFile = null;
+let librarianProfilePhotoObjectUrl = null;
+
+function updateLibrarianPasswordStrengthMeter() {
+    const password = document.getElementById("librarianProfilePassword")?.value || "";
+    const info = getPasswordStrengthInfo(password);
+    const fill = document.getElementById("librarianProfilePasswordStrengthFill");
+    const text = document.getElementById("librarianProfilePasswordStrengthText");
+    if (fill) {
+        fill.style.width = `${Math.max(10, (info.score / info.max) * 100)}%`;
+        fill.style.background = info.color;
+    }
+    if (text) {
+        text.textContent = info.label;
+        text.style.color = info.color;
+    }
+}
+
+function clearLibrarianPhotoPreview() {
+    if (librarianProfilePhotoObjectUrl) {
+        URL.revokeObjectURL(librarianProfilePhotoObjectUrl);
+        librarianProfilePhotoObjectUrl = null;
+    }
+}
+
+function setLibrarianPhotoPreview(url) {
+    const preview = document.getElementById("librarianProfilePhotoPreview");
+    if (!preview) {
+        return;
+    }
+    clearLibrarianPhotoPreview();
+    if (!url) {
+        preview.style.display = "none";
+        preview.removeAttribute("src");
+        return;
+    }
+    preview.src = url;
+    preview.style.display = "block";
+}
 
 function totalApprovedPages() {
     return Math.max(1, Math.ceil(approvedItems.length / approvedPageSize));
@@ -52,6 +91,20 @@ async function loadLibrarianProfile() {
     document.getElementById("librarianProfileCurrentPassword").value = "";
     document.getElementById("librarianProfilePassword").value = "";
     document.getElementById("librarianProfileConfirmPassword").value = "";
+    updateLibrarianPasswordStrengthMeter();
+
+    if (payload.photoUrl) {
+        try {
+            const blob = await fetchProtectedBlob(payload.photoUrl);
+            const objectUrl = URL.createObjectURL(blob);
+            librarianProfilePhotoObjectUrl = objectUrl;
+            setLibrarianPhotoPreview(objectUrl);
+        } catch (_) {
+            setLibrarianPhotoPreview("");
+        }
+    } else {
+        setLibrarianPhotoPreview("");
+    }
 }
 
 async function saveLibrarianProfile() {
@@ -85,11 +138,25 @@ async function saveLibrarianProfile() {
         }
     }
 
-    const text = await api("/api/librarian/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, employeeId, password, currentPassword })
-    }, false);
+    let text;
+    if (selectedLibrarianProfilePhotoFile) {
+        const payload = new FormData();
+        payload.append("fullName", fullName);
+        payload.append("employeeId", employeeId);
+        payload.append("password", password);
+        payload.append("currentPassword", currentPassword);
+        payload.append("photo", selectedLibrarianProfilePhotoFile, selectedLibrarianProfilePhotoFile.name);
+        text = await api("/api/librarian/profile", {
+            method: "POST",
+            body: payload
+        }, false);
+    } else {
+        text = await api("/api/librarian/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ fullName, employeeId, password, currentPassword })
+        }, false);
+    }
 
     if (passwordChanged) {
         const successMessage = text || "Password updated successfully. Please log in again.";
@@ -113,6 +180,7 @@ async function saveLibrarianProfile() {
     document.getElementById("librarianProfileConfirmPassword").value = "";
     document.getElementById("librarianProfileFeedback").textContent = text;
     showToast(text, false);
+    selectedLibrarianProfilePhotoFile = null;
 }
 
 async function loadApprovedHistory() {
@@ -142,6 +210,21 @@ document.getElementById("librarianHistoryNextBtn").addEventListener("click", () 
         renderApprovedPage();
     }
 });
+
+document.getElementById("librarianProfilePhotoInput")?.addEventListener("change", () => {
+    const file = document.getElementById("librarianProfilePhotoInput").files?.[0] || null;
+    selectedLibrarianProfilePhotoFile = file;
+    if (!file) {
+        setLibrarianPhotoPreview("");
+        return;
+    }
+    clearLibrarianPhotoPreview();
+    const previewUrl = URL.createObjectURL(file);
+    librarianProfilePhotoObjectUrl = previewUrl;
+    setLibrarianPhotoPreview(previewUrl);
+});
+
+document.getElementById("librarianProfilePassword")?.addEventListener("input", updateLibrarianPasswordStrengthMeter);
 
 if (currentUser) {
     loadLibrarianProfile().catch((e) => showToast(e.message, true));

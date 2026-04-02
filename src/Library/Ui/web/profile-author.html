@@ -26,6 +26,10 @@
         <h2>Manage Profile</h2>
         <div class="split">
             <div>
+                <div class="profile-photo-wrap">
+                    <img id="authorProfilePhotoPreview" alt="Profile photo" class="profile-photo-preview">
+                    <input id="authorProfilePhotoInput" type="file" accept="image/*">
+                </div>
                 <div class="inline-row">
                     <label for="authorProfileFullName">Full Name</label>
                     <input id="authorProfileFullName" type="text" placeholder="Your full name">
@@ -40,6 +44,10 @@
                     <label for="authorProfilePassword">New Password</label>
                     <input id="authorProfilePassword" type="password" placeholder="Leave blank to keep current password">
                 </div>
+                <div class="strength-meter">
+                    <div id="authorProfilePasswordStrengthFill" class="strength-meter-fill"></div>
+                </div>
+                <p id="authorProfilePasswordStrengthText" class="hint">Weak</p>
                 <div class="inline-row">
                     <label for="authorProfileConfirmPassword">Confirm New Password</label>
                     <input id="authorProfileConfirmPassword" type="password" placeholder="Re-enter new password">

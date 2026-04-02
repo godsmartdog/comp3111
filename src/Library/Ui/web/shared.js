@@ -60,6 +60,47 @@ async function api(path, options = {}, expectJson = true) {
     return expectJson ? response.json() : response.text();
 }
 
+    async function fetchProtectedBlob(url) {
+        const headers = {};
+        const current = getCurrentUser();
+        if (current?.sessionId) {
+            headers["X-Session-Id"] = current.sessionId;
+        }
+        const response = await fetch(url, { headers });
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        return response.blob();
+    }
+
+    function getPasswordStrengthInfo(password) {
+        const value = String(password || "");
+        const checks = [
+            value.length >= 8,
+            !value.includes(" "),
+            /[A-Z]/.test(value),
+            /[a-z]/.test(value),
+            /\d/.test(value),
+            /[^A-Za-z0-9]/.test(value)
+        ];
+        const score = checks.filter(Boolean).length;
+
+        let label = "Weak";
+        let color = "#c0392b";
+        if (score >= 5) {
+            label = "Very Strong";
+            color = "#1f7a3b";
+        } else if (score === 4) {
+            label = "Strong";
+            color = "#2f7d32";
+        } else if (score === 3) {
+            label = "Medium";
+            color = "#b56d00";
+        }
+
+        return { score, max: checks.length, label, color };
+    }
+
 function formBody(payload) {
     const params = new URLSearchParams();
     Object.entries(payload).forEach(([key, value]) => {

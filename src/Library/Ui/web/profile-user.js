@@ -32,6 +32,44 @@ function renderHistoryPage() {
     const body = document.getElementById("borrowHistoryBody");
     body.innerHTML = "";
 
+    let selectedProfilePhotoFile = null;
+    let profilePhotoObjectUrl = null;
+
+    function updatePasswordStrengthMeter() {
+        const password = document.getElementById("profilePassword")?.value || "";
+        const info = getPasswordStrengthInfo(password);
+        const fill = document.getElementById("profilePasswordStrengthFill");
+        const text = document.getElementById("profilePasswordStrengthText");
+        if (fill) {
+            fill.style.width = `${Math.max(10, (info.score / info.max) * 100)}%`;
+            fill.style.background = info.color;
+        }
+        if (text) {
+            text.textContent = info.label;
+            text.style.color = info.color;
+        }
+    }
+
+    function clearProfilePhotoPreview() {
+        if (profilePhotoObjectUrl) {
+            URL.revokeObjectURL(profilePhotoObjectUrl);
+            profilePhotoObjectUrl = null;
+        }
+    }
+
+    function setProfilePhotoPreviewFromUrl(url) {
+        const preview = document.getElementById("profilePhotoPreview");
+        if (!preview) {
+            return;
+        }
+        clearProfilePhotoPreview();
+        if (!url) {
+            preview.style.display = "none";
+            preview.removeAttribute("src");
+            return;
+        }
+        preview.src = url;
+        preview.style.display = "block";
     if (historyItems.length === 0) {
         const row = document.createElement("tr");
         row.innerHTML = '<td colspan="5" class="muted">No borrow history found.</td>';
@@ -41,6 +79,20 @@ function renderHistoryPage() {
     }
 
     const start = (historyPage - 1) * historyPageSize;
+        updatePasswordStrengthMeter();
+
+        if (profile.photoUrl) {
+            try {
+                const blob = await fetchProtectedBlob(profile.photoUrl);
+                const objectUrl = URL.createObjectURL(blob);
+                setProfilePhotoPreviewFromUrl(objectUrl);
+                profilePhotoObjectUrl = objectUrl;
+            } catch (_) {
+                setProfilePhotoPreviewFromUrl("");
+            }
+        } else {
+            setProfilePhotoPreviewFromUrl("");
+        }
     const end = start + historyPageSize;
     historyItems.slice(start, end).forEach((item) => {
         const row = document.createElement("tr");
@@ -70,11 +122,24 @@ async function loadProfile() {
 async function saveProfile() {
     const fullName = document.getElementById("profileFullName").value.trim();
     const currentPassword = document.getElementById("profileCurrentPassword").value.trim();
-    const newPassword = document.getElementById("profilePassword").value.trim();
-    const confirmPassword = document.getElementById("profileConfirmPassword").value.trim();
-    const passwordChanged = Boolean(newPassword);
-
-    if (!fullName) {
+        let text;
+        if (selectedProfilePhotoFile) {
+            const payload = new FormData();
+            payload.append("fullName", fullName);
+            payload.append("password", newPassword);
+            payload.append("currentPassword", currentPassword);
+            payload.append("photo", selectedProfilePhotoFile, selectedProfilePhotoFile.name);
+            text = await api("/api/profile", {
+                method: "POST",
+                body: payload
+            }, false);
+        } else {
+            text = await api("/api/profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ fullName, password: newPassword, currentPassword })
+            }, false);
+        }
         throw new Error("Full Name cannot be empty.");
     }
 
@@ -82,7 +147,7 @@ async function saveProfile() {
         if (!currentPassword) {
             throw new Error("Current password is required to change password.");
         }
-        if (!confirmPassword) {
+                window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || "STUDENT")}`;
             throw new Error("Please confirm the new password.");
         }
         if (newPassword !== confirmPassword) {
@@ -98,6 +163,7 @@ async function saveProfile() {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formBody({ fullName, password: newPassword, currentPassword })
+        selectedProfilePhotoFile = null;
     }, false);
 
     if (passwordChanged) {
@@ -106,6 +172,21 @@ async function saveProfile() {
         showToast(successMessage, false);
         setTimeout(() => {
             localStorage.removeItem("currentUser");
+
+    document.getElementById("profilePhotoInput")?.addEventListener("change", () => {
+        const file = document.getElementById("profilePhotoInput").files?.[0] || null;
+        selectedProfilePhotoFile = file;
+        if (!file) {
+            setProfilePhotoPreviewFromUrl("");
+            return;
+        }
+        clearProfilePhotoPreview();
+        const previewUrl = URL.createObjectURL(file);
+        profilePhotoObjectUrl = previewUrl;
+        setProfilePhotoPreviewFromUrl(previewUrl);
+    });
+
+    document.getElementById("profilePassword")?.addEventListener("input", updatePasswordStrengthMeter);
             window.location.href = `login.html?role=${encodeURIComponent(currentUser?.role || expectedRole)}`;
         }, 1500);
         return;

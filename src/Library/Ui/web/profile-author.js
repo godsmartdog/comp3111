@@ -7,6 +7,45 @@ if (currentUser) {
 let publishedItems = [];
 let publishedPage = 1;
 const publishedPageSize = 10;
+let selectedAuthorProfilePhotoFile = null;
+let authorProfilePhotoObjectUrl = null;
+
+function updateAuthorPasswordStrengthMeter() {
+    const password = document.getElementById("authorProfilePassword")?.value || "";
+    const info = getPasswordStrengthInfo(password);
+    const fill = document.getElementById("authorProfilePasswordStrengthFill");
+    const text = document.getElementById("authorProfilePasswordStrengthText");
+    if (fill) {
+        fill.style.width = `${Math.max(10, (info.score / info.max) * 100)}%`;
+        fill.style.background = info.color;
+    }
+    if (text) {
+        text.textContent = info.label;
+        text.style.color = info.color;
+    }
+}
+
+function clearAuthorPhotoPreview() {
+    if (authorProfilePhotoObjectUrl) {
+        URL.revokeObjectURL(authorProfilePhotoObjectUrl);
+        authorProfilePhotoObjectUrl = null;
+    }
+}
+
+function setAuthorPhotoPreview(url) {
+    const preview = document.getElementById("authorProfilePhotoPreview");
+    if (!preview) {
+        return;
+    }
+    clearAuthorPhotoPreview();
+    if (!url) {
+        preview.style.display = "none";
+        preview.removeAttribute("src");
+        return;
+    }
+    preview.src = url;
+    preview.style.display = "block";
+}
 
 function totalPublishedPages() {
     return Math.max(1, Math.ceil(publishedItems.length / publishedPageSize));
@@ -52,6 +91,20 @@ async function loadAuthorProfile() {
     document.getElementById("authorProfileCurrentPassword").value = "";
     document.getElementById("authorProfilePassword").value = "";
     document.getElementById("authorProfileConfirmPassword").value = "";
+    updateAuthorPasswordStrengthMeter();
+
+    if (payload.photoUrl) {
+        try {
+            const blob = await fetchProtectedBlob(payload.photoUrl);
+            const objectUrl = URL.createObjectURL(blob);
+            authorProfilePhotoObjectUrl = objectUrl;
+            setAuthorPhotoPreview(objectUrl);
+        } catch (_) {
+            setAuthorPhotoPreview("");
+        }
+    } else {
+        setAuthorPhotoPreview("");
+    }
 }
 
 async function saveAuthorProfile() {
@@ -84,11 +137,25 @@ async function saveAuthorProfile() {
         }
     }
 
-    const text = await api("/api/author/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ fullName, bio, password, currentPassword })
-    }, false);
+    let text;
+    if (selectedAuthorProfilePhotoFile) {
+        const payload = new FormData();
+        payload.append("fullName", fullName);
+        payload.append("bio", bio);
+        payload.append("password", password);
+        payload.append("currentPassword", currentPassword);
+        payload.append("photo", selectedAuthorProfilePhotoFile, selectedAuthorProfilePhotoFile.name);
+        text = await api("/api/author/profile", {
+            method: "POST",
+            body: payload
+        }, false);
+    } else {
+        text = await api("/api/author/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ fullName, bio, password, currentPassword })
+        }, false);
+    }
 
     if (passwordChanged) {
         const successMessage = text || "Password updated successfully. Please log in again.";
@@ -112,6 +179,7 @@ async function saveAuthorProfile() {
     document.getElementById("authorProfileConfirmPassword").value = "";
     document.getElementById("authorProfileFeedback").textContent = text;
     showToast(text, false);
+    selectedAuthorProfilePhotoFile = null;
 }
 
 async function loadPublishedHistory() {
@@ -141,6 +209,21 @@ document.getElementById("authorHistoryNextBtn").addEventListener("click", () => 
         renderPublishedPage();
     }
 });
+
+document.getElementById("authorProfilePhotoInput")?.addEventListener("change", () => {
+    const file = document.getElementById("authorProfilePhotoInput").files?.[0] || null;
+    selectedAuthorProfilePhotoFile = file;
+    if (!file) {
+        setAuthorPhotoPreview("");
+        return;
+    }
+    clearAuthorPhotoPreview();
+    const previewUrl = URL.createObjectURL(file);
+    authorProfilePhotoObjectUrl = previewUrl;
+    setAuthorPhotoPreview(previewUrl);
+});
+
+document.getElementById("authorProfilePassword")?.addEventListener("input", updateAuthorPasswordStrengthMeter);
 
 if (currentUser) {
     loadAuthorProfile().catch((e) => showToast(e.message, true));

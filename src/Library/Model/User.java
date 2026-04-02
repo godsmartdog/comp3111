@@ -14,6 +14,7 @@ public class User {
     private final LocalDateTime createdAt;
     private boolean active;
     private LocalDateTime lastLoginAt;
+    private String profilePhotoPath;
 
     // Constructor
     public User(String username, String fullName, String passwordHash, Role role) {
@@ -24,6 +25,7 @@ public class User {
         this.createdAt = LocalDateTime.now(); // retrieve current system time
         this.active = true;
         this.lastLoginAt = null;
+        this.profilePhotoPath = "";
     }
 
     // Accessor
@@ -34,6 +36,7 @@ public class User {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public boolean isActive() { return active; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
+    public String getProfilePhotoPath() { return profilePhotoPath; }
 
     public void updateFullName(String fullName) {
         this.fullName = fullName;
@@ -41,6 +44,10 @@ public class User {
 
     public void updatePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public void updateProfilePhotoPath(String profilePhotoPath) {
+        this.profilePhotoPath = profilePhotoPath == null ? "" : profilePhotoPath.trim();
     }
 
     public void deactivate() {

@@ -286,6 +286,16 @@ public class LibrarianService3 {
                                                            String employeeId,
                                                            String newPassword,
                                                            String currentPassword) {
+        return updateLibrarianProfile(actingUsername, targetUsername, fullName, employeeId, newPassword, currentPassword, "");
+    }
+
+    public LibrarianProfileSnapshot updateLibrarianProfile(String actingUsername,
+                                                           String targetUsername,
+                                                           String fullName,
+                                                           String employeeId,
+                                                           String newPassword,
+                                                           String currentPassword,
+                                                           String profilePhotoPath) {
         if (actingUsername == null || actingUsername.isBlank()) {
             throw new ValidationException("Username cannot be empty.");
         }
@@ -315,6 +325,9 @@ public class LibrarianService3 {
         if (newPassword != null && !newPassword.isBlank()) {
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+        if (profilePhotoPath != null && !profilePhotoPath.isBlank()) {
+            user.updateProfilePhotoPath(profilePhotoPath);
         }
         userRepository.save(user);
 

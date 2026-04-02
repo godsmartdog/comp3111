@@ -184,7 +184,7 @@ public class AuthorService2 {
                                                      String fullName,
                                                      String bio,
                                                      String newPassword) {
-        return updateAuthorProfile(actingUsername, targetUsername, fullName, bio, newPassword, "");
+        return updateAuthorProfile(actingUsername, targetUsername, fullName, bio, newPassword, "", "");
     }
 
     public AuthorProfileSnapshot updateAuthorProfile(String actingUsername,
@@ -193,6 +193,16 @@ public class AuthorService2 {
                                                      String bio,
                                                      String newPassword,
                                                      String currentPassword) {
+        return updateAuthorProfile(actingUsername, targetUsername, fullName, bio, newPassword, currentPassword, "");
+    }
+
+    public AuthorProfileSnapshot updateAuthorProfile(String actingUsername,
+                                                     String targetUsername,
+                                                     String fullName,
+                                                     String bio,
+                                                     String newPassword,
+                                                     String currentPassword,
+                                                     String profilePhotoPath) {
         String normalizedActor = normalizeRequired(actingUsername, "Username cannot be empty.");
         String normalizedTarget = normalizeRequired(targetUsername, "Username cannot be empty.");
         if (!normalizedActor.equals(normalizedTarget)) {
@@ -213,6 +223,9 @@ public class AuthorService2 {
         if (newPassword != null && !newPassword.isBlank()) {
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+        if (profilePhotoPath != null && !profilePhotoPath.isBlank()) {
+            user.updateProfilePhotoPath(profilePhotoPath);
         }
         userRepository.save(user);
 

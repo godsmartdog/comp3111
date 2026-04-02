@@ -26,6 +26,10 @@
         <h2>Manage Profile</h2>
         <div class="split">
             <div>
+                <div class="profile-photo-wrap">
+                    <img id="librarianProfilePhotoPreview" alt="Profile photo" class="profile-photo-preview">
+                    <input id="librarianProfilePhotoInput" type="file" accept="image/*">
+                </div>
                 <div class="inline-row">
                     <label for="librarianProfileFullName">Full Name</label>
                     <input id="librarianProfileFullName" type="text" placeholder="Your full name">
@@ -42,6 +46,10 @@
                     <label for="librarianProfilePassword">New Password</label>
                     <input id="librarianProfilePassword" type="password" placeholder="Leave blank to keep current password">
                 </div>
+                <div class="strength-meter">
+                    <div id="librarianProfilePasswordStrengthFill" class="strength-meter-fill"></div>
+                </div>
+                <p id="librarianProfilePasswordStrengthText" class="hint">Weak</p>
                 <div class="inline-row">
                     <label for="librarianProfileConfirmPassword">Confirm New Password</label>
                     <input id="librarianProfileConfirmPassword" type="password" placeholder="Re-enter new password">

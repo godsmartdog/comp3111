@@ -87,6 +87,10 @@ public class AuthService {
     }
 
     public User updateStudentOrStaffProfile(String username, String fullName, String newPassword, String currentPassword) {
+        return updateStudentOrStaffProfile(username, fullName, newPassword, currentPassword, "");
+    }
+
+    public User updateStudentOrStaffProfile(String username, String fullName, String newPassword, String currentPassword, String profilePhotoPath) {
         String normalizedUsername = NamePolicy.validateUsername(username);
         String normalizedFullName = NamePolicy.validateFullName(fullName);
 
@@ -101,6 +105,10 @@ public class AuthService {
         if (newPassword != null && !newPassword.isBlank()) {
             PasswordPolicy.validate(newPassword);
             user.updatePasswordHash(PasswordHasher.hashPassword(newPassword));
+        }
+
+        if (profilePhotoPath != null && !profilePhotoPath.isBlank()) {
+            user.updateProfilePhotoPath(profilePhotoPath);
         }
 
         userRepository.save(user);

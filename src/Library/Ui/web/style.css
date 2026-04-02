@@ -190,6 +190,42 @@ body {
     backdrop-filter: none;
 }
 
+.profile-photo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.profile-photo-preview {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(52, 73, 94, 0.25);
+    background: rgba(255, 255, 255, 0.7);
+    display: none;
+}
+
+.strength-meter {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(52, 73, 94, 0.16);
+    border: 1px solid rgba(52, 73, 94, 0.12);
+    margin-top: 6px;
+}
+
+.strength-meter-fill {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: #c0392b;
+    transition: width 180ms ease, background-color 180ms ease;
+}
+
 .reader-scroll-block {
     display: flex;
     flex-direction: column;
