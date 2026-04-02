@@ -2209,38 +2209,43 @@ public class LibraryApiHandlers {
                 String action = required(form, "action").toLowerCase();
                 String comment = form.getOrDefault("comment", "");
                 String reason = form.getOrDefault("reason", "");
+                boolean sendFeedback = Boolean.parseBoolean(RequestFilters.getTrimmed(form, "sendFeedback", "true"));
 
                 if ("approve".equals(action)) {
                     BookSubmission2 approved = librarianService.approveSubmission(submissionId, comment);
-                    String safeComment = nullToEmpty(comment).trim();
-                    String notificationMessage = safeComment.isBlank()
-                            ? "Your submission \"" + approved.getTitle() + "\" was approved by a librarian."
-                            : "Your submission \"" + approved.getTitle() + "\" was approved. Comment: " + safeComment;
-                    notificationService.addNotification(
-                            approved.getAuthorUsername(),
-                            "Submission Approved",
-                            notificationMessage
-                    );
+                    if (sendFeedback) {
+                        String safeComment = nullToEmpty(comment).trim();
+                        String notificationMessage = safeComment.isBlank()
+                                ? "Your submission \"" + approved.getTitle() + "\" was approved by a librarian."
+                                : "Your submission \"" + approved.getTitle() + "\" was approved. Comment: " + safeComment;
+                        notificationService.addNotification(
+                                approved.getAuthorUsername(),
+                                "Submission Approved",
+                                notificationMessage
+                        );
+                    }
                     sendText(exchange, 200, "Submission approved.");
                 } else if ("reject".equals(action)) {
                     BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
-                    String safeComment = nullToEmpty(comment).trim();
-                    String safeReason = nullToEmpty(rejected.getRejectionReason()).trim();
-                    String notificationMessage;
-                    if (!safeReason.isBlank() && !safeComment.isBlank()) {
-                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason + " | Comment: " + safeComment;
-                    } else if (!safeReason.isBlank()) {
-                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason;
-                    } else if (!safeComment.isBlank()) {
-                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + safeComment;
-                    } else {
-                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
+                    if (sendFeedback) {
+                        String safeComment = nullToEmpty(comment).trim();
+                        String safeReason = nullToEmpty(rejected.getRejectionReason()).trim();
+                        String notificationMessage;
+                        if (!safeReason.isBlank() && !safeComment.isBlank()) {
+                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason + " | Comment: " + safeComment;
+                        } else if (!safeReason.isBlank()) {
+                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Reason: " + safeReason;
+                        } else if (!safeComment.isBlank()) {
+                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + safeComment;
+                        } else {
+                            notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
+                        }
+                        notificationService.addNotification(
+                                rejected.getAuthorUsername(),
+                                "Submission Rejected",
+                                notificationMessage
+                        );
                     }
-                    notificationService.addNotification(
-                            rejected.getAuthorUsername(),
-                            "Submission Rejected",
-                            notificationMessage
-                    );
                     sendText(exchange, 200, "Submission rejected.");
                 } else {
                     sendText(exchange, 400, "Action must be approve or reject.");
@@ -2804,7 +2809,9 @@ public class LibraryApiHandlers {
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
-                    "\"status\":\"" + submission.getStatus() + "\"" +
+                    "\"status\":\"" + submission.getStatus() + "\"," +
+                    "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
+                    "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(submission.getRejectionReason())) + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";

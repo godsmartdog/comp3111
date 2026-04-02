@@ -25,6 +25,37 @@ function selectedUsernames() {
     return checkboxes.map((node) => node.value);
 }
 
+function updateSelectionHint() {
+    const hint = document.getElementById("usersSelectionHint");
+    if (!hint) {
+        return;
+    }
+    const selected = selectedUsernames().length;
+    hint.textContent = `Selected: ${selected} user(s).`;
+}
+
+function syncSelectAllState() {
+    const selectAll = document.getElementById("selectAllUsers");
+    if (!selectAll) {
+        updateSelectionHint();
+        return;
+    }
+
+    const selectable = Array.from(document.querySelectorAll(".user-select-box:not(:disabled)"));
+    const selected = selectable.filter((node) => node.checked);
+
+    if (selectable.length === 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+        updateSelectionHint();
+        return;
+    }
+
+    selectAll.checked = selected.length === selectable.length;
+    selectAll.indeterminate = selected.length > 0 && selected.length < selectable.length;
+    updateSelectionHint();
+}
+
 function renderUsers(items) {
     const body = document.getElementById("usersBody");
     const status = document.getElementById("usersStatus");
@@ -80,8 +111,14 @@ function renderUsers(items) {
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(toggleBtn);
 
+        row.querySelector(".user-select-box")?.addEventListener("change", () => {
+            syncSelectAllState();
+        });
+
         body.appendChild(row);
     });
+
+    syncSelectAllState();
 }
 
 async function loadUsers() {
@@ -177,6 +214,14 @@ document.getElementById("bulkDeactivateBtn")?.addEventListener("click", () => {
 
 document.getElementById("bulkActivateBtn")?.addEventListener("click", () => {
     runBulkAction("activate").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("selectAllUsers")?.addEventListener("change", (event) => {
+    const checked = !!event.target?.checked;
+    document.querySelectorAll(".user-select-box:not(:disabled)").forEach((node) => {
+        node.checked = checked;
+    });
+    syncSelectAllState();
 });
 
 if (currentUser) {

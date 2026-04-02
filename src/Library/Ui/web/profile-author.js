@@ -97,7 +97,6 @@ async function loadAuthorProfile() {
         try {
             const blob = await fetchProtectedBlob(payload.photoUrl);
             const objectUrl = URL.createObjectURL(blob);
-            authorProfilePhotoObjectUrl = objectUrl;
             setAuthorPhotoPreview(objectUrl);
         } catch (_) {
             setAuthorPhotoPreview("");
@@ -219,7 +218,6 @@ document.getElementById("authorProfilePhotoInput")?.addEventListener("change", (
     }
     clearAuthorPhotoPreview();
     const previewUrl = URL.createObjectURL(file);
-    authorProfilePhotoObjectUrl = previewUrl;
     setAuthorPhotoPreview(previewUrl);
 });
 

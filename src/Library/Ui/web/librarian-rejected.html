@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Rejected Submissions</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Rejected Submissions</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="profile-librarian.html">Profile</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <div class="toolbar">
+            <input id="rejectedSearchInput" type="text" placeholder="Search by title, author, or username">
+            <input id="rejectedGenreFilter" type="text" placeholder="Genre contains..." aria-label="Genre filter">
+            <input id="rejectedDateFilter" type="date" aria-label="Rejected submission date filter">
+            <select id="rejectedSortDirFilter">
+                <option value="desc" selected>Submitted Date: Newest First</option>
+                <option value="asc">Submitted Date: Oldest First</option>
+            </select>
+            <button id="applyRejectedFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetRejectedFiltersBtn" class="secondary" type="button">Reset</button>
+            <button id="refreshRejectedBtn" class="secondary" type="button">Refresh</button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Genres</th>
+                    <th>Submitted</th>
+                    <th>File</th>
+                    <th>Reason</th>
+                    <th>Comment</th>
+                </tr>
+                </thead>
+                <tbody id="rejectedBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-rejected.js"></script>
+</body>
+</html>

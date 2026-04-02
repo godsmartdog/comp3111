@@ -97,7 +97,6 @@ async function loadLibrarianProfile() {
         try {
             const blob = await fetchProtectedBlob(payload.photoUrl);
             const objectUrl = URL.createObjectURL(blob);
-            librarianProfilePhotoObjectUrl = objectUrl;
             setLibrarianPhotoPreview(objectUrl);
         } catch (_) {
             setLibrarianPhotoPreview("");
@@ -220,7 +219,6 @@ document.getElementById("librarianProfilePhotoInput")?.addEventListener("change"
     }
     clearLibrarianPhotoPreview();
     const previewUrl = URL.createObjectURL(file);
-    librarianProfilePhotoObjectUrl = previewUrl;
     setLibrarianPhotoPreview(previewUrl);
 });
 
