@@ -415,17 +415,36 @@ function matchesAnyAdvancedFilter(values, filterText, matchMode) {
     return normalizedValues.some((value) => value.includes(normalizedFilter));
 }
 
+function getSelectedGenreFilters() {
+    const genreSelect = document.getElementById("genreFilter");
+    if (!genreSelect) {
+        return [];
+    }
+
+    return Array.from(genreSelect.selectedOptions || [])
+        .map((option) => String(option.value || "").trim())
+        .filter(Boolean);
+}
+
+function matchesSelectedGenres(bookGenres, selectedGenres, matchMode) {
+    if (!Array.isArray(selectedGenres) || selectedGenres.length === 0) {
+        return true;
+    }
+
+    return selectedGenres.some((genre) => matchesAnyAdvancedFilter(bookGenres, genre, matchMode));
+}
+
 function applyAdvancedFilters(books) {
     const titleFilter = document.getElementById("titleFilter")?.value || "";
     const authorFilter = document.getElementById("authorFilter")?.value || "";
-    const genreFilter = document.getElementById("genreFilter")?.value || "";
+    const selectedGenres = getSelectedGenreFilters();
     const publishedDateFilter = document.getElementById("publishedDateFilter")?.value || "";
     const matchMode = document.getElementById("advancedMatchMode")?.value || "contains";
 
     return books.filter((book) => {
         const titleMatch = matchesAdvancedFilter(book.title, titleFilter, matchMode);
         const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
-        const genreMatch = matchesAnyAdvancedFilter(book.genres, genreFilter, matchMode);
+        const genreMatch = matchesSelectedGenres(book.genres, selectedGenres, matchMode);
         const publishedDateMatch = !publishedDateFilter
             || String(book.publishDate || "").trim() === publishedDateFilter.trim();
         return titleMatch && authorMatch && genreMatch && publishedDateMatch;
@@ -883,7 +902,9 @@ document.getElementById("showAllBtn").addEventListener("click", () => {
         authorFilter.value = "";
     }
     if (genreFilter) {
-        genreFilter.value = "";
+        Array.from(genreFilter.options || []).forEach((option) => {
+            option.selected = false;
+        });
     }
     if (publishedDateFilter) {
         publishedDateFilter.value = "";
@@ -911,7 +932,9 @@ document.getElementById("clearAdvancedSearchBtn")?.addEventListener("click", () 
         authorFilter.value = "";
     }
     if (genreFilter) {
-        genreFilter.value = "";
+        Array.from(genreFilter.options || []).forEach((option) => {
+            option.selected = false;
+        });
     }
     if (publishedDateFilter) {
         publishedDateFilter.value = "";
@@ -938,11 +961,7 @@ document.getElementById("authorFilter")?.addEventListener("keydown", (event) => 
     refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
 });
 
-document.getElementById("genreFilter")?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") {
-        return;
-    }
-    event.preventDefault();
+document.getElementById("genreFilter")?.addEventListener("change", () => {
     refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
 });
 

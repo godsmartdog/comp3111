@@ -28,17 +28,39 @@ function matchesGenres(genres, filterText) {
     return Array.isArray(genres) && genres.some((genre) => String(genre || "").toLowerCase().includes(filterText.toLowerCase()));
 }
 
+function normalizeGenres(item) {
+    if (Array.isArray(item?.genres)) {
+        return item.genres.filter((value) => String(value || "").trim());
+    }
+    if (typeof item?.genre === "string") {
+        return item.genre
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function normalizeReason(item) {
+    return String(item?.rejectionReason || item?.reason || "").trim();
+}
+
+function normalizeComment(item) {
+    return String(item?.librarianComment || item?.comment || "").trim();
+}
+
 function applyRejectedFilters(items) {
     const keyword = document.getElementById("rejectedSearchInput")?.value?.trim() || "";
     const genreFilter = document.getElementById("rejectedGenreFilter")?.value?.trim() || "";
     const dateFilter = document.getElementById("rejectedDateFilter")?.value?.trim() || "";
 
     return items.filter((item) => {
+        const genres = normalizeGenres(item);
         const keywordMatch = !keyword
             || matchesText(item.title, keyword)
             || matchesText(item.authorFullName, keyword)
             || matchesText(item.authorUsername, keyword);
-        const genreMatch = matchesGenres(item.genres, genreFilter);
+        const genreMatch = matchesGenres(genres, genreFilter);
         const dateMatch = !dateFilter || String(item.submittedDate || "").trim() === dateFilter;
         return keywordMatch && genreMatch && dateMatch;
     });
@@ -59,15 +81,18 @@ function renderRejected(items) {
     }
 
     items.forEach((item) => {
+        const genres = normalizeGenres(item);
+        const reason = normalizeReason(item);
+        const comment = normalizeComment(item);
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${safeText(item.title)}</td>
             <td>${safeText(item.authorFullName)}</td>
-            <td>${Array.isArray(item.genres) && item.genres.length > 0 ? item.genres.map((genre) => safeText(genre)).join(", ") : "-"}</td>
+            <td>${genres.length > 0 ? genres.map((genre) => safeText(genre)).join(", ") : "-"}</td>
             <td>${safeText(item.submittedDate)}</td>
             <td>${safeText(item.fileName)}</td>
-            <td>${safeText(item.rejectionReason)}</td>
-            <td>${safeText(item.librarianComment)}</td>
+            <td>${safeText(reason)}</td>
+            <td>${safeText(comment)}</td>
         `;
         body.appendChild(row);
     });

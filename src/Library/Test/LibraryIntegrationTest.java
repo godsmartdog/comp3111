@@ -3169,7 +3169,7 @@ public final class LibraryIntegrationTest {
             HttpResponse<String> notificationsResponse = client.send(notificationsRequest, HttpResponse.BodyHandlers.ofString());
             assertEquals(200, notificationsResponse.statusCode(), "author notifications endpoint should return HTTP 200");
             assertTrue(notificationsResponse.body().contains("\"title\":\"Submission Rejected\""), "notification should include rejection title");
-            assertTrue(notificationsResponse.body().contains("Insufficient references"), "notification should include rejection reason");
+            assertFalse(notificationsResponse.body().contains("Insufficient references"), "notification should not include rejection reason");
         } finally {
             server.stop(0);
             Files.deleteIfExists(file);

@@ -2264,8 +2264,8 @@ public class LibraryApiHandlers {
                 Map<String, String> form = readForm(exchange);
                 String submissionId = required(form, "submissionId");
                 String action = required(form, "action").toLowerCase();
-                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
-                String reason = nullToEmpty(form.getOrDefault("reason", "")).trim();
+                String comment = nullToEmpty(form.getOrDefault("comment", form.getOrDefault("librarianComment", ""))).trim();
+                String reason = nullToEmpty(form.getOrDefault("reason", form.getOrDefault("rejectionReason", ""))).trim();
                 boolean sendFeedback = Boolean.parseBoolean(RequestFilters.getTrimmed(form, "sendFeedback", "true"));
 
                 if ("approve".equals(action)) {
@@ -2286,10 +2286,18 @@ public class LibraryApiHandlers {
                     }
                     sendText(exchange, 200, "Submission approved.");
                 } else if ("reject".equals(action)) {
-                    BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, comment, reason);
+                    String storedComment = comment.isBlank() ? "No comment provided." : comment;
+                    String storedReason = reason.isBlank() ? "Unspecified" : reason;
+                    BookSubmission2 rejected = librarianService.rejectSubmission(submissionId, storedComment, storedReason);
+
+                    // Prevent accidental reason leakage when older clients mirror reason into comment.
+                    String notificationComment = comment;
+                    if (!reason.isBlank() && reason.equalsIgnoreCase(comment)) {
+                        notificationComment = "";
+                    }
                     String notificationMessage;
-                    if (!comment.isBlank()) {
-                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + comment;
+                    if (!notificationComment.isBlank()) {
+                        notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected. Comment: " + notificationComment;
                     } else {
                         notificationMessage = "Your submission \"" + rejected.getTitle() + "\" was rejected by a librarian.";
                     }
@@ -2730,6 +2738,7 @@ public class LibraryApiHandlers {
         List<String> values = new ArrayList<>();
         for (NotificationItem item : items) {
             String categoryKey = notificationCategoryKey(item);
+            String safeMessage = sanitizeSubmissionRejectionMessage(item);
             List<String> metadataValues = new ArrayList<>();
             for (Map.Entry<String, String> metadata : item.getMetadata().entrySet()) {
                 metadataValues.add("\"" + JsonUtil.escape(metadata.getKey()) + "\":\"" + JsonUtil.escape(metadata.getValue()) + "\"");
@@ -2748,7 +2757,7 @@ public class LibraryApiHandlers {
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(item.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(item.getTitle()) + "\"," +
-                    "\"message\":\"" + JsonUtil.escape(item.getMessage()) + "\"," +
+                    "\"message\":\"" + JsonUtil.escape(safeMessage) + "\"," +
                     "\"category\":\"" + JsonUtil.escape(notificationCategoryLabel(categoryKey)) + "\"," +
                     "\"categoryKey\":\"" + JsonUtil.escape(categoryKey) + "\"," +
                     "\"priority\":\"" + item.getPriority() + "\"," +
@@ -2762,6 +2771,20 @@ public class LibraryApiHandlers {
                     "}");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private static String sanitizeSubmissionRejectionMessage(NotificationItem item) {
+        String title = nullToEmpty(item.getTitle());
+        String message = nullToEmpty(item.getMessage());
+        if (!"submission rejected".equalsIgnoreCase(title)) {
+            return message;
+        }
+
+        int reasonIndex = message.toLowerCase(Locale.ROOT).indexOf("reason:");
+        if (reasonIndex < 0) {
+            return message;
+        }
+        return message.substring(0, reasonIndex).trim();
     }
 
     private static String notificationsSummaryToJson(List<NotificationItem> items) {
@@ -2911,21 +2934,35 @@ public class LibraryApiHandlers {
     private static String librarianSubmissionsToJson(List<BookSubmission2> submissions) {
         List<String> values = new ArrayList<>();
         for (BookSubmission2 submission : submissions) {
+            List<String> genres = submission.getGenres();
             List<String> genreValues = new ArrayList<>();
-            for (String genre : submission.getGenres()) {
+            for (String genre : genres) {
                 genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
             }
+            if (genreValues.isEmpty()) {
+                genreValues.add("\"Unspecified\"");
+            }
+                String safeComment = nullToEmpty(submission.getLibrarianComment()).isBlank()
+                    ? "No comment provided."
+                    : submission.getLibrarianComment();
+                String safeReason = nullToEmpty(submission.getRejectionReason()).isBlank()
+                    ? "Unspecified"
+                    : submission.getRejectionReason();
+            String genreCsv = genres.isEmpty() ? "Unspecified" : String.join(", ", genres);
             values.add("{" +
                     "\"id\":\"" + JsonUtil.escape(submission.getId()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(submission.getTitle()) + "\"," +
                     "\"authorFullName\":\"" + JsonUtil.escape(submission.getAuthorFullName()) + "\"," +
                     "\"authorUsername\":\"" + JsonUtil.escape(submission.getAuthorUsername()) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"genre\":\"" + JsonUtil.escape(genreCsv) + "\"," +
                     "\"fileName\":\"" + JsonUtil.escape(submission.getFileName()) + "\"," +
                     "\"submittedDate\":\"" + submission.getSubmittedDate() + "\"," +
                     "\"status\":\"" + submission.getStatus() + "\"," +
-                    "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(submission.getLibrarianComment())) + "\"," +
-                    "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(submission.getRejectionReason())) + "\"" +
+                    "\"librarianComment\":\"" + JsonUtil.escape(safeComment) + "\"," +
+                    "\"comment\":\"" + JsonUtil.escape(safeComment) + "\"," +
+                    "\"rejectionReason\":\"" + JsonUtil.escape(safeReason) + "\"," +
+                    "\"reason\":\"" + JsonUtil.escape(safeReason) + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";

@@ -281,7 +281,11 @@ async function review(submissionId, action) {
                 showToast("Rejection reason must be at most 500 characters.", true);
                 return;
             }
-            comment = reason ? "Rejected" : "Rejected";
+            comment = (prompt("Reviewer comment for author notification (optional, max 500 characters)") || "").trim();
+            if (comment.length > 500) {
+                showToast("Reviewer comment must be at most 500 characters.", true);
+                return;
+            }
         } else {
             comment = prompt(`Comment for ${action}`) || "";
         }

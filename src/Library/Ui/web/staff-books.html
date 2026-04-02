@@ -39,7 +39,26 @@
         <div class="toolbar">
             <input id="titleFilter" type="text" placeholder="Title contains..." aria-label="Title filter">
             <input id="authorFilter" type="text" placeholder="Author contains..." aria-label="Author filter">
-            <input id="genreFilter" type="text" placeholder="Genre contains..." aria-label="Genre filter">
+            <select id="genreFilter" multiple size="6" aria-label="Genre filter (multi-select)">
+                <option value="Fiction">Fiction</option>
+                <option value="Non-fiction">Non-fiction</option>
+                <option value="Mystery">Mystery</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Science Fiction">Science Fiction</option>
+                <option value="Romance">Romance</option>
+                <option value="Thriller">Thriller</option>
+                <option value="Biography">Biography</option>
+                <option value="History">History</option>
+                <option value="Business">Business</option>
+                <option value="Education">Education</option>
+                <option value="Science">Science</option>
+                <option value="Technology">Technology</option>
+                <option value="Art">Art</option>
+                <option value="Philosophy">Philosophy</option>
+                <option value="Self-Help">Self-Help</option>
+                <option value="Children">Children</option>
+                <option value="Young Adult">Young Adult</option>
+            </select>
             <input id="publishedDateFilter" type="date" aria-label="Published date filter">
             <select id="advancedMatchMode" aria-label="Advanced match mode">
                 <option value="contains" selected>Contains</option>
@@ -48,6 +67,7 @@
             <button id="applyAdvancedSearchBtn" class="secondary" type="button">Apply Advanced Search</button>
             <button id="clearAdvancedSearchBtn" class="secondary" type="button">Clear Advanced Search</button>
         </div>
+        <p class="hint">Genre filter supports multi-select. Hold Ctrl (Windows) or Cmd (Mac) to select multiple genres.</p>
 
         <div class="table-wrap">
             <table>
