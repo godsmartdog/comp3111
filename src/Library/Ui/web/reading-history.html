@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Reading History</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Reading History</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a id="backPortalLink" class="link-btn" href="index.html">Back to Portal</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col">
+    <section class="panel glass-panel">
+        <div class="toolbar">
+            <input id="historyKeyword" type="text" placeholder="Search title, author, or genre..." aria-label="Search reading history">
+            <input id="historyAuthor" type="text" placeholder="Author filter" aria-label="Filter by author">
+            <input id="historyGenre" type="text" placeholder="Genre filter" aria-label="Filter by genre">
+            <input id="borrowDateFrom" type="date" aria-label="Borrow date from">
+            <input id="borrowDateTo" type="date" aria-label="Borrow date to">
+            <input id="returnDateFrom" type="date" aria-label="Return date from">
+            <input id="returnDateTo" type="date" aria-label="Return date to">
+            <select id="historySortBy" aria-label="Sort reading history">
+                <option value="borrowDate" selected>Borrow Date</option>
+                <option value="returnDate">Return Date</option>
+                <option value="title">Book Title</option>
+                <option value="author">Author</option>
+                <option value="duration">Reading Duration</option>
+            </select>
+            <select id="historySortDir" aria-label="Sort direction">
+                <option value="desc" selected>Desc</option>
+                <option value="asc">Asc</option>
+            </select>
+            <button id="applyHistoryFiltersBtn" type="button">Apply History Filters</button>
+            <button id="resetHistoryFiltersBtn" class="secondary" type="button">Reset Filters</button>
+        </div>
+        <p id="historyStatus" class="hint">Loading reading history...</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Book Title</th>
+                        <th>Author</th>
+                        <th>Genres</th>
+                        <th>Borrow Date</th>
+                        <th>Return Date</th>
+                        <th>Reading Duration</th>
+                        <th>Progress</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="reading-history.js"></script>
+</body>
+</html>

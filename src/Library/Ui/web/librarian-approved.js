@@ -8,6 +8,15 @@ if (currentUser) {
     attachLogout("logoutBtn");
 }
 
+function formatAverageRating(item) {
+    const rating = Number(item?.averageRating);
+    const count = Number(item?.reviewCount || 0);
+    if (!Number.isFinite(rating) || count <= 0) {
+        return "-";
+    }
+    return `${rating.toFixed(2)} (${count})`;
+}
+
 function renderApprovedBooks(items) {
     const tbody = document.getElementById("approvedBooksBody");
     const status = document.getElementById("approvedBooksStatus");
@@ -29,6 +38,7 @@ function renderApprovedBooks(items) {
             <td>${item.title}</td>
             <td>${item.author}</td>
             <td>${item.publishDate || ""}</td>
+            <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
             <td>${item.availableCopies ?? 0}/${item.totalCopies ?? 0}</td>
             <td>

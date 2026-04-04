@@ -4,17 +4,21 @@ import Library.Model.Book;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
 import Library.Repository.MemoryBookRepository;
+import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
 import Library.Repository.MemoryBorrowRepository;
 import Library.Repository.MemoryLibrarianProfileRepository3;
+import Library.Repository.MemoryReadingProgressRepository;
 import Library.Repository.MemoryUserRepository;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +36,7 @@ public class LibraryManagementApp {
                     context.authService,
                     context.bookService,
                     context.borrowService,
+                    context.bookReviewService,
                     context.recommendationService,
                     context.authorService,
                     context.authorDraftService,
@@ -70,6 +75,7 @@ public class LibraryManagementApp {
     private static AppContext createContext() throws Exception {
         MemoryBookRepository bookRepository = new MemoryBookRepository();
         MemoryBorrowRepository borrowRepository = new MemoryBorrowRepository();
+        MemoryBookReviewRepository bookReviewRepository = new MemoryBookReviewRepository();
         MemoryUserRepository userRepository = new MemoryUserRepository();
         MemoryAuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
         MemoryBookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
@@ -78,7 +84,9 @@ public class LibraryManagementApp {
 
         AuthService authService = new AuthService(userRepository);
         BookService bookService = new BookService(bookRepository);
-        BorrowService borrowService = new BorrowService(bookRepository, borrowRepository);
+        ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+        BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
+        BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
         RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
         FileService fileService = new FileService();
         AuthorService2 authorService = new AuthorService2(
@@ -102,20 +110,44 @@ public class LibraryManagementApp {
         authorService.registerAuthor("author1", "Author Demo", "Password1!", "Writes demo content.");
         librarianService.registerLibrarian("librarian1", "Librarian Demo", "Password1!", "EMP-DEMO");
 
-        Book book1 = new Book("How to become a Leetcode Master", "Dickson Lam", "Available");
+        Book book1 = new Book(
+            "How to become a Leetcode Master",
+            "",
+            "Dickson Lam",
+            List.of("Technology", "Education"),
+            "Available"
+        );
         book1.approve(LocalDate.now());
         bookRepository.save(book1);
 
-        Book book2 = new Book("How to become a board game Master", "Dickson Lam", "Available");
+        Book book2 = new Book(
+            "How to become a board game Master",
+            "",
+            "Dickson Lam",
+            List.of("Education", "Children"),
+            "Available"
+        );
         book2.approve(LocalDate.now());
         bookRepository.save(book2);
 
-        Book book3 = new Book("Why R18 is very useful for New-Generation", "FelixMau", "Borrowed");
+        Book book3 = new Book(
+            "Why R18 is very useful for New-Generation",
+            "",
+            "FelixMau",
+            List.of("Philosophy", "Young Adult"),
+            "Borrowed"
+        );
         book3.approve(LocalDate.now());
         bookRepository.save(book3);
         borrowService.borrowBook("student1", book3.getId(), 10);
 
-        Book book4 = new Book("How to become GrandMaster of CodeForce", "GodSmartDog", "Available");
+        Book book4 = new Book(
+            "How to become GrandMaster of CodeForce",
+            "",
+            "GodSmartDog",
+            List.of("Technology", "Science"),
+            "Available"
+        );
         book4.approve(LocalDate.now());
         bookRepository.save(book4);
 
@@ -134,6 +166,7 @@ public class LibraryManagementApp {
                 authService,
                 bookService,
                 borrowService,
+                bookReviewService,
                 recommendationService,
                 authorService,
                 authorDraftService,
@@ -147,6 +180,7 @@ public class LibraryManagementApp {
             AuthService authService,
             BookService bookService,
             BorrowService borrowService,
+            BookReviewService bookReviewService,
             RecommendationService recommendationService,
             AuthorService2 authorService,
             AuthorDraftService authorDraftService,

@@ -19,6 +19,7 @@ import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
 import Library.Repository.MemoryBookRepository;
+import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
 import Library.Repository.MemoryBorrowRepository;
 import Library.Repository.MemoryLibrarianProfileRepository3;
@@ -30,6 +31,7 @@ import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
@@ -75,6 +77,8 @@ public final class LibraryIntegrationTest {
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
+        runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
+        runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
         runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
         runner.run("personal notifications can be listed and marked read", LibraryIntegrationTest::testNotificationListAndMarkRead);
@@ -804,6 +808,154 @@ public final class LibraryIntegrationTest {
         assertEquals(7, progress.getBookmarkPage(), "bookmark should persist");
         assertEquals(List.of("line A", "line B"), progress.getHighlights(), "highlights should persist");
     }
+
+    private static void testReadingHistoryEndpointSupportsSearchAndProgressData() throws Exception {
+        TestContext context = new TestContext();
+        LocalDate today = LocalDate.now();
+        Book historyBook = new Book("Reading Analytics", "author-a", "Author A", List.of("Science", "Technology"), "History summary.");
+        historyBook.approve(today);
+        context.bookRepository.save(historyBook);
+
+        Book unrelatedBook = new Book("Other Title", "author-b", "Author B", List.of("History"), "Other summary.");
+        unrelatedBook.approve(today);
+        context.bookRepository.save(unrelatedBook);
+
+        context.authService.registerStudentOrStaff("history-user", "History User", "Password1!", Role.STUDENT);
+        BorrowRecord borrowed = context.borrowService.borrowBook("history-user", historyBook.getId(), 7);
+        context.borrowService.borrowBook("history-user", unrelatedBook.getId(), 7);
+        context.readingProgressService.updateProgress("history-user", historyBook.getId(), 12, List.of("chapter 1"));
+        context.borrowService.returnBook("history-user", historyBook.getId());
+
+        assertTrue(context.readingProgressService.findProgress("history-user", historyBook.getId()).isPresent(), "borrowing should create a reading-progress record");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String sessionId = loginAndGetSessionId(client, baseUrl, "history-user", "Password1!", "STUDENT");
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/borrows/history?q=reading&author=Author+A&genre=Science&borrowDateFrom=" + today + "&borrowDateTo=" + today + "&returnDateFrom=" + today + "&returnDateTo=" + today + "&sortBy=title&sortDir=asc"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode(), "reading history request should return HTTP 200");
+            assertTrue(response.body().contains("\"recordId\":\"" + borrowed.getId() + "\""), "reading history should include the borrowed record");
+            assertTrue(response.body().contains("\"bookTitle\":\"Reading Analytics\""), "reading history should include the matching title");
+            assertTrue(response.body().contains("\"authorFullName\":\"Author A\""), "reading history should include author details");
+            assertTrue(response.body().contains("\"genres\":[\"Science\",\"Technology\"]"), "reading history should expose genres");
+            assertTrue(response.body().contains("\"bookmarkPage\":12"), "reading history should include reading progress");
+            assertTrue(response.body().contains("\"highlightCount\":1"), "reading history should include highlight count");
+            assertFalse(response.body().contains("Other Title"), "reading history filters should exclude non-matching records");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+        private static void testReviewSubmissionAndBookRatingSummaries() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("review-feature", ".txt", List.of("Review feature content"));
+
+        context.authorService.registerAuthor("review-author", "Review Author", "Password1!", "Writes reviewed books.");
+        context.librarianService.registerLibrarian("review-lib", "Review Librarian", "Password1!", "EMP-REVIEW");
+        BookSubmission2 submission = context.authorService.publishBook(
+            "review-author",
+            "Review Driven Design",
+            List.of("Technology"),
+            "Book for rating tests.",
+            manuscript.toString()
+        );
+        context.librarianService.approveSubmission(submission.getId(), "Looks good.");
+
+        Book reviewedBook = context.bookService.searchApprovedBooks("Review Driven Design").get(0);
+
+        context.authService.registerStudentOrStaff("review-student-a", "Review Student A", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("review-student-b", "Review Student B", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("review-student-a", reviewedBook.getId(), 7);
+        context.borrowService.borrowBook("review-student-b", reviewedBook.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+
+            String studentASessionId = loginAndGetSessionId(client, baseUrl, "review-student-a", "Password1!", "STUDENT");
+            String studentBSessionId = loginAndGetSessionId(client, baseUrl, "review-student-b", "Password1!", "STUDENT");
+            String authorSessionId = loginAndGetSessionId(client, baseUrl, "review-author", "Password1!", "AUTHOR");
+            String librarianSessionId = loginAndGetSessionId(client, baseUrl, "review-lib", "Password1!", "LIBRARIAN");
+
+            HttpRequest saveReviewA = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", studentASessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=4&reviewText=Great+read"))
+                .build();
+            HttpResponse<String> saveReviewAResponse = client.send(saveReviewA, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, saveReviewAResponse.statusCode(), "first review submission should succeed");
+
+            HttpRequest saveReviewB = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", studentBSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=2&reviewText=Needs+improvement"))
+                .build();
+            HttpResponse<String> saveReviewBResponse = client.send(saveReviewB, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, saveReviewBResponse.statusCode(), "second review submission should succeed");
+
+            HttpRequest reviewsForBookRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews?bookId=" + reviewedBook.getId()))
+                .header("X-Session-Id", studentASessionId)
+                .GET()
+                .build();
+            HttpResponse<String> reviewsForBookResponse = client.send(reviewsForBookRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewsForBookResponse.statusCode(), "book review listing should succeed");
+            assertTrue(reviewsForBookResponse.body().contains("\"reviewerFullName\":\"Review Student A\""), "book review listing should include reviewer name");
+
+            HttpRequest myReviewsRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/me"))
+                .header("X-Session-Id", studentASessionId)
+                .GET()
+                .build();
+            HttpResponse<String> myReviewsResponse = client.send(myReviewsRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, myReviewsResponse.statusCode(), "my reviews endpoint should succeed");
+            assertTrue(myReviewsResponse.body().contains("\"bookId\":\"" + reviewedBook.getId() + "\""), "my reviews endpoint should include borrowed reviewed book");
+
+            HttpRequest booksRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/books?keyword=Review+Driven+Design"))
+                .header("X-Session-Id", studentASessionId)
+                .GET()
+                .build();
+            HttpResponse<String> booksResponse = client.send(booksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, booksResponse.statusCode(), "books endpoint should succeed with ratings data");
+            assertTrue(booksResponse.body().contains("\"averageRating\":3.00"), "books endpoint should include computed average rating");
+            assertTrue(booksResponse.body().contains("\"reviewCount\":2"), "books endpoint should include review count");
+
+            HttpRequest authorBooksRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/author/published-books"))
+                .header("X-Session-Id", authorSessionId)
+                .GET()
+                .build();
+            HttpResponse<String> authorBooksResponse = client.send(authorBooksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, authorBooksResponse.statusCode(), "author published books endpoint should succeed with ratings data");
+            assertTrue(authorBooksResponse.body().contains("\"averageRating\":3.00"), "author published books should include average rating");
+            assertTrue(authorBooksResponse.body().contains("\"reviewCount\":2"), "author published books should include review count");
+
+            HttpRequest librarianBooksRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/approved-books"))
+                .header("X-Session-Id", librarianSessionId)
+                .GET()
+                .build();
+            HttpResponse<String> librarianBooksResponse = client.send(librarianBooksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, librarianBooksResponse.statusCode(), "librarian approved books endpoint should succeed with ratings data");
+            assertTrue(librarianBooksResponse.body().contains("\"averageRating\":3.00"), "librarian approved books should include average rating");
+            assertTrue(librarianBooksResponse.body().contains("\"reviewCount\":2"), "librarian approved books should include review count");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+        }
 
     private static void testProgressAccessRequiresActiveBorrow() {
         TestContext context = new TestContext();
@@ -3795,6 +3947,7 @@ public final class LibraryIntegrationTest {
                 context.authService,
                 context.bookService,
                 context.borrowService,
+            context.bookReviewService,
                 context.recommendationService,
                 context.authorService,
                 context.authorDraftService,
@@ -4011,6 +4164,7 @@ public final class LibraryIntegrationTest {
     private static final class TestContext {
         private final MemoryBookRepository bookRepository = new MemoryBookRepository();
         private final MemoryBorrowRepository borrowRepository = new MemoryBorrowRepository();
+        private final MemoryBookReviewRepository bookReviewRepository = new MemoryBookReviewRepository();
         private final MemoryUserRepository userRepository = new MemoryUserRepository();
         private final MemoryAuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
         private final MemoryBookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
@@ -4019,7 +4173,6 @@ public final class LibraryIntegrationTest {
 
         private final AuthService authService = new AuthService(userRepository);
         private final BookService bookService = new BookService(bookRepository);
-        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository);
         private final RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
         private final AuthorService2 authorService = new AuthorService2(
             userRepository,
@@ -4031,6 +4184,9 @@ public final class LibraryIntegrationTest {
         );
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
+        private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
+        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
+        private final BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
         private final LibrarianService3 librarianService = new LibrarianService3(
             userRepository,
             authorProfileRepository,
@@ -4038,7 +4194,6 @@ public final class LibraryIntegrationTest {
             submissionRepository,
             bookRepository
         );
-        private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
         private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
         private final SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(new MemorySessionSnapshotRepository());
 

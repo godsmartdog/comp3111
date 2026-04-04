@@ -19,6 +19,124 @@ let drawModeEnabled = false;
 let pdfDrawingStrokes = [];
 let currentDrawingStroke = null;
 let pageDrawCanvasMap = new Map();
+let readingSessionStartedAtMs = 0;
+let readingSessionBookId = "";
+
+function formatAverageRatingFromReviews(reviews) {
+    if (!Array.isArray(reviews) || reviews.length === 0) {
+        return "-";
+    }
+    const total = reviews.reduce((sum, item) => sum + Number(item?.rating || 0), 0);
+    const average = total / reviews.length;
+    return `${average.toFixed(2)} (${reviews.length})`;
+}
+
+function renderReaderReviews(reviews) {
+    const list = document.getElementById("readerReviewsList");
+    const summary = document.getElementById("readerRatingSummary");
+    if (!list || !summary) {
+        return;
+    }
+
+    list.innerHTML = "";
+    summary.textContent = `Average rating: ${formatAverageRatingFromReviews(reviews)}`;
+    if (!Array.isArray(reviews) || reviews.length === 0) {
+        const li = document.createElement("li");
+        li.className = "muted";
+        li.textContent = "No reviews yet.";
+        list.appendChild(li);
+        return;
+    }
+
+    reviews.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = `${item.reviewerFullName || item.username}: ${item.rating}/5 - ${item.reviewText || ""}`;
+        list.appendChild(li);
+    });
+}
+
+async function loadBookReviewsAndSyncInput(bookId) {
+    try {
+        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+        renderReaderReviews(reviews);
+
+        const currentReview = Array.isArray(reviews)
+            ? reviews.find((item) => item.username === currentUser?.username)
+            : null;
+        const ratingSelect = document.getElementById("reviewRating");
+        const reviewTextInput = document.getElementById("reviewTextInput");
+        if (ratingSelect) {
+            ratingSelect.value = String(currentReview?.rating || 5);
+        }
+        if (reviewTextInput) {
+            reviewTextInput.value = currentReview?.reviewText || "";
+        }
+    } catch (_) {
+        renderReaderReviews([]);
+    }
+}
+
+function startReadingTimer(bookId) {
+    readingSessionBookId = String(bookId || "");
+    readingSessionStartedAtMs = Date.now();
+}
+
+async function flushReadingTimer(reason = "") {
+    if (!readingSessionBookId || readingSessionStartedAtMs <= 0) {
+        return;
+    }
+
+    const elapsedMs = Date.now() - readingSessionStartedAtMs;
+    const seconds = Math.max(0, Math.round(elapsedMs / 1000));
+    const bookId = readingSessionBookId;
+
+    readingSessionBookId = "";
+    readingSessionStartedAtMs = 0;
+
+    if (seconds <= 0) {
+        return;
+    }
+
+    await api("/api/reading-progress/time", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({ bookId, seconds, reason })
+    });
+}
+
+function flushReadingTimerOnUnload() {
+    if (!readingSessionBookId || readingSessionStartedAtMs <= 0) {
+        return;
+    }
+
+    const elapsedMs = Date.now() - readingSessionStartedAtMs;
+    const seconds = Math.max(0, Math.round(elapsedMs / 1000));
+    const bookId = readingSessionBookId;
+
+    readingSessionBookId = "";
+    readingSessionStartedAtMs = 0;
+
+    if (seconds <= 0) {
+        return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("bookId", bookId);
+    params.set("seconds", String(seconds));
+    params.set("reason", "unload");
+
+    const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+    if (currentUser?.sessionId) {
+        headers["X-Session-Id"] = currentUser.sessionId;
+    }
+
+    fetch("/api/reading-progress/time", {
+        method: "POST",
+        headers,
+        body: params,
+        keepalive: true
+    }).catch(() => {});
+}
 
 function encodeDrawingPayload(strokes) {
     const compact = {
@@ -532,6 +650,7 @@ function resetReaderUi(statusText) {
     pageDrawCanvasMap = new Map();
     drawModeEnabled = false;
     updateDrawModeUi();
+    renderReaderReviews([]);
 }
 
 async function loadBorrowedContent(bookId) {
@@ -671,6 +790,7 @@ async function refreshBorrows(autoBookId = "") {
 
         li.querySelector("button")?.addEventListener("click", async () => {
             try {
+                await flushReadingTimer("switch-book");
                 selectedBorrowedBookId = item.bookId;
                 const status = document.getElementById("readerStatus");
                 if (status) {
@@ -679,6 +799,8 @@ async function refreshBorrows(autoBookId = "") {
                 await loadBookCover(item.bookId);
                 await loadBorrowedContent(item.bookId);
                 await loadReadingProgress(item.bookId);
+                await loadBookReviewsAndSyncInput(item.bookId);
+                startReadingTimer(item.bookId);
             } catch (error) {
                 showToast(error.message, true);
             }
@@ -690,6 +812,7 @@ async function refreshBorrows(autoBookId = "") {
     if (autoBookId) {
         const target = items.find((it) => String(it.bookId) === String(autoBookId));
         if (target) {
+            await flushReadingTimer("switch-book");
             selectedBorrowedBookId = target.bookId;
             const status = document.getElementById("readerStatus");
             if (status) {
@@ -698,9 +821,36 @@ async function refreshBorrows(autoBookId = "") {
             await loadBookCover(target.bookId);
             await loadBorrowedContent(target.bookId);
             await loadReadingProgress(target.bookId);
+            await loadBookReviewsAndSyncInput(target.bookId);
+            startReadingTimer(target.bookId);
         }
     }
 }
+
+document.getElementById("saveReviewBtn")?.addEventListener("click", async () => {
+    try {
+        if (!selectedBorrowedBookId) {
+            showToast("Please click Read on a borrowed book first.", true);
+            return;
+        }
+
+        const rating = Number(document.getElementById("reviewRating")?.value || "5");
+        const reviewText = document.getElementById("reviewTextInput")?.value || "";
+        await api("/api/reviews/submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                bookId: selectedBorrowedBookId,
+                rating,
+                reviewText
+            })
+        });
+        await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
+        showToast("Review saved.", false);
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("saveProgressBtn")?.addEventListener("click", async () => {
     try {
@@ -712,6 +862,8 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
         const bookmark = getSelectedBookmarkPage();
         const highlights = buildHighlightsPayloadForSave();
 
+        await flushReadingTimer("save-progress");
+
         await api("/api/reading-progress", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -721,6 +873,7 @@ document.getElementById("saveProgressBtn")?.addEventListener("click", async () =
                 highlights
             })
         });
+        startReadingTimer(selectedBorrowedBookId);
         showToast("Reading progress saved.", false);
     } catch (error) {
         showToast(error.message, true);
@@ -766,6 +919,7 @@ document.getElementById("clearPdfDrawBtn")?.addEventListener("click", () => {
 });
 
 window.addEventListener("beforeunload", () => {
+    flushReadingTimerOnUnload();
     clearReaderObjectUrl();
     clearReaderCoverObjectUrl();
 });

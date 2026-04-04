@@ -19,6 +19,55 @@ const MAX_BORROW_LIMIT = 5;
 let selectedBookCoverObjectUrl = null;
 let selectedBookPreviewObjectUrl = null;
 
+function formatAverageRating(book) {
+    const rating = Number(book?.averageRating);
+    const count = Number(book?.reviewCount || 0);
+    if (!Number.isFinite(rating) || count <= 0) {
+        return "-";
+    }
+    return `${rating.toFixed(2)} (${count})`;
+}
+
+function renderBookReviews(items) {
+    const list = document.getElementById("selectedBookReviews");
+    if (!list) {
+        return;
+    }
+
+    list.innerHTML = "";
+    if (!Array.isArray(items) || items.length === 0) {
+        const li = document.createElement("li");
+        li.className = "muted";
+        li.textContent = "No reviews yet.";
+        list.appendChild(li);
+        return;
+    }
+
+    items.forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = `${item.reviewerFullName || item.username}: ${item.rating}/5 - ${item.reviewText || ""}`;
+        list.appendChild(li);
+    });
+}
+
+async function loadSelectedBookReviews(bookId) {
+    const ratingSummary = document.getElementById("selectedBookRatingSummary");
+    if (!bookId) {
+        renderBookReviews([]);
+        if (ratingSummary) {
+            ratingSummary.textContent = "Average rating: -";
+        }
+        return;
+    }
+
+    const selected = allBooks.find((book) => book.id === bookId);
+    if (ratingSummary) {
+        ratingSummary.textContent = `Average rating: ${formatAverageRating(selected)}`;
+    }
+    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+    renderBookReviews(reviews);
+}
+
 function clearSelectedBookObjectUrls() {
     if (selectedBookCoverObjectUrl) {
         URL.revokeObjectURL(selectedBookCoverObjectUrl);
@@ -137,6 +186,11 @@ function resetSelectedBookSummary() {
         filePreview.style.display = "none";
         filePreview.src = "";
     }
+    renderBookReviews([]);
+    const ratingSummary = document.getElementById("selectedBookRatingSummary");
+    if (ratingSummary) {
+        ratingSummary.textContent = "Average rating: -";
+    }
 }
 
 async function loadSelectedBookSummary(bookId) {
@@ -251,7 +305,7 @@ function renderBooks(books) {
 
     if (!Array.isArray(books) || books.length === 0) {
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="6" class="muted">No books available for the current filter.</td>';
+        row.innerHTML = '<td colspan="7" class="muted">No books available for the current filter.</td>';
         tbody.appendChild(row);
         return;
     }
@@ -285,6 +339,7 @@ function renderBooks(books) {
             <td>${book.author}</td>
             <td>${genresText}</td>
             <td>${publishDate}</td>
+            <td>${formatAverageRating(book)}</td>
             <td class="${statusClass}">${statusText}</td>
             <td>
                 <label>
@@ -309,6 +364,7 @@ function renderBooks(books) {
             selectedBookId = book.id;
             updateSelectedBookLabel();
             loadSelectedBookSummary(book.id).catch((e) => showToast(e.message, true));
+            loadSelectedBookReviews(book.id).catch((e) => showToast(e.message, true));
         });
 
         tbody.appendChild(row);

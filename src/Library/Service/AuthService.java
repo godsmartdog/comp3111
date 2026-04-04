@@ -8,6 +8,7 @@ import Library.Security.NamePolicy;
 import Library.Security.PasswordHasher;
 import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
+import java.util.Optional;
 
 // Service class to handle authentication-related operations such as user registration, login, and session management for students and staff.
 public class AuthService {
@@ -84,6 +85,13 @@ public class AuthService {
     // Method to retrieve the currently authenticated user from the session, returning the User object if a session is active or null if no user is logged in.
     public User getCurrentUser() {
         return sessionManager.getCurrentUser();
+    }
+
+    public Optional<User> findUserByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return Optional.empty();
+        }
+        return userRepository.findByUsername(username.trim());
     }
 
     public User updateStudentOrStaffProfile(String username, String fullName, String newPassword, String currentPassword) {
