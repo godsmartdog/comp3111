@@ -63,4 +63,8 @@ public class BookService {
     public Optional<Book> findBookById(String bookId) {
         return bookRepository.findById(bookId);
     }
+
+    public BookRepository getBookRepository() {
+        return bookRepository;
+    }
 }

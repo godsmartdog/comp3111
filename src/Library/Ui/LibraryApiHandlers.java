@@ -1,6 +1,8 @@
 package Library.Ui;
 
 import Library.Model.Book;
+import Library.Model.BookRequest2;
+import Library.Model.BookRequestStatus;
 import Library.Model.BookReview;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
@@ -12,6 +14,7 @@ import Library.Model.Role;
 import Library.Model.SessionSnapshot;
 import Library.Model.User;
 import Library.Repository.MemoryNotificationRepository;
+import Library.Repository.MemoryBookRequestRepository2;
 import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryReadingProgressRepository;
 import Library.Repository.MemorySessionSnapshotRepository;
@@ -20,6 +23,7 @@ import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookRequestService;
 import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
@@ -75,6 +79,7 @@ public class LibraryApiHandlers {
     private final BookService bookService;
     private final BorrowService borrowService;
     private final BookReviewService bookReviewService;
+    private final BookRequestService bookRequestService;
     private final RecommendationService recommendationService;
     private final AuthorService2 authorService;
     private final AuthorDraftService authorDraftService;
@@ -110,6 +115,7 @@ public class LibraryApiHandlers {
                               BookService bookService,
                               BorrowService borrowService,
                               BookReviewService bookReviewService,
+                              BookRequestService bookRequestService,
                               RecommendationService recommendationService,
                               AuthorService2 authorService,
                               AuthorDraftService authorDraftService,
@@ -120,6 +126,7 @@ public class LibraryApiHandlers {
                         bookService,
                         borrowService,
                         bookReviewService,
+                        bookRequestService,
                         recommendationService,
                         authorService,
                         authorDraftService,
@@ -135,6 +142,7 @@ public class LibraryApiHandlers {
                               BookService bookService,
                               BorrowService borrowService,
                               BookReviewService bookReviewService,
+                              BookRequestService bookRequestService,
                               RecommendationService recommendationService,
                               AuthorService2 authorService,
                               AuthorDraftService authorDraftService,
@@ -149,6 +157,9 @@ public class LibraryApiHandlers {
         this.bookReviewService = bookReviewService == null
             ? new BookReviewService(new MemoryBookReviewRepository(), bookService, borrowService)
             : bookReviewService;
+        this.bookRequestService = bookRequestService == null
+            ? new BookRequestService(new MemoryBookRequestRepository2(), bookService.getBookRepository())
+            : bookRequestService;
         this.recommendationService = recommendationService;
         this.authorService = authorService;
         this.authorDraftService = authorDraftService;
@@ -907,6 +918,151 @@ public class LibraryApiHandlers {
                         "\"message\":\"Notification unarchived.\"" +
                         "}";
                 sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/book-requests", exchange -> {
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                try {
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                    Map<String, String> form = readForm(exchange);
+                    BookRequest2 request = bookRequestService.submitRequest(
+                            user.getUsername(),
+                            user.getFullName(),
+                            required(form, "title"),
+                            required(form, "authorName"),
+                            required(form, "genres"),
+                            required(form, "reason")
+                    );
+                    sendJson(exchange, 200, "{" +
+                            "\"message\":\"Book request submitted successfully.\"," +
+                            "\"request\":" + bookRequestToJson(request) +
+                            "}");
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
+            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                try {
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                    sendJson(exchange, 200, bookRequestsToJson(bookRequestService.listRequestsByRequester(user.getUsername())));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
+            sendText(exchange, 405, "Method not allowed.");
+        });
+
+        server.createContext("/api/librarian/book-requests", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String statusRaw = RequestFilters.getTrimmed(query, "status", "all");
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+
+                List<BookRequest2> items = bookRequestService.listRequests();
+                if (!keyword.isBlank()) {
+                    String normalizedKeyword = keyword.toLowerCase(Locale.ROOT);
+                    items = items.stream()
+                            .filter(item -> containsIgnoreCase(item.getTitle(), normalizedKeyword)
+                                    || containsIgnoreCase(item.getAuthorName(), normalizedKeyword)
+                                    || containsIgnoreCase(item.getRequesterFullName(), normalizedKeyword)
+                                    || containsIgnoreCase(item.getRequesterUsername(), normalizedKeyword)
+                                    || item.getGenres().stream().anyMatch(genre -> containsIgnoreCase(genre, normalizedKeyword))
+                                    || containsIgnoreCase(item.getReason(), normalizedKeyword))
+                            .toList();
+                }
+
+                String normalizedStatus = statusRaw == null ? "all" : statusRaw.trim().toLowerCase(Locale.ROOT);
+                if (!"all".equals(normalizedStatus)) {
+                    BookRequestStatus status = BookRequestStatus.valueOf(normalizedStatus.toUpperCase(Locale.ROOT));
+                    items = items.stream().filter(item -> item.getStatus() == status).toList();
+                }
+
+                sendJson(exchange, 200, bookRequestsToJson(items));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/review", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String requestId = required(form, "requestId");
+                String action = required(form, "action").toLowerCase(Locale.ROOT);
+                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
+                String reason = nullToEmpty(form.getOrDefault("reason", "")).trim();
+
+                if ("approve".equals(action)) {
+                    BookRequest2 approved = bookRequestService.approveRequest(requestId, comment);
+                    notificationService.addNotification(
+                            approved.getRequesterUsername(),
+                            "Book Request Approved",
+                            "Your request for \"" + approved.getTitle() + "\" was approved by a librarian.",
+                            NotificationPriority.NORMAL,
+                            null,
+                            Map.of("type", "other", "requestId", approved.getId(), "status", approved.getStatus().name())
+                    );
+                    sendJson(exchange, 200, "{" +
+                            "\"message\":\"Book request approved.\"," +
+                            "\"request\":" + bookRequestToJson(approved) +
+                            "}");
+                } else if ("reject".equals(action)) {
+                    BookRequest2 rejected = bookRequestService.rejectRequest(requestId, comment, reason);
+                    notificationService.addNotification(
+                            rejected.getRequesterUsername(),
+                            "Book Request Rejected",
+                            "Your request for \"" + rejected.getTitle() + "\" was rejected by a librarian.",
+                            NotificationPriority.NORMAL,
+                            null,
+                            Map.of("type", "other", "requestId", rejected.getId(), "status", rejected.getStatus().name())
+                    );
+                    sendJson(exchange, 200, "{" +
+                            "\"message\":\"Book request rejected.\"," +
+                            "\"request\":" + bookRequestToJson(rejected) +
+                            "}");
+                } else if ("upload".equals(action)) {
+                    BookRequest2 uploaded = bookRequestService.uploadRequest(requestId, comment);
+                    notificationService.addNotification(
+                            uploaded.getRequesterUsername(),
+                            "Requested Book Uploaded",
+                            "Your requested book \"" + uploaded.getTitle() + "\" is now available in the library.",
+                            NotificationPriority.HIGH,
+                            null,
+                            Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                    );
+                    sendJson(exchange, 200, "{" +
+                            "\"message\":\"Requested book uploaded to the library.\"," +
+                            "\"request\":" + bookRequestToJson(uploaded) +
+                            "}");
+                } else {
+                    sendText(exchange, 400, "Action must be approve, reject, or upload.");
+                }
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -3321,6 +3477,41 @@ public class LibraryApiHandlers {
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
             values.add(reviewToJson(review));
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String bookRequestToJson(BookRequest2 request) {
+        List<String> genreValues = new ArrayList<>();
+        for (String genre : request.getGenres()) {
+            genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+        }
+
+        String approvedDate = request.getApprovedDate() == null ? "" : request.getApprovedDate().toString();
+        String uploadedDate = request.getUploadedDate() == null ? "" : request.getUploadedDate().toString();
+
+        return "{" +
+                "\"id\":\"" + JsonUtil.escape(request.getId()) + "\"," +
+                "\"title\":\"" + JsonUtil.escape(request.getTitle()) + "\"," +
+                "\"requesterUsername\":\"" + JsonUtil.escape(request.getRequesterUsername()) + "\"," +
+                "\"requesterFullName\":\"" + JsonUtil.escape(request.getRequesterFullName()) + "\"," +
+                "\"authorName\":\"" + JsonUtil.escape(request.getAuthorName()) + "\"," +
+                "\"genres\":[" + String.join(",", genreValues) + "]," +
+                "\"reason\":\"" + JsonUtil.escape(request.getReason()) + "\"," +
+                "\"requestedDate\":\"" + JsonUtil.escape(request.getRequestedDate() == null ? "" : request.getRequestedDate().toString()) + "\"," +
+                "\"status\":\"" + request.getStatus() + "\"," +
+                "\"librarianComment\":\"" + JsonUtil.escape(nullToEmpty(request.getLibrarianComment())) + "\"," +
+                "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(request.getRejectionReason())) + "\"," +
+                "\"approvedDate\":\"" + JsonUtil.escape(approvedDate) + "\"," +
+                "\"uploadedDate\":\"" + JsonUtil.escape(uploadedDate) + "\"," +
+                "\"bookId\":\"" + JsonUtil.escape(nullToEmpty(request.getBookId())) + "\"" +
+                "}";
+    }
+
+    private String bookRequestsToJson(List<BookRequest2> requests) {
+        List<String> values = new ArrayList<>();
+        for (BookRequest2 request : requests) {
+            values.add(bookRequestToJson(request));
         }
         return "[" + String.join(",", values) + "]";
     }
