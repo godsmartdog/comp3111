@@ -4,6 +4,7 @@ import Library.Exception.BusinessException;
 import Library.Exception.AuthenticationException;
 import Library.Exception.ValidationException;
 import Library.Model.Book;
+import Library.Model.BookRequest2;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
@@ -18,6 +19,7 @@ import Library.Model.LibrarianProfile3;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
+import Library.Repository.MemoryBookRequestRepository2;
 import Library.Repository.MemoryBookRepository;
 import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
@@ -31,6 +33,7 @@ import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookRequestService;
 import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
@@ -79,6 +82,7 @@ public final class LibraryIntegrationTest {
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
         runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
+        runner.run("book request submission and librarian upload flow", LibraryIntegrationTest::testBookRequestSubmissionAndLibrarianUploadFlow);
         runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
         runner.run("personal notifications can be listed and marked read", LibraryIntegrationTest::testNotificationListAndMarkRead);
@@ -954,6 +958,78 @@ public final class LibraryIntegrationTest {
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
+        }
+        }
+
+        private static void testBookRequestSubmissionAndLibrarianUploadFlow() throws Exception {
+        TestContext context = new TestContext();
+
+        context.authService.registerStudentOrStaff("request-student", "Request Student", "Password1!", Role.STUDENT);
+        context.librarianService.registerLibrarian("request-lib", "Request Librarian", "Password1!", "EMP-RQ");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String studentSessionId = loginAndGetSessionId(client, baseUrl, "request-student", "Password1!", "STUDENT");
+            String librarianSessionId = loginAndGetSessionId(client, baseUrl, "request-lib", "Password1!", "LIBRARIAN");
+
+            HttpRequest submitRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/book-requests"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", studentSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "title=The+Structured+Library&authorName=Design+Author&genres=Technology,Education&reason=Need+this+book+for+the+collection"
+                ))
+                .build();
+            HttpResponse<String> submitResponse = client.send(submitRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, submitResponse.statusCode(), "book request submission should succeed");
+            assertTrue(submitResponse.body().contains("Book request submitted successfully"), "submission response should confirm success");
+
+            List<BookRequest2> requests = context.bookRequestService.listRequestsByRequester("request-student");
+            assertEquals(1, requests.size(), "request should be stored for the requester");
+            BookRequest2 request = requests.get(0);
+
+            HttpRequest librarianQueueRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/book-requests?status=pending"))
+                .header("X-Session-Id", librarianSessionId)
+                .GET()
+                .build();
+            HttpResponse<String> queueResponse = client.send(librarianQueueRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, queueResponse.statusCode(), "librarian request queue should load");
+            assertTrue(queueResponse.body().contains("The Structured Library"), "librarian queue should include the submitted request");
+
+            HttpRequest approveRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/book-request/review"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", librarianSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "requestId=" + request.getId() + "&action=approve&comment=Looks+useful"
+                ))
+                .build();
+            HttpResponse<String> approveResponse = client.send(approveRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, approveResponse.statusCode(), "book request approval should succeed");
+
+            List<NotificationItem> studentNotificationsAfterApprove = context.notificationService.listByUser("request-student");
+            assertTrue(studentNotificationsAfterApprove.stream().anyMatch(item -> "Book Request Approved".equals(item.getTitle())), "approval should notify the requester");
+
+            HttpRequest uploadRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/librarian/book-request/review"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", librarianSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    "requestId=" + request.getId() + "&action=upload&comment=Uploaded+to+catalog"
+                ))
+                .build();
+            HttpResponse<String> uploadResponse = client.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, uploadResponse.statusCode(), "book request upload should succeed after approval");
+
+            assertEquals(1, context.bookService.searchApprovedBooks("The Structured Library").size(), "uploaded request should create an approved book");
+            assertTrue(context.notificationService.listByUser("request-student").stream().anyMatch(item ->
+                "Requested Book Uploaded".equals(item.getTitle()) && item.getPriority() == NotificationPriority.HIGH),
+                "upload should send a high-priority notification");
+        } finally {
+            server.stop(0);
         }
         }
 
@@ -3947,7 +4023,8 @@ public final class LibraryIntegrationTest {
                 context.authService,
                 context.bookService,
                 context.borrowService,
-            context.bookReviewService,
+                context.bookReviewService,
+                context.bookRequestService,
                 context.recommendationService,
                 context.authorService,
                 context.authorDraftService,
@@ -4165,6 +4242,7 @@ public final class LibraryIntegrationTest {
         private final MemoryBookRepository bookRepository = new MemoryBookRepository();
         private final MemoryBorrowRepository borrowRepository = new MemoryBorrowRepository();
         private final MemoryBookReviewRepository bookReviewRepository = new MemoryBookReviewRepository();
+        private final MemoryBookRequestRepository2 bookRequestRepository = new MemoryBookRequestRepository2();
         private final MemoryUserRepository userRepository = new MemoryUserRepository();
         private final MemoryAuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
         private final MemoryBookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
@@ -4174,6 +4252,7 @@ public final class LibraryIntegrationTest {
         private final AuthService authService = new AuthService(userRepository);
         private final BookService bookService = new BookService(bookRepository);
         private final RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
+        private final BookRequestService bookRequestService = new BookRequestService(bookRequestRepository, bookRepository);
         private final AuthorService2 authorService = new AuthorService2(
             userRepository,
             authorProfileRepository,

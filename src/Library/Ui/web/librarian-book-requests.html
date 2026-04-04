@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Book Requests</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Book Requests</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="librarian-pending.html">Pending Submissions</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <h2>Request Review Queue</h2>
+        <div class="toolbar">
+            <input id="requestSearchInput" type="text" placeholder="Search by title, author, requester, or reason">
+            <select id="requestStatusFilter">
+                <option value="all" selected>All</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="uploaded">Uploaded</option>
+                <option value="rejected">Rejected</option>
+            </select>
+            <button id="applyRequestFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetRequestFiltersBtn" class="secondary" type="button">Reset</button>
+        </div>
+        <button id="refreshRequestsBtn" class="secondary" type="button">Refresh Requests</button>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Requester</th>
+                    <th>Author</th>
+                    <th>Genres</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th>Approved</th>
+                    <th>Uploaded</th>
+                    <th>Reason</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="requestBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-book-requests.js"></script>
+</body>
+</html>

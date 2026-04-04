@@ -47,6 +47,8 @@ async function api(path, options = {}, expectJson = true) {
     const response = await fetch(path, merged);
     if (!response.ok) {
         const text = await response.text();
+        const error = new Error(text || "Request failed.");
+        error.status = response.status;
         if (response.status === 401) {
             const role = current?.role || "";
             const redirect = role
@@ -55,7 +57,7 @@ async function api(path, options = {}, expectJson = true) {
             localStorage.removeItem("currentUser");
             window.location.href = redirect;
         }
-        throw new Error(text || "Request failed.");
+        throw error;
     }
     return expectJson ? response.json() : response.text();
 }

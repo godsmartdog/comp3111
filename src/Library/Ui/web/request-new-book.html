@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Request New Book</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Request New Book</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a id="homeLink" class="link-btn" href="index.html">Portal Home</a>
+        <a class="link-btn" href="mainStudent.html">Student Main</a>
+        <a class="link-btn" href="mainStaff.html">Staff Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="STUDENT">
+    <section class="panel glass-panel">
+        <h2>Submit a Request</h2>
+        <p>Enter the title, author, genre, and reason for the request. Select one or more genres from the list.</p>
+        <form id="requestForm" class="stack-form">
+            <label>
+                Title
+                <input id="requestTitle" name="title" type="text" required maxlength="200" placeholder="Book title">
+            </label>
+            <label>
+                Author
+                <input id="requestAuthorName" name="authorName" type="text" required maxlength="200" placeholder="Author name">
+            </label>
+            <label>
+                Genre
+                <select id="requestGenres" name="genres" multiple size="6" required aria-label="Genre selection (multi-select)">
+                    <option value="Fiction">Fiction</option>
+                    <option value="Non-fiction">Non-fiction</option>
+                    <option value="Mystery">Mystery</option>
+                    <option value="Fantasy">Fantasy</option>
+                    <option value="Science Fiction">Science Fiction</option>
+                    <option value="Romance">Romance</option>
+                    <option value="Thriller">Thriller</option>
+                    <option value="Biography">Biography</option>
+                    <option value="History">History</option>
+                    <option value="Business">Business</option>
+                    <option value="Education">Education</option>
+                    <option value="Science">Science</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Art">Art</option>
+                    <option value="Philosophy">Philosophy</option>
+                    <option value="Self-Help">Self-Help</option>
+                    <option value="Children">Children</option>
+                    <option value="Young Adult">Young Adult</option>
+                </select>
+            </label>
+            <label>
+                Reason for Request
+                <textarea id="requestReason" name="reason" rows="5" required maxlength="1000" placeholder="Explain why this book should be added to the library."></textarea>
+            </label>
+            <div class="toolbar">
+                <button type="submit">Submit Request</button>
+                <button type="button" id="resetRequestBtn" class="secondary">Reset</button>
+            </div>
+        </form>
+        <p class="hint">Hold Ctrl (Windows) or Cmd (Mac) to select multiple genres.</p>
+        <p id="requestStatus" aria-live="polite"></p>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>My Requests</h2>
+        <div class="toolbar">
+            <button id="refreshRequestsBtn" class="secondary" type="button">Refresh Requests</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Genres</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
+                    <th>Approved</th>
+                    <th>Uploaded</th>
+                    <th>Reason</th>
+                </tr>
+                </thead>
+                <tbody id="requestHistoryBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="request-new-book.js"></script>
+</body>
+</html>

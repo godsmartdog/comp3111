@@ -3,6 +3,7 @@ package Library.Ui;
 import Library.Model.Book;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
+import Library.Repository.MemoryBookRequestRepository2;
 import Library.Repository.MemoryBookRepository;
 import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
@@ -14,6 +15,7 @@ import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookRequestService;
 import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
@@ -37,6 +39,7 @@ public class LibraryManagementApp {
                     context.bookService,
                     context.borrowService,
                     context.bookReviewService,
+                    context.bookRequestService,
                     context.recommendationService,
                     context.authorService,
                     context.authorDraftService,
@@ -76,6 +79,7 @@ public class LibraryManagementApp {
         MemoryBookRepository bookRepository = new MemoryBookRepository();
         MemoryBorrowRepository borrowRepository = new MemoryBorrowRepository();
         MemoryBookReviewRepository bookReviewRepository = new MemoryBookReviewRepository();
+        MemoryBookRequestRepository2 bookRequestRepository = new MemoryBookRequestRepository2();
         MemoryUserRepository userRepository = new MemoryUserRepository();
         MemoryAuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
         MemoryBookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
@@ -87,6 +91,7 @@ public class LibraryManagementApp {
         ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
         BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
         BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
+        BookRequestService bookRequestService = new BookRequestService(bookRequestRepository, bookRepository);
         RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
         FileService fileService = new FileService();
         AuthorService2 authorService = new AuthorService2(
@@ -167,6 +172,7 @@ public class LibraryManagementApp {
                 bookService,
                 borrowService,
                 bookReviewService,
+                bookRequestService,
                 recommendationService,
                 authorService,
                 authorDraftService,
@@ -181,6 +187,7 @@ public class LibraryManagementApp {
             BookService bookService,
             BorrowService borrowService,
             BookReviewService bookReviewService,
+            BookRequestService bookRequestService,
             RecommendationService recommendationService,
             AuthorService2 authorService,
             AuthorDraftService authorDraftService,
