@@ -36,11 +36,19 @@ public class BorrowService {
 
     private final BookRepository bookRepository;
     private final BorrowRepository borrowRepository;
+    private final ReadingProgressService readingProgressService;
 
     // Constructor to initialize the BorrowService with the required BookRepository and BorrowRepository, allowing for dependency injection and better separation of concerns.
     public BorrowService(BookRepository bookRepository, BorrowRepository borrowRepository) {
+        this(bookRepository, borrowRepository, null);
+    }
+
+    public BorrowService(BookRepository bookRepository,
+                         BorrowRepository borrowRepository,
+                         ReadingProgressService readingProgressService) {
         this.bookRepository = bookRepository;
         this.borrowRepository = borrowRepository;
+        this.readingProgressService = readingProgressService;
     }
 
     // Method to borrow a book for a user, with an optional parameter for the number of days to borrow, validating the book's availability and the user's borrowing limits before creating a borrow record and updating the book's availability status.
@@ -68,6 +76,7 @@ public class BorrowService {
         borrowRepository.save(record);
 
         book.markBorrowedCopy();
+        ensureReadingProgress(username, bookId);
         return record;
     }
 
@@ -105,6 +114,7 @@ public class BorrowService {
             BorrowRecord record = new BorrowRecord(username, book.getId(), now, due);
             borrowRepository.save(record);
             book.markBorrowedCopy();
+            ensureReadingProgress(username, book.getId());
             records.add(record);
         }
         return records;
@@ -286,6 +296,12 @@ public class BorrowService {
         return borrowRepository.findByUsername(username).stream()
                 .filter(r -> !r.isReturned())
                 .count();
+    }
+
+    private void ensureReadingProgress(String username, String bookId) {
+        if (readingProgressService != null) {
+            readingProgressService.getProgress(username, bookId);
+        }
     }
 
     private boolean hasActiveBorrowForUserAndBook(String username, String bookId) {

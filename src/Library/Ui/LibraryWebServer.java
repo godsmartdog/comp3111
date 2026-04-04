@@ -5,6 +5,7 @@ import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
 import Library.Service.BorrowService;
+import Library.Service.BookReviewService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
 import Library.Service.RecommendationService;
@@ -25,6 +26,7 @@ public class LibraryWebServer {
     private final AuthService authService;
     private final BookService bookService;
     private final BorrowService borrowService;
+    private final BookReviewService bookReviewService;
     private final RecommendationService recommendationService;
     private final AuthorService2 authorService;
     private final AuthorDraftService authorDraftService;
@@ -38,6 +40,7 @@ public class LibraryWebServer {
     public LibraryWebServer(AuthService authService,
                             BookService bookService,
                             BorrowService borrowService,
+                            BookReviewService bookReviewService,
                             RecommendationService recommendationService,
                             AuthorService2 authorService,
                             AuthorDraftService authorDraftService,
@@ -47,6 +50,7 @@ public class LibraryWebServer {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
+        this.bookReviewService = bookReviewService;
         this.recommendationService = recommendationService;
         this.authorService = authorService;
         this.authorDraftService = authorDraftService;
@@ -63,6 +67,7 @@ public class LibraryWebServer {
             authService,
             bookService,
             borrowService,
+            bookReviewService,
             recommendationService,
             authorService,
             authorDraftService,

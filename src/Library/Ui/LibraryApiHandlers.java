@@ -1,6 +1,7 @@
 package Library.Ui;
 
 import Library.Model.Book;
+import Library.Model.BookReview;
 import Library.Model.BookDraft2;
 import Library.Model.BookSubmission2;
 import Library.Model.BorrowRecord;
@@ -11,6 +12,7 @@ import Library.Model.Role;
 import Library.Model.SessionSnapshot;
 import Library.Model.User;
 import Library.Repository.MemoryNotificationRepository;
+import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryReadingProgressRepository;
 import Library.Repository.MemorySessionSnapshotRepository;
 import Library.Security.SecurityConfig;
@@ -18,6 +20,7 @@ import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
 import Library.Service.AuthorService2;
 import Library.Service.BookService;
+import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
@@ -42,6 +45,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,6 +74,7 @@ public class LibraryApiHandlers {
     private final AuthService authService;
     private final BookService bookService;
     private final BorrowService borrowService;
+    private final BookReviewService bookReviewService;
     private final RecommendationService recommendationService;
     private final AuthorService2 authorService;
     private final AuthorDraftService authorDraftService;
@@ -84,9 +89,27 @@ public class LibraryApiHandlers {
     private final Map<String, List<String>> userActivityLogs = new ConcurrentHashMap<>();
     private volatile SessionSnapshotSchema latestSessionSnapshot;
 
+    private record ReadingHistoryEntry(String recordId,
+                                       String bookId,
+                                       String bookTitle,
+                                       String authorUsername,
+                                       String authorFullName,
+                                       List<String> genres,
+                                       LocalDate borrowDate,
+                                       LocalDate dueDate,
+                                       LocalDate returnedDate,
+                                       boolean returned,
+                                       boolean overdue,
+                                       int readingDurationMinutes,
+                                       int bookmarkPage,
+                                       int highlightCount,
+                                       String progressUpdatedAt) {
+    }
+
     public LibraryApiHandlers(AuthService authService,
                               BookService bookService,
                               BorrowService borrowService,
+                              BookReviewService bookReviewService,
                               RecommendationService recommendationService,
                               AuthorService2 authorService,
                               AuthorDraftService authorDraftService,
@@ -96,6 +119,7 @@ public class LibraryApiHandlers {
                         authService,
                         bookService,
                         borrowService,
+                        bookReviewService,
                         recommendationService,
                         authorService,
                         authorDraftService,
@@ -110,6 +134,7 @@ public class LibraryApiHandlers {
     public LibraryApiHandlers(AuthService authService,
                               BookService bookService,
                               BorrowService borrowService,
+                              BookReviewService bookReviewService,
                               RecommendationService recommendationService,
                               AuthorService2 authorService,
                               AuthorDraftService authorDraftService,
@@ -121,6 +146,9 @@ public class LibraryApiHandlers {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
+        this.bookReviewService = bookReviewService == null
+            ? new BookReviewService(new MemoryBookReviewRepository(), bookService, borrowService)
+            : bookReviewService;
         this.recommendationService = recommendationService;
         this.authorService = authorService;
         this.authorDraftService = authorDraftService;
@@ -451,7 +479,8 @@ public class LibraryApiHandlers {
                         "\"previewType\":\"" + JsonUtil.escape(previewType) + "\"," +
                         "\"previewUrl\":\"" + JsonUtil.escape(previewUrl) + "\"," +
                         "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
-                        "\"coverImageUrl\":\"" + JsonUtil.escape(coverImageUrl) + "\"" +
+                    "\"coverImageUrl\":\"" + JsonUtil.escape(coverImageUrl) + "\"," +
+                    reviewStatsJson(book.getId()) +
                         "}";
                 sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
@@ -526,6 +555,118 @@ public class LibraryApiHandlers {
                 exchange.sendResponseHeaders(200, bytes.length);
                 exchange.getResponseBody().write(bytes);
                 exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/reviews", exchange -> {
+            String method = exchange.getRequestMethod();
+            String path = nullToEmpty(exchange.getRequestURI().getPath()).trim();
+            boolean requestMine = path.endsWith("/me");
+
+            if ("GET".equalsIgnoreCase(method)) {
+                try {
+                    if (requestMine) {
+                        User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                        sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                        return;
+                    }
+
+                    requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
+                    String bookId = required(query, "bookId");
+                    sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId)));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
+            if ("POST".equalsIgnoreCase(method)) {
+                try {
+                    if (requestMine) {
+                        sendText(exchange, 405, "Method not allowed.");
+                        return;
+                    }
+
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                    Map<String, String> form = readForm(exchange);
+                    String bookId = required(form, "bookId");
+                    int rating = Integer.parseInt(required(form, "rating"));
+                    String reviewText = RequestFilters.getTrimmed(form, "reviewText", "");
+                    BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
+                    sendJson(exchange, 200, reviewToJson(review));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
+            // Compatibility fallback: allow query-based submit from clients that accidentally issue GET.
+            if ("GET".equalsIgnoreCase(method)) {
+                try {
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
+                    if (query.containsKey("bookId") && query.containsKey("rating")) {
+                        User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                        String bookId = required(query, "bookId");
+                        int rating = Integer.parseInt(required(query, "rating"));
+                        String reviewText = RequestFilters.getTrimmed(query, "reviewText", "");
+                        BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
+                        sendJson(exchange, 200, reviewToJson(review));
+                        return;
+                    }
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                    return;
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                    return;
+                }
+            }
+
+            sendText(exchange, 405, "Method not allowed.");
+        });
+
+        server.createContext("/api/reviews/me", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/reviews/submit", exchange -> {
+            String method = exchange.getRequestMethod();
+            if (!"POST".equalsIgnoreCase(method) && !"GET".equalsIgnoreCase(method)) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> values = "POST".equalsIgnoreCase(method)
+                        ? readForm(exchange)
+                        : readQuery(exchange.getRequestURI());
+                String bookId = required(values, "bookId");
+                int rating = Integer.parseInt(required(values, "rating"));
+                String reviewText = RequestFilters.getTrimmed(values, "reviewText", "");
+                BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
+                sendJson(exchange, 200, reviewToJson(review));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -961,23 +1102,81 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                List<BorrowRecord> records = borrowService.listBorrowsByUser(user.getUsername());
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                String authorFilter = RequestFilters.getTrimmed(query, "author", "");
+                String genreFilter = RequestFilters.getTrimmed(query, "genre", "");
+                LocalDate borrowDateFrom = parseDateFilter(query, "borrowDateFrom");
+                LocalDate borrowDateTo = parseDateFilter(query, "borrowDateTo");
+                LocalDate returnDateFrom = parseDateFilter(query, "returnDateFrom");
+                LocalDate returnDateTo = parseDateFilter(query, "returnDateTo");
+                String sortBy = parseReadingHistorySortBy(query);
+                String sortDir = parseReadingHistorySortDir(query);
+
+                List<ReadingHistoryEntry> entries = new ArrayList<>();
+                for (BorrowRecord record : borrowService.listBorrowsByUser(user.getUsername())) {
+                    Book book = bookService.findBookById(record.getBookId()).orElse(null);
+                    String title = book == null ? record.getBookId() : book.getTitle();
+                    String authorUsername = book == null ? "" : book.getAuthorUsername();
+                    String authorFullName = book == null ? "" : book.getAuthorFullName();
+                    List<String> genres = book == null ? List.of() : book.getGenres();
+                    ReadingProgress progress = readingProgressService.findProgress(user.getUsername(), record.getBookId()).orElse(null);
+                    LocalDate returnedDate = record.getReturnedDate();
+                    int durationMinutes = progress == null ? 0 : progress.getTotalReadingMinutes();
+                    int bookmarkPage = progress == null ? 0 : progress.getBookmarkPage();
+                    int highlightCount = progress == null ? 0 : progress.getHighlights().size();
+                    String progressUpdatedAt = progress == null ? "" : DATE_TIME_FORMATTER.format(progress.getUpdatedAt());
+
+                    ReadingHistoryEntry entry = new ReadingHistoryEntry(
+                            record.getId(),
+                            record.getBookId(),
+                            title,
+                            authorUsername,
+                            authorFullName,
+                            genres,
+                            record.getBorrowDate(),
+                            record.getDueDate(),
+                            returnedDate,
+                            record.isReturned(),
+                            record.isOverdue(LocalDate.now()),
+                            durationMinutes,
+                            bookmarkPage,
+                            highlightCount,
+                            progressUpdatedAt
+                    );
+
+                    if (matchesReadingHistoryFilters(entry, keyword, authorFilter, genreFilter, borrowDateFrom, borrowDateTo, returnDateFrom, returnDateTo)) {
+                        entries.add(entry);
+                    }
+                }
+
+                entries.sort(readingHistoryComparator(sortBy, sortDir));
 
                 List<String> jsonItems = new ArrayList<>();
-                for (BorrowRecord record : records) {
-                    String title = bookService.findBookById(record.getBookId())
-                            .map(Book::getTitle)
-                            .orElse(record.getBookId());
-                    String returnedDate = record.getReturnedDate() == null ? "" : record.getReturnedDate().toString();
+                for (ReadingHistoryEntry entry : entries) {
+                    List<String> genreJson = new ArrayList<>();
+                    for (String genre : entry.genres()) {
+                        genreJson.add("\"" + JsonUtil.escape(genre) + "\"");
+                    }
+
+                    String returnedDate = entry.returnedDate() == null ? "" : entry.returnedDate().toString();
+                    String progressUpdatedAt = entry.progressUpdatedAt() == null ? "" : entry.progressUpdatedAt();
                     jsonItems.add("{" +
-                            "\"recordId\":\"" + JsonUtil.escape(record.getId()) + "\"," +
-                            "\"bookId\":\"" + JsonUtil.escape(record.getBookId()) + "\"," +
-                            "\"bookTitle\":\"" + JsonUtil.escape(title) + "\"," +
-                            "\"borrowDate\":\"" + record.getBorrowDate() + "\"," +
-                            "\"dueDate\":\"" + record.getDueDate() + "\"," +
-                            "\"returned\":" + record.isReturned() + "," +
+                            "\"recordId\":\"" + JsonUtil.escape(entry.recordId()) + "\"," +
+                            "\"bookId\":\"" + JsonUtil.escape(entry.bookId()) + "\"," +
+                            "\"bookTitle\":\"" + JsonUtil.escape(entry.bookTitle()) + "\"," +
+                            "\"authorUsername\":\"" + JsonUtil.escape(entry.authorUsername()) + "\"," +
+                            "\"authorFullName\":\"" + JsonUtil.escape(entry.authorFullName()) + "\"," +
+                            "\"genres\":[" + String.join(",", genreJson) + "]," +
+                            "\"borrowDate\":\"" + entry.borrowDate() + "\"," +
+                            "\"dueDate\":\"" + entry.dueDate() + "\"," +
+                            "\"returned\":" + entry.returned() + "," +
                             "\"returnedDate\":\"" + JsonUtil.escape(returnedDate) + "\"," +
-                            "\"overdue\":" + record.isOverdue(java.time.LocalDate.now()) +
+                            "\"overdue\":" + entry.overdue() + "," +
+                            "\"readingDurationMinutes\":" + entry.readingDurationMinutes() + "," +
+                            "\"bookmarkPage\":" + entry.bookmarkPage() + "," +
+                            "\"highlightCount\":" + entry.highlightCount() + "," +
+                            "\"progressUpdatedAt\":\"" + JsonUtil.escape(progressUpdatedAt) + "\"" +
                             "}");
                 }
                 sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
@@ -1098,6 +1297,33 @@ public class LibraryApiHandlers {
                 int bookmark = RequestFilters.parseIntInRange(form, "bookmark", 1, 1, Integer.MAX_VALUE);
                 List<String> highlights = RequestFilters.parseNewlineList(form, "highlights");
                 ReadingProgress updated = readingProgressService.updateProgress(user.getUsername(), bookId, bookmark, highlights);
+                sendJson(exchange, 200, readingProgressToJson(updated));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/reading-progress/time", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String bookId = required(form, "bookId");
+                borrowService.requireActiveBorrow(user.getUsername(), bookId);
+                int seconds;
+                if (form.containsKey("seconds")) {
+                    seconds = RequestFilters.parseIntInRange(form, "seconds", 0, 0, 60_000_000);
+                } else {
+                    int minutes = RequestFilters.parseIntInRange(form, "minutes", 0, 0, 1_000_000);
+                    seconds = Math.max(0, minutes) * 60;
+                }
+                ReadingProgress updated = readingProgressService.addReadingSeconds(user.getUsername(), bookId, seconds);
                 sendJson(exchange, 200, readingProgressToJson(updated));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1726,6 +1952,7 @@ public class LibraryApiHandlers {
                             "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
                             "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
                             "\"status\":\"" + availability + "\"," +
+                            reviewStatsJson(book.getId()) + "," +
                         "\"available\":" + book.isAvailable() + "," +
                         "\"totalCopies\":" + book.getTotalCopies() + "," +
                         "\"availableCopies\":" + book.getAvailableCopies() +
@@ -2501,6 +2728,7 @@ public class LibraryApiHandlers {
                     "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"status\":\"" + JsonUtil.escape(status) + "\"," +
+                    reviewStatsJson(book.getId()) + "," +
                     "\"available\":" + book.isAvailable() + "," +
                     "\"totalCopies\":" + book.getTotalCopies() + "," +
                     "\"availableCopies\":" + book.getAvailableCopies() +
@@ -2594,6 +2822,27 @@ public class LibraryApiHandlers {
 
     private static String parseBorrowSortDir(Map<String, String> values) {
         String raw = RequestFilters.getTrimmed(values, "sortDir", "asc");
+        if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
+            return raw.toLowerCase();
+        }
+        throw new IllegalArgumentException("sortDir must be one of: asc, desc.");
+    }
+
+    private static String parseReadingHistorySortBy(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortBy", "borrowDate");
+        if (raw.isEmpty()
+                || "borrowDate".equalsIgnoreCase(raw)
+                || "returnDate".equalsIgnoreCase(raw)
+                || "title".equalsIgnoreCase(raw)
+                || "author".equalsIgnoreCase(raw)
+                || "duration".equalsIgnoreCase(raw)) {
+            return raw;
+        }
+        throw new IllegalArgumentException("sortBy must be one of: borrowDate, returnDate, title, author, duration.");
+    }
+
+    private static String parseReadingHistorySortDir(Map<String, String> values) {
+        String raw = RequestFilters.getTrimmed(values, "sortDir", "desc");
         if ("asc".equalsIgnoreCase(raw) || "desc".equalsIgnoreCase(raw)) {
             return raw.toLowerCase();
         }
@@ -2694,6 +2943,98 @@ public class LibraryApiHandlers {
         return URLDecoder.decode(input, StandardCharsets.UTF_8);
     }
 
+    private static int readingDurationMinutes(BorrowRecord record, LocalDate returnedDate) {
+        LocalDate endDate = returnedDate == null ? LocalDate.now() : returnedDate;
+        long daySpan = Math.max(0, endDate.toEpochDay() - record.getBorrowDate().toEpochDay());
+        double minutes = daySpan * 24d * 60d;
+        return (int) Math.round(minutes);
+    }
+
+    private static boolean matchesReadingHistoryFilters(ReadingHistoryEntry entry,
+                                                       String keyword,
+                                                       String authorFilter,
+                                                       String genreFilter,
+                                                       LocalDate borrowDateFrom,
+                                                       LocalDate borrowDateTo,
+                                                       LocalDate returnDateFrom,
+                                                       LocalDate returnDateTo) {
+        String normalizedKeyword = nullToEmpty(keyword).trim().toLowerCase(Locale.ROOT);
+        String normalizedAuthor = nullToEmpty(authorFilter).trim().toLowerCase(Locale.ROOT);
+        String normalizedGenre = nullToEmpty(genreFilter).trim().toLowerCase(Locale.ROOT);
+
+        if (!normalizedKeyword.isEmpty()) {
+            boolean matchesKeyword = containsIgnoreCase(entry.bookTitle(), normalizedKeyword)
+                    || containsIgnoreCase(entry.authorFullName(), normalizedKeyword)
+                    || containsIgnoreCase(entry.authorUsername(), normalizedKeyword)
+                    || entry.genres().stream().anyMatch(genre -> containsIgnoreCase(genre, normalizedKeyword));
+            if (!matchesKeyword) {
+                return false;
+            }
+        }
+
+        if (!normalizedAuthor.isEmpty()) {
+            boolean matchesAuthor = containsIgnoreCase(entry.authorFullName(), normalizedAuthor)
+                    || containsIgnoreCase(entry.authorUsername(), normalizedAuthor);
+            if (!matchesAuthor) {
+                return false;
+            }
+        }
+
+        if (!normalizedGenre.isEmpty()) {
+            boolean matchesGenre = entry.genres().stream().anyMatch(genre -> containsIgnoreCase(genre, normalizedGenre));
+            if (!matchesGenre) {
+                return false;
+            }
+        }
+
+        if (borrowDateFrom != null && entry.borrowDate().isBefore(borrowDateFrom)) {
+            return false;
+        }
+        if (borrowDateTo != null && entry.borrowDate().isAfter(borrowDateTo)) {
+            return false;
+        }
+        if (returnDateFrom != null) {
+            if (entry.returnedDate() == null || entry.returnedDate().isBefore(returnDateFrom)) {
+                return false;
+            }
+        }
+        if (returnDateTo != null) {
+            if (entry.returnedDate() == null || entry.returnedDate().isAfter(returnDateTo)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static Comparator<ReadingHistoryEntry> readingHistoryComparator(String sortBy, String sortDir) {
+        String normalizedSortBy = sortBy == null ? "" : sortBy.trim().toLowerCase(Locale.ROOT);
+        Comparator<ReadingHistoryEntry> comparator = switch (normalizedSortBy) {
+            case "returndate" -> Comparator.comparing(
+                    entry -> entry.returnedDate() == null ? LocalDate.MAX : entry.returnedDate()
+            );
+            case "title" -> Comparator.comparing(
+                    entry -> nullToEmpty(entry.bookTitle()).toLowerCase(Locale.ROOT)
+            );
+            case "author" -> Comparator.comparing(
+                    entry -> nullToEmpty(entry.authorFullName()).toLowerCase(Locale.ROOT)
+            );
+            case "duration" -> Comparator.comparingInt(ReadingHistoryEntry::readingDurationMinutes);
+            case "", "borrowdate" -> Comparator.comparing(ReadingHistoryEntry::borrowDate);
+            default -> Comparator.comparing(ReadingHistoryEntry::borrowDate);
+        };
+
+        comparator = comparator.thenComparing(ReadingHistoryEntry::recordId);
+        if ("asc".equalsIgnoreCase(sortDir)) {
+            return comparator;
+        }
+        return comparator.reversed();
+    }
+
+    private static boolean containsIgnoreCase(String value, String needle) {
+        return nullToEmpty(value).toLowerCase(Locale.ROOT).contains(nullToEmpty(needle).toLowerCase(Locale.ROOT));
+    }
+
     private String borrowsToJson(List<BorrowRecord> records) {
         LocalDate today = LocalDate.now();
         int dueSoonThresholdDays = SecurityConfig.returnReminderDueSoonDays();
@@ -2733,6 +3074,8 @@ public class LibraryApiHandlers {
         return "{" +
                 "\"bookId\":\"" + JsonUtil.escape(progress.getBookId()) + "\"," +
                 "\"bookmark\":" + progress.getBookmarkPage() + "," +
+                "\"totalReadingSeconds\":" + progress.getTotalReadingSeconds() + "," +
+                "\"totalReadingMinutes\":" + progress.getTotalReadingMinutes() + "," +
                 "\"highlights\":[" + String.join(",", highlightJson) + "]" +
                 "}";
     }
@@ -2913,7 +3256,7 @@ public class LibraryApiHandlers {
                 "}";
     }
 
-    private static String authorPublishedBooksToJson(List<Book> books) {
+    private String authorPublishedBooksToJson(List<Book> books) {
         List<String> values = new ArrayList<>();
         for (Book book : books) {
             String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
@@ -2929,8 +3272,55 @@ public class LibraryApiHandlers {
                     "\"genres\":[" + String.join(",", genreValues) + "]," +
                     "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
                     "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
-                    "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"" +
+                    "\"status\":\"" + (book.isApproved() ? "Approved" : "Pending") + "\"," +
+                    reviewStatsJson(book.getId()) +
                     "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String reviewStatsJson(String bookId) {
+        BookReviewService.RatingSummary summary = bookReviewService.getRatingSummary(bookId);
+        String average = summary.reviewCount() == 0 ? "null" : String.format(Locale.US, "%.2f", summary.averageRating());
+        return "\"averageRating\":" + average + ",\"reviewCount\":" + summary.reviewCount();
+    }
+
+    private String reviewToJson(BookReview review) {
+        String bookTitle = bookService.findBookById(review.getBookId())
+                .map(Book::getTitle)
+                .orElse(review.getBookId());
+        String reviewerFullName = authService.findUserByUsername(review.getUsername())
+                .map(User::getFullName)
+                .orElse(review.getUsername());
+        String createdAt = review.getCreatedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getCreatedAt());
+        String updatedAt = review.getUpdatedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getUpdatedAt());
+
+        return "{" +
+                "\"reviewId\":\"" + JsonUtil.escape(review.getId()) + "\"," +
+                "\"bookId\":\"" + JsonUtil.escape(review.getBookId()) + "\"," +
+                "\"bookTitle\":\"" + JsonUtil.escape(bookTitle) + "\"," +
+                "\"username\":\"" + JsonUtil.escape(review.getUsername()) + "\"," +
+                "\"reviewerFullName\":\"" + JsonUtil.escape(reviewerFullName) + "\"," +
+                "\"rating\":" + review.getRating() + "," +
+                "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
+                "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
+                "\"updatedAt\":\"" + JsonUtil.escape(updatedAt) + "\"" +
+                "}";
+    }
+
+    private String reviewsToJson(List<BookReview> reviews) {
+        List<String> values = new ArrayList<>();
+        for (BookReview review : reviews) {
+            values.add(reviewToJson(review));
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String myReviewsToJson(String username) {
+        List<BookReview> reviews = bookReviewService.listReviewsByUser(username);
+        List<String> values = new ArrayList<>();
+        for (BookReview review : reviews) {
+            values.add(reviewToJson(review));
         }
         return "[" + String.join(",", values) + "]";
     }

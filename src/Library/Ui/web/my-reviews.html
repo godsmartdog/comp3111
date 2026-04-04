@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Library | Librarian Approved</title>
+    <title>E-Library | My Reviews</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,34 +11,33 @@
 
 <header class="topbar page-top">
     <div>
-        <h1>Approved Books</h1>
+        <h1>My Reviews</h1>
         <p id="welcomeLine"></p>
     </div>
     <div class="top-actions">
-        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a id="mainPortalLink" class="link-btn" href="mainStudent.html">Main Portal</a>
+        <a id="booksPortalLink" class="link-btn" href="student-books.html">Books</a>
         <button id="logoutBtn" class="secondary">Logout</button>
     </div>
 </header>
 
-<main class="layout single-col" data-role="LIBRARIAN">
+<main class="layout single-col" data-role="STUDENT_OR_STAFF">
     <section class="panel glass-panel">
-        <p id="approvedBooksStatus">Loading approved books...</p>
-        <button id="refreshApprovedBooksBtn" class="secondary" type="button">Refresh Approved Books</button>
+        <h2>Submitted Ratings And Reviews</h2>
+        <p id="reviewsStatus" class="hint">Loading reviews...</p>
+        <button id="refreshReviewsBtn" class="secondary" type="button">Refresh</button>
+
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Title</th>
-                    <th>Author</th>
-                    <th>Publish Date</th>
+                    <th>Book</th>
                     <th>Rating</th>
-                    <th>Status</th>
-                    <th>Copies</th>
-                    <th>Action</th>
+                    <th>Review</th>
+                    <th>Updated At</th>
                 </tr>
                 </thead>
-                <tbody id="approvedBooksBody"></tbody>
+                <tbody id="myReviewsBody"></tbody>
             </table>
         </div>
     </section>
@@ -47,6 +46,6 @@
 <div id="toast"></div>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
-<script src="librarian-approved.js"></script>
+<script src="my-reviews.js"></script>
 </body>
 </html>
