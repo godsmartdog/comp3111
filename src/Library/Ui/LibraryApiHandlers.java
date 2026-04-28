@@ -4053,7 +4053,7 @@ public class LibraryApiHandlers {
         return "[" + String.join(",", values) + "]";
     }
 
-    private record PdfSearchResult(String identifier, String title, String downloadUrl) {
+    private record PdfSearchResult(String identifier, String title, String downloadUrl, String source) {
     }
 
     private record DownloadedPdf(String filePath, String contentType) {
@@ -4065,13 +4065,26 @@ public class LibraryApiHandlers {
             values.add("{" +
                     "\"identifier\":\"" + JsonUtil.escape(result.identifier()) + "\"," +
                     "\"title\":\"" + JsonUtil.escape(result.title()) + "\"," +
-                    "\"downloadUrl\":\"" + JsonUtil.escape(result.downloadUrl()) + "\"" +
+                    "\"downloadUrl\":\"" + JsonUtil.escape(result.downloadUrl()) + "\"," +
+                    "\"source\":\"" + JsonUtil.escape(result.source()) + "\"" +
                     "}");
         }
         return "[" + String.join(",", values) + "]";
     }
 
     private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit)
+            throws IOException, InterruptedException {
+        List<PdfSearchResult> results = new ArrayList<>();
+        List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, limit);
+        mergePdfResults(results, archiveResults, limit);
+
+        List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, limit);
+        mergePdfResults(results, googleResults, limit);
+
+        return results;
+    }
+
+    private List<PdfSearchResult> searchArchivePdfSources(String title, String authorName, int limit)
             throws IOException, InterruptedException {
         String query = buildArchiveSearchQuery(title, authorName);
         String searchUrl = "https://archive.org/advancedsearch.php?q="
@@ -4084,21 +4097,134 @@ public class LibraryApiHandlers {
         for (PdfSearchResult candidate : candidates) {
             String pdfUrl = resolveArchivePdfUrl(candidate.identifier());
             if (!pdfUrl.isBlank()) {
-                results.add(new PdfSearchResult(candidate.identifier(), candidate.title(), pdfUrl));
+                results.add(new PdfSearchResult("archive:" + candidate.identifier(), candidate.title(), pdfUrl, "Internet Archive"));
             }
         }
         return results;
     }
 
+    private List<PdfSearchResult> searchGoogleBooksPdfSources(String title, String authorName, int limit)
+            throws IOException, InterruptedException {
+        String apiKey = nullToEmpty(System.getenv("GOOGLE_BOOKS_API_KEY")).trim();
+        if (apiKey.isBlank()) {
+            return List.of();
+        }
+
+        String query = buildGoogleBooksQuery(title, authorName);
+        if (query.isBlank()) {
+            return List.of();
+        }
+
+        String searchUrl = "https://www.googleapis.com/books/v1/volumes?q="
+                + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + "&maxResults=" + Math.min(Math.max(limit, 1), 20)
+                + "&filter=free-ebooks"
+                + "&printType=books"
+                + "&key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+        String payload = httpGet(searchUrl);
+        return parseGoogleBooksPdfResults(payload, limit);
+    }
+
+    private void mergePdfResults(List<PdfSearchResult> target, List<PdfSearchResult> additions, int limit) {
+        if (target.size() >= limit || additions == null || additions.isEmpty()) {
+            return;
+        }
+
+        for (PdfSearchResult result : additions) {
+            boolean exists = target.stream().anyMatch(item -> item.downloadUrl().equalsIgnoreCase(result.downloadUrl()));
+            if (!exists) {
+                target.add(result);
+            }
+            if (target.size() >= limit) {
+                return;
+            }
+        }
+    }
+
     private String buildArchiveSearchQuery(String title, String authorName) {
         StringBuilder sb = new StringBuilder("collection:publicdomain AND format:\"Text PDF\"");
-        if (title != null && !title.isBlank()) {
-            sb.append(" AND title:(").append(title.trim()).append(")");
+        String titleQuery = buildOrQuery(title);
+        String authorQuery = buildOrQuery(authorName);
+        if (!titleQuery.isBlank()) {
+            sb.append(" AND title:(").append(titleQuery).append(")");
         }
-        if (authorName != null && !authorName.isBlank()) {
-            sb.append(" AND creator:(").append(authorName.trim()).append(")");
+        if (!authorQuery.isBlank()) {
+            sb.append(" AND creator:(").append(authorQuery).append(")");
         }
         return sb.toString();
+    }
+
+    private String buildOrQuery(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String[] tokens = raw.trim().split("\\s+");
+        StringJoiner joiner = new StringJoiner(" OR ");
+        for (String token : tokens) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                joiner.add(trimmed);
+            }
+        }
+        return joiner.toString();
+    }
+
+    private String buildGoogleBooksQuery(String title, String authorName) {
+        StringBuilder sb = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            sb.append("intitle:").append(title.trim());
+        }
+        if (authorName != null && !authorName.isBlank()) {
+            if (sb.length() > 0) {
+                sb.append("+");
+            }
+            sb.append("inauthor:").append(authorName.trim());
+        }
+        return sb.toString();
+    }
+
+    private List<PdfSearchResult> parseGoogleBooksPdfResults(String json, int limit) {
+        List<PdfSearchResult> results = new ArrayList<>();
+        if (json == null || json.isBlank()) {
+            return results;
+        }
+
+        Pattern itemPattern = Pattern.compile("\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"books#volume\\\".*?\\}\s*(?:,|\\])", Pattern.DOTALL);
+        Matcher itemMatcher = itemPattern.matcher(json);
+        while (itemMatcher.find() && results.size() < limit) {
+            String chunk = itemMatcher.group();
+            String id = extractJsonField(chunk, "id");
+            String title = extractJsonField(chunk, "title");
+            String pdfBlock = extractJsonBlock(chunk, "pdf");
+            if (pdfBlock.isBlank()) {
+                continue;
+            }
+            boolean available = pdfBlock.contains("\"isAvailable\":true");
+            String downloadLink = extractJsonField(pdfBlock, "downloadLink");
+            if (downloadLink.isBlank()) {
+                downloadLink = extractJsonField(pdfBlock, "acsTokenLink");
+            }
+            if (!available || downloadLink.isBlank()) {
+                continue;
+            }
+            String safeTitle = title.isBlank() ? "Google Books PDF" : title;
+            String identifier = id.isBlank() ? "google-books" : "google:" + id;
+            results.add(new PdfSearchResult(identifier, safeTitle, unescapeJsonString(downloadLink), "Google Books"));
+        }
+
+        return results;
+    }
+
+    private String extractJsonBlock(String json, String fieldName) {
+        if (json == null || json.isBlank()) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile("\\\"" + Pattern.quote(fieldName) + "\\\"\\s*:\\s*\\{(.*?)\\}", Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(json);
+        if (matcher.find()) {
+            return "{" + matcher.group(1) + "}";
+        }
+        return "";
     }
 
     private List<PdfSearchResult> parseArchiveSearchResults(String json, int limit) {
