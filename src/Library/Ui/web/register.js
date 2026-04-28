@@ -1,15 +1,17 @@
 const roleSelect = document.getElementById("roleSelect");
 const employeeWrap = document.getElementById("employeeWrap");
+const bioWrap = document.getElementById("bioWrap");
 const loginLink = document.getElementById("loginLink");
 
 function syncRegisterUi() {
     const role = roleSelect.value;
     employeeWrap.classList.toggle("hidden-block", role !== "LIBRARIAN");
+    bioWrap.classList.toggle("hidden-block", role !== "AUTHOR");
     loginLink.href = `login.html?role=${role}`;
 }
 
 const initialRole = (getQueryParam("role") || "STUDENT").toUpperCase();
-if (["STUDENT", "STAFF", "LIBRARIAN"].includes(initialRole)) {
+if (["STUDENT", "STAFF", "AUTHOR", "LIBRARIAN"].includes(initialRole)) {
     roleSelect.value = initialRole;
 }
 syncRegisterUi();
@@ -25,6 +27,7 @@ document.getElementById("registerBtn").addEventListener("click", async () => {
         const password = document.getElementById("password").value;
         const confirmPassword = document.getElementById("confirmPassword").value;
         const employeeId = document.getElementById("employeeId").value.trim();
+        const bio = document.getElementById("bio").value.trim();
         const vio = getusernamePolicyViolations(username);
         if (vio.length > 0) {
             showToast("Username does not meet policy.", true);
@@ -46,7 +49,7 @@ document.getElementById("registerBtn").addEventListener("click", async () => {
         const text = await api("/api/register", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({ username, fullName, password, role, employeeId })
+            body: formBody({ username, fullName, password, role, employeeId, bio })
         }, false);
 
         showToast(text, false);

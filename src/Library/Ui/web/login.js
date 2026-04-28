@@ -5,9 +5,7 @@ const registerLink = document.getElementById("registerLink");
 function syncRoleUi() {
     const role = roleSelect.value;
     roleHint.textContent = `Sign in as ${role}.`;
-    registerLink.href = role === "AUTHOR"
-        ? "register-author.html?role=AUTHOR"
-        : `register.html?role=${role}`;
+    registerLink.href = `register.html?role=${role}`;
 }
 
 const initialRole = (getQueryParam("role") || "STUDENT").toUpperCase();

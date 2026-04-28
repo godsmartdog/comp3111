@@ -11,12 +11,13 @@
 
 <main class="center-wrap">
     <section class="panel glass-panel form-panel">
-        <h1>Register (Student / Staff / Librarian)</h1>
+        <h1>Register (Student / Staff / Author / Librarian)</h1>
 
         <label for="roleSelect">Role</label>
         <select id="roleSelect">
             <option value="STUDENT">Student</option>
             <option value="STAFF">Staff</option>
+            <option value="AUTHOR">Author</option>
             <option value="LIBRARIAN">Librarian</option>
         </select>
 
@@ -48,12 +49,16 @@
             <input id="employeeId" type="text" placeholder="EMP-001">
         </div>
 
+        <div id="bioWrap" class="hidden-block">
+            <label for="bio">Bio (for Author)</label>
+            <textarea id="bio" class="bio-compact" rows="3" placeholder="Write your author bio"></textarea>
+        </div>
+
         <button id="registerBtn" class="big-btn secondary">Register</button>
 
         <div class="quick-links">
             <a href="index.html">Back to Main</a>
             <a id="loginLink" href="login.html?role=STUDENT">Go to Login</a>
-            <a href="register-author.html?role=AUTHOR">Author Register</a>
         </div>
     </section>
 </main>

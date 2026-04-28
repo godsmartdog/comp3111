@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Manage Published Books</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Manage Published Books</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <h2>Published Books</h2>
+        <div class="toolbar">
+            <input id="bookKeyword" type="text" placeholder="Search by title, author, or id">
+            <button id="searchBooksBtn" class="secondary" type="button">Search</button>
+            <button id="refreshBooksBtn" class="secondary" type="button">Refresh</button>
+        </div>
+        <p id="booksStatus" class="hint">Loading published books...</p>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Genres</th>
+                    <th>Publish Date</th>
+                    <th>Copies</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="publishedBooksBody"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Edit Published Book</h2>
+        <p class="hint">Select a book from the table and edit details. Changes require confirmation.</p>
+        <div class="form-grid">
+            <label>Book ID</label>
+            <input id="editBookId" type="text" readonly>
+
+            <label>Title</label>
+            <input id="editTitle" type="text" placeholder="Book title">
+
+            <label>Author Name</label>
+            <input id="editAuthorNames" type="text" placeholder="Author full name" readonly>
+
+            <label>Genres</label>
+            <select id="editGenres" multiple size="8">
+                <option value="Fiction">Fiction</option>
+                <option value="Non-fiction">Non-fiction</option>
+                <option value="Mystery">Mystery</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Science Fiction">Science Fiction</option>
+                <option value="Romance">Romance</option>
+                <option value="Thriller">Thriller</option>
+                <option value="Biography">Biography</option>
+                <option value="History">History</option>
+                <option value="Business">Business</option>
+                <option value="Education">Education</option>
+                <option value="Science">Science</option>
+                <option value="Technology">Technology</option>
+                <option value="Art">Art</option>
+                <option value="Philosophy">Philosophy</option>
+                <option value="Self-Help">Self-Help</option>
+                <option value="Children">Children</option>
+                <option value="Young Adult">Young Adult</option>
+            </select>
+            <p class="hint">Hold Ctrl (Windows) or Cmd (Mac) to select multiple genres.</p>
+
+            <label>Description</label>
+            <textarea id="editDescription" rows="6" placeholder="Book description"></textarea>
+
+            <label>Book File</label>
+            <div class="file-row">
+                <input id="editFilePath" type="text" placeholder="Current file path or upload a new file">
+                <button id="pickEditFileBtn" type="button" class="secondary file-btn">Browse...</button>
+                <input id="editFileInput" type="file" class="hidden" accept=".pdf,.docx,.jpg,.jpeg,.png,.doc,.txt,.md">
+            </div>
+
+            <label>Cover Image</label>
+            <div class="file-row">
+                <input id="editCoverImagePath" type="text" placeholder="Current cover path or upload a new image">
+                <button id="pickEditCoverBtn" type="button" class="secondary file-btn">Browse Cover...</button>
+                <input id="editCoverImageInput" type="file" class="hidden" accept=".jpg,.jpeg,.png">
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <button id="generateEditDescriptionBtn" class="secondary" type="button">Generate Description</button>
+            <button id="saveEditBtn" type="button">Save Changes</button>
+            <button id="clearEditBtn" class="secondary" type="button">Clear</button>
+        </div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Add New Published Book</h2>
+        <p class="hint">All required fields must be provided. Addition requires confirmation.</p>
+        <div class="form-grid">
+            <label>Title</label>
+            <input id="addTitle" type="text" placeholder="Book title">
+
+            <label>Author Name</label>
+            <input id="addAuthorNames" type="text" placeholder="Author full name">
+
+            <label>Genres</label>
+            <select id="addGenres" multiple size="8">
+                <option value="Fiction">Fiction</option>
+                <option value="Non-fiction">Non-fiction</option>
+                <option value="Mystery">Mystery</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Science Fiction">Science Fiction</option>
+                <option value="Romance">Romance</option>
+                <option value="Thriller">Thriller</option>
+                <option value="Biography">Biography</option>
+                <option value="History">History</option>
+                <option value="Business">Business</option>
+                <option value="Education">Education</option>
+                <option value="Science">Science</option>
+                <option value="Technology">Technology</option>
+                <option value="Art">Art</option>
+                <option value="Philosophy">Philosophy</option>
+                <option value="Self-Help">Self-Help</option>
+                <option value="Children">Children</option>
+                <option value="Young Adult">Young Adult</option>
+            </select>
+
+            <label>Description</label>
+            <textarea id="addDescription" rows="6" placeholder="Book description"></textarea>
+
+            <label>Book File</label>
+            <div class="file-row">
+                <input id="addFilePath" type="text" placeholder="C:/path/to/book.pdf">
+                <button id="pickAddFileBtn" type="button" class="secondary file-btn">Browse...</button>
+                <input id="addFileInput" type="file" class="hidden" accept=".pdf,.docx,.jpg,.jpeg,.png,.doc,.txt,.md">
+            </div>
+
+            <label>Cover Image</label>
+            <div class="file-row">
+                <input id="addCoverImagePath" type="text" placeholder="C:/path/to/cover.jpg">
+                <button id="pickAddCoverBtn" type="button" class="secondary file-btn">Browse Cover...</button>
+                <input id="addCoverImageInput" type="file" class="hidden" accept=".jpg,.jpeg,.png">
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <button id="generateAddDescriptionBtn" class="secondary" type="button">Generate Description</button>
+            <button id="addBookBtn" type="button">Add Published Book</button>
+            <button id="clearAddBtn" class="secondary" type="button">Clear</button>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-manage-published.js"></script>
+</body>
+</html>
