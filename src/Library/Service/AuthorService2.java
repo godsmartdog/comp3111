@@ -125,6 +125,10 @@ public class AuthorService2 {
                 .orElseThrow(() -> new ValidationException("Author user not found."));
         if (author.getRole() != Role.AUTHOR) throw new ValidationException("User is not an author.");
 
+        if (hasDuplicateOwnedTitle(normalizedAuthorUsername, normalizedTitle)) {
+            throw new ValidationException("You already have a book or submission with this title.");
+        }
+
         // Create and save the book submission, associating it with the author's username and full name for future reference and tracking.
         BookSubmission2 submission = new BookSubmission2(
             normalizedTitle,
@@ -137,6 +141,26 @@ public class AuthorService2 {
         );
         submissionRepository.save(submission);
         return submission;
+    }
+
+    private boolean hasDuplicateOwnedTitle(String authorUsername, String title) {
+        String normalizedTitle = title == null ? "" : title.trim().toLowerCase(Locale.ROOT);
+        if (normalizedTitle.isEmpty()) {
+            return false;
+        }
+
+        boolean duplicateSubmission = submissionRepository.findByAuthorUsername(authorUsername).stream()
+                .anyMatch(submission -> submission.getTitle() != null
+                        && submission.getTitle().trim().toLowerCase(Locale.ROOT).equals(normalizedTitle));
+        if (duplicateSubmission) {
+            return true;
+        }
+
+        return bookRepository.findAll().stream()
+                .filter(Book::isApproved)
+                .filter(book -> authorUsername.equals(book.getAuthorUsername()))
+                .anyMatch(book -> book.getTitle() != null
+                        && book.getTitle().trim().toLowerCase(Locale.ROOT).equals(normalizedTitle));
     }
 
     // Method to retrieve the list of supported genres, returning them in a sorted order for better user experience when displaying options.
@@ -211,6 +235,9 @@ public class AuthorService2 {
 
         String normalizedFullName = NamePolicy.validateFullName(fullName);
         String normalizedBio = normalizeRequired(bio, "Bio cannot be empty.");
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new ValidationException("Current password is required to save profile changes.");
+        }
 
         User user = userRepository.findByUsername(normalizedTarget)
                 .orElseThrow(() -> new ValidationException("Author user not found."));

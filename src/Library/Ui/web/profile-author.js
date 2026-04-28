@@ -192,6 +192,14 @@ async function loadPublishedHistory() {
 }
 
 document.getElementById("saveAuthorProfileBtn").addEventListener("click", () => {
+    const currentPassword = promptForCurrentPassword();
+    if (currentPassword === null) {
+        return;
+    }
+    const currentPasswordInput = document.getElementById("authorProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = currentPassword;
+    }
     saveAuthorProfile().catch((e) => {
         document.getElementById("authorProfileFeedback").textContent = e.message;
         showToast(e.message, true);

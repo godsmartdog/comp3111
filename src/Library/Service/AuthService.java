@@ -101,6 +101,9 @@ public class AuthService {
     public User updateStudentOrStaffProfile(String username, String fullName, String newPassword, String currentPassword, String profilePhotoPath) {
         String normalizedUsername = NamePolicy.validateUsername(username);
         String normalizedFullName = NamePolicy.validateFullName(fullName);
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new ValidationException("Current password is required to save profile changes.");
+        }
 
         User user = userRepository.findByUsername(normalizedUsername)
                 .orElseThrow(() -> new ValidationException("User not found."));
@@ -124,12 +127,14 @@ public class AuthService {
     }
 
     public static void validateCurrentPasswordForPasswordChange(User user, String newPassword, String currentPassword) {
-        if (newPassword == null || newPassword.isBlank()) {
-            return;
-        }
-
         if (currentPassword == null || currentPassword.isBlank()) {
-            throw new ValidationException("Current password is required to change password.");
+            throw new ValidationException("Current password is required to save profile changes.");
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
+                throw new AuthenticationException("Current password is incorrect.");
+            }
+            return;
         }
         if (!PasswordHasher.matches(currentPassword, user.getPasswordHash())) {
             throw new AuthenticationException("Current password is incorrect.");

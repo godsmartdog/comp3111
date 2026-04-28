@@ -193,6 +193,14 @@ async function loadApprovedHistory() {
 }
 
 document.getElementById("saveLibrarianProfileBtn").addEventListener("click", () => {
+    const currentPassword = promptForCurrentPassword();
+    if (currentPassword === null) {
+        return;
+    }
+    const currentPasswordInput = document.getElementById("librarianProfileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = currentPassword;
+    }
     saveLibrarianProfile().catch((e) => {
         document.getElementById("librarianProfileFeedback").textContent = e.message;
         showToast(e.message, true);
