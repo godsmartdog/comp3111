@@ -276,6 +276,46 @@ document.getElementById("loadDraftsBtn")?.addEventListener("click", () => {
     refreshDrafts().catch((e) => showToast(e.message, true));
 });
 
+document.getElementById("generateSummaryBtn")?.addEventListener("click", async () => {
+    try {
+        const title = document.getElementById("authorTitle")?.value.trim() || "";
+        const genres = parseGenres(getSelectedGenres());
+        const description = document.getElementById("authorDescription");
+
+        if (!title) {
+            showToast("Enter a title before generating a summary.", true);
+            return;
+        }
+        if (!genres) {
+            showToast("Select at least one genre before generating a summary.", true);
+            return;
+        }
+        if (description?.value.trim()) {
+            const replace = window.confirm("Replace the current description with a generated summary?");
+            if (!replace) {
+                return;
+            }
+        }
+
+        const response = await api("/api/author/submit/generate-summary", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                title,
+                genres,
+                note: ""
+            })
+        });
+
+        if (description) {
+            description.value = response?.summary || "";
+        }
+        showToast(response?.message || "Summary generated.", false);
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
+
 document.getElementById("previewBtn")?.addEventListener("click", async () => {
     try {
         const preview = await api("/api/author/preview", {
@@ -335,7 +375,7 @@ document.getElementById("submitBtn")?.addEventListener("click", async () => {
             }, false);
         }
 
-        showToast(text, false);
+        showToast(text || "Submission created successfully. Summary finalized and ready for review.", false);
         document.getElementById("authorTitle").value = "";
         setSelectedGenres([]);
         document.getElementById("authorDescription").value = "";

@@ -1990,6 +1990,31 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/submit/generate-summary", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String title = required(form, "title");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String note = RequestFilters.getTrimmed(form, "note", "");
+
+                String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note);
+                sendJson(exchange, 200, "{" +
+                        "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
+                        "\"message\":\"Summary generated. Review and edit it before submitting.\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/submit", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -2054,7 +2079,7 @@ public class LibraryApiHandlers {
                     null,
                     Map.of("type", "submission", "submissionId", submission.getId())
                 );
-                sendText(exchange, 200, "Submission created successfully.");
+                sendText(exchange, 200, "Submission created successfully. Summary finalized and ready for review.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -4062,9 +4087,6 @@ public class LibraryApiHandlers {
         return "[" + String.join(",", values) + "]";
     }
 
-    private record PdfSearchResult(String identifier, String title, String downloadUrl, String source) {
-    }
-
     private static final class PdfSearchStats {
         private int archiveCandidates;
         private int archiveWithPdf;
@@ -4074,6 +4096,9 @@ public class LibraryApiHandlers {
     }
 
     private record DownloadedPdf(String filePath, String contentType) {
+    }
+
+    private record PdfSearchResult(String identifier, String title, String downloadUrl, String source, List<String> authors) {
     }
 
     private String pdfSearchResultsToJson(List<PdfSearchResult> results) {
@@ -4109,7 +4134,66 @@ public class LibraryApiHandlers {
         List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, stats);
         mergePdfResults(results, googleResults, limit);
 
+        sortPdfResultsByRelevance(results, title, authorName);
+
         return results;
+    }
+
+    private void sortPdfResultsByRelevance(List<PdfSearchResult> results, String title, String authorName) {
+        if (results == null || results.size() < 2) {
+            return;
+        }
+
+        String normalizedTitle = normalizeSearchTerm(title);
+        String normalizedAuthor = normalizeSearchTerm(authorName);
+        results.sort((left, right) -> {
+            int leftScore = scorePdfResult(left, normalizedTitle, normalizedAuthor);
+            int rightScore = scorePdfResult(right, normalizedTitle, normalizedAuthor);
+            if (leftScore != rightScore) {
+                return Integer.compare(rightScore, leftScore);
+            }
+            return left.title().compareToIgnoreCase(right.title());
+        });
+    }
+
+    private int scorePdfResult(PdfSearchResult result, String normalizedTitle, String normalizedAuthor) {
+        int score = 0;
+        String normalizedResultTitle = normalizeSearchTerm(result.title());
+        String normalizedSource = normalizeSearchTerm(result.source());
+        String normalizedResultAuthors = normalizeSearchTerm(String.join(" ", result.authors()));
+        if (!normalizedTitle.isBlank()) {
+            if (normalizedResultTitle.equals(normalizedTitle)) {
+                score += 100;
+            } else if (normalizedResultTitle.contains(normalizedTitle)) {
+                score += 70;
+            } else if (normalizedTitle.contains(normalizedResultTitle) && !normalizedResultTitle.isBlank()) {
+                score += 50;
+            }
+            if (!normalizedResultAuthors.isBlank()
+                    && (normalizedResultAuthors.contains(normalizedTitle) || normalizedTitle.contains(normalizedResultAuthors))) {
+                score += 25;
+            }
+        }
+        if (!normalizedAuthor.isBlank()) {
+            if (normalizedResultTitle.contains(normalizedAuthor)) {
+                score += 30;
+            }
+            if (!normalizedResultAuthors.isBlank()
+                    && (normalizedResultAuthors.contains(normalizedAuthor) || normalizedAuthor.contains(normalizedResultAuthors))) {
+                score += 40;
+            }
+        }
+        if (normalizedSource.contains("google")) {
+            score += 5;
+        }
+        return score;
+    }
+
+    private String normalizeSearchTerm(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     private List<PdfSearchResult> searchArchivePdfSources(String title, String authorName, int limit, PdfSearchStats stats)
@@ -4143,7 +4227,7 @@ public class LibraryApiHandlers {
         for (PdfSearchResult candidate : candidates) {
             String pdfUrl = resolveArchivePdfUrl(candidate.identifier());
             if (!pdfUrl.isBlank()) {
-                results.add(new PdfSearchResult("archive:" + candidate.identifier(), candidate.title(), pdfUrl, "Internet Archive"));
+                results.add(new PdfSearchResult("archive:" + candidate.identifier(), candidate.title(), pdfUrl, "Internet Archive", List.of()));
             }
         }
         stats.archiveWithPdf += results.size();
@@ -4180,10 +4264,12 @@ public class LibraryApiHandlers {
                 + URLEncoder.encode(query, StandardCharsets.UTF_8)
             + "&maxResults=" + Math.min(Math.max(limit, 1), 3)
                 + "&filter=free-ebooks"
+                + "&orderBy=relevance"
                 + "&printType=books"
                 + "&key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         String payload = httpGet(searchUrl);
         List<PdfSearchResult> results = parseGoogleBooksPdfResults(payload, limit);
+        sortPdfResultsByRelevance(results, title, authorName);
         stats.googleWithPdf += results.size();
 
         if (!results.isEmpty()) {
@@ -4202,6 +4288,7 @@ public class LibraryApiHandlers {
                 fallbackResults.add(fallback);
             }
         }
+        sortPdfResultsByRelevance(fallbackResults, title, authorName);
         stats.googleFallbackWithPdf += fallbackResults.size();
         return fallbackResults;
     }
@@ -4341,7 +4428,8 @@ public class LibraryApiHandlers {
         }
         String title = extractJsonField(payload, "title");
         String safeTitle = title.isBlank() ? (fallbackTitle == null ? "Google Books PDF" : fallbackTitle) : title;
-        return new PdfSearchResult("google:" + id, safeTitle, unescapeJsonString(downloadLink), "Google Books");
+        List<String> authors = extractJsonStringArray(payload, "authors");
+        return new PdfSearchResult("google:" + id, safeTitle, unescapeJsonString(downloadLink), "Google Books", authors);
     }
 
     private List<PdfSearchResult> parseGoogleBooksPdfResults(String json, int limit) {
@@ -4370,10 +4458,32 @@ public class LibraryApiHandlers {
             }
             String safeTitle = title.isBlank() ? "Google Books PDF" : title;
             String identifier = id.isBlank() ? "google-books" : "google:" + id;
-            results.add(new PdfSearchResult(identifier, safeTitle, unescapeJsonString(downloadLink), "Google Books"));
+            List<String> authors = extractJsonStringArray(chunk, "authors");
+            results.add(new PdfSearchResult(identifier, safeTitle, unescapeJsonString(downloadLink), "Google Books", authors));
         }
 
         return results;
+    }
+
+    private List<String> extractJsonStringArray(String json, String fieldName) {
+        List<String> values = new ArrayList<>();
+        if (json == null || json.isBlank()) {
+            return values;
+        }
+
+        Pattern pattern = Pattern.compile("\\\"" + Pattern.quote(fieldName) + "\\\"\\s*:\\s*\\[(.*?)\\]", Pattern.DOTALL);
+        Matcher matcher = pattern.matcher(json);
+        if (!matcher.find()) {
+            return values;
+        }
+
+        String arrayBody = matcher.group(1);
+        Pattern valuePattern = Pattern.compile("\\\"((?:\\\\.|[^\\\\\"])*)\\\"");
+        Matcher valueMatcher = valuePattern.matcher(arrayBody);
+        while (valueMatcher.find()) {
+            values.add(unescapeJsonString(valueMatcher.group(1)));
+        }
+        return values;
     }
 
     private String extractJsonBlock(String json, String fieldName) {
@@ -4398,7 +4508,7 @@ public class LibraryApiHandlers {
         while (matcher.find() && results.size() < limit) {
             String identifier = unescapeJsonString(matcher.group(1));
             String title = unescapeJsonString(matcher.group(2));
-            results.add(new PdfSearchResult(identifier, title, "", "Internet Archive"));
+            results.add(new PdfSearchResult(identifier, title, "", "Internet Archive", List.of()));
         }
         return results;
     }
@@ -4476,17 +4586,38 @@ public class LibraryApiHandlers {
             throw new IllegalArgumentException("PDF is too large. Max size is " + SecurityConfig.MAX_FILE_SIZE_BYTES + " bytes.");
         }
 
-        Files.copy(response.body(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+        try (InputStream inputStream = response.body()) {
+            Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        }
         long size = Files.size(targetPath);
         if (size > SecurityConfig.MAX_FILE_SIZE_BYTES) {
             Files.deleteIfExists(targetPath);
             throw new IllegalArgumentException("PDF is too large. Max size is " + SecurityConfig.MAX_FILE_SIZE_BYTES + " bytes.");
         }
 
+        if (!isValidPdfFile(targetPath)) {
+            Files.deleteIfExists(targetPath);
+            throw new IllegalArgumentException("Downloaded file is not a valid PDF.");
+        }
+
         String resolvedContentType = contentType.isBlank()
                 ? detectContentType(fileName.toLowerCase(Locale.ROOT))
                 : contentType;
         return new DownloadedPdf(targetPath.toString(), resolvedContentType);
+    }
+
+    private boolean isValidPdfFile(Path file) {
+        try (InputStream inputStream = Files.newInputStream(file)) {
+            byte[] header = new byte[4];
+            int read = inputStream.read(header);
+            return read == 4
+                    && header[0] == '%'
+                    && header[1] == 'P'
+                    && header[2] == 'D'
+                    && header[3] == 'F';
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private String sanitizeFileName(String value) {
@@ -4515,6 +4646,11 @@ public class LibraryApiHandlers {
         } catch (Exception e) {
             return fallback;
         }
+    }
+
+    private String generateAuthorSubmissionSummary(String authorName, String title, List<String> genres, String note) {
+        String summary = generateBookRequestSummary(title, authorName, genres, note);
+        return summary == null ? "" : summary.trim();
     }
 
     private String callInferenceSummary(String baseUrl,
