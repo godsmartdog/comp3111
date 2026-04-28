@@ -226,7 +226,7 @@ function buildPdfResults(items) {
     pdfResultsBody.innerHTML = "";
 
     if (!items.length) {
-        pdfResultsBody.innerHTML = '<tr><td colspan="3">No PDF results found.</td></tr>';
+        pdfResultsBody.innerHTML = '<tr><td colspan="4">No PDF results found.</td></tr>';
         return;
     }
 
@@ -234,6 +234,7 @@ function buildPdfResults(items) {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${item.title || ""}</td>
+            <td>${item.source || ""}</td>
             <td>${item.identifier || ""}</td>
             <td></td>
         `;

@@ -7,12 +7,14 @@ param(
 //powershell -ExecutionPolicy Bypass -File "Run-Library.ps1"
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
+$env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
 
 # Define JavaFX path
 $javafxLib = "C:\Program Files\Java\javafx-sdk-21.0.10\lib"
 $javafxModules = "javafx.controls,javafx.fxml"
 
 Write-Host "JAVA_HOME set to: $env:JAVA_HOME" -ForegroundColor Green
+Write-Host "Google Books API key set." -ForegroundColor Green
 Write-Host "JavaFX path: $javafxLib" -ForegroundColor Green
 function Resolve-ToolPath {
     param(
