@@ -4,7 +4,7 @@ param(
     [switch]$SmokeTest,
     [switch]$CompileOnly
 )
-
+//powershell -ExecutionPolicy Bypass -File "Run-Library.ps1"
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 

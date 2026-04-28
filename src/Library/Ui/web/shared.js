@@ -129,6 +129,60 @@ function rolePage(role) {
     return "index.html";
 }
 
+const NOTIFICATION_CHANGE_SIGNAL_KEY = "notification-change-signal";
+
+function emitNotificationChangeSignal(action) {
+    try {
+        const payload = JSON.stringify({
+            action: action || "update",
+            ts: Date.now()
+        });
+        localStorage.setItem(NOTIFICATION_CHANGE_SIGNAL_KEY, payload);
+    } catch (e) {
+        // Best effort only.
+    }
+}
+
+function watchNotificationChangeSignal(onChange) {
+    if (typeof onChange !== "function") {
+        return () => {};
+    }
+
+    const handler = (event) => {
+        if (event.key !== NOTIFICATION_CHANGE_SIGNAL_KEY || !event.newValue) {
+            return;
+        }
+        onChange(event.newValue);
+    };
+
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+}
+
+// Updates a small notification badge in the topbar showing unread count.
+async function updateNotificationBadge() {
+    try {
+        const current = getCurrentUser();
+        if (!current?.sessionId) return;
+        const items = await api('/api/notifications?scope=active');
+        const unread = Array.isArray(items) ? items.filter((i) => !i.read).length : 0;
+
+        const container = document.querySelector('.top-actions');
+        if (!container) return;
+
+        const badge = container.querySelector('.notification-badge');
+        if (!badge) return; // Do not auto-create badge; only update existing element
+        badge.textContent = `Notifications (${unread})`;
+        if (unread === 0) {
+            badge.classList.add('muted');
+        } else {
+            badge.classList.remove('muted');
+        }
+    } catch (e) {
+        // Silent failure — badge is non-critical
+    }
+}
+
 const DEV_CRASH_QUERY_KEY = "devCrash";
 const DEV_CRASH_ENABLED_KEY = "devCrashEnabled";
 const DEV_RANDOM_CRASH_CHANCE_KEY = "devRandomCrashChance";

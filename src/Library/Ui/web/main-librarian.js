@@ -80,6 +80,7 @@ function renderCurrentNotificationPage() {
             </div>
             <div class="notification-actions">
                 <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                <button class="secondary notification-archive-btn" type="button">Archive</button>
                 <button class="danger notification-delete-btn" type="button">Delete</button>
             </div>
         `;
@@ -111,6 +112,26 @@ function renderCurrentNotificationPage() {
                 });
                 showToast(payload.message || "Notification deleted.", false);
                 allNotifications = allNotifications.filter((notification) => notification.id !== item.id);
+                emitNotificationChangeSignal("delete");
+                if (currentNotificationPage > getTotalNotificationPages()) {
+                    currentNotificationPage = getTotalNotificationPages();
+                }
+                renderCurrentNotificationPage();
+            } catch (error) {
+                showToast(error.message, true);
+            }
+        });
+
+        li.querySelector(".notification-archive-btn")?.addEventListener("click", async () => {
+            try {
+                const payload = await api("/api/notifications/archive", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formBody({ notificationId: item.id })
+                });
+                showToast(payload.message || "Notification archived.", false);
+                allNotifications = allNotifications.filter((notification) => notification.id !== item.id);
+                emitNotificationChangeSignal("archive");
                 if (currentNotificationPage > getTotalNotificationPages()) {
                     currentNotificationPage = getTotalNotificationPages();
                 }
@@ -161,6 +182,7 @@ async function refreshNotifications() {
     allNotifications = Array.isArray(items) ? items : [];
     currentNotificationPage = 1;
     renderCurrentNotificationPage();
+    try { updateNotificationBadge(); } catch (e) { }
 }
 
 document.getElementById("refreshNotificationsBtn")?.addEventListener("click", () => {

@@ -3,42 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Library | Staff Main</title>
+    <title>E-Library | Archived Notifications</title>
     <link rel="stylesheet" href="style.css">
-</head>
+    </head>
 <body>
 <canvas id="bgCanvas"></canvas>
 
 <header class="topbar page-top">
     <div>
-        <h1>Staff Main Portal</h1>
+        <h1>Archived Notifications</h1>
         <p id="welcomeLine"></p>
     </div>
     <div class="top-actions">
-        <a class="link-btn" href="profile-user.html">Profile</a>
-        <a class="link-btn" href="archived-notifications.html">Archived</a>
+        <a id="rolePortalBtn" class="link-btn" href="#">Back to Portal</a>
         <a class="link-btn" href="index.html">Main</a>
         <button id="logoutBtn" class="secondary">Logout</button>
     </div>
 </header>
 
-<main class="layout single-col" data-role="STAFF">
+<main class="layout single-col">
     <section class="panel glass-panel">
-        <h2>Staff Functions</h2>
-        
-        <div class="quick-links staff-main-quick-links">
-            <a class="link-btn" href="staff-books.html">Books Search and Borrow</a>
-            <a class="link-btn" href="staff-borrows.html">My Active Borrows</a>
-            <a class="link-btn" href="reading-history.html">Reading History</a>
-            <a class="link-btn" href="my-reviews.html">My Reviews</a>
-            <a class="link-btn" href="request-new-book.html">Request New Book</a>
-        </div>
-
-        <h3>Notification Board</h3>
-        <div id="notificationBox" class="panel-subtle">
-            <p id="notificationStatus">Loading notifications...</p>
+        <h2>Archived Notifications</h2>
+        <div class="panel-subtle">
+            <p id="notificationStatus">Loading archived notifications...</p>
             <div class="toolbar">
-                <input id="notificationKeyword" type="text" placeholder="Search notifications...">
+                <input id="notificationKeyword" type="text" placeholder="Search archived notifications...">
                 <select id="notificationPriorityFilter" aria-label="Notification highlight filter">
                     <option value="all" selected>All</option>
                     <option value="high">Highlighted (!)</option>
@@ -58,7 +47,7 @@
                 <input id="notificationDateTo" type="date" aria-label="Notification date to">
                 <button id="applyNotificationFiltersBtn" class="secondary" type="button">Apply Filters</button>
             </div>
-            <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Notifications</button>
+            <button id="refreshNotificationsBtn" class="secondary" type="button">Refresh Archived</button>
             <ul id="notificationsList"></ul>
             <div class="pager-row">
                 <button id="notificationPrevPageBtn" type="button" class="secondary pager-btn">&lt;</button>
@@ -66,17 +55,12 @@
                 <button id="notificationNextPageBtn" type="button" class="secondary pager-btn">&gt;</button>
             </div>
         </div>
-
-        <h3>Popular Recommendations</h3>
-        <div class="panel-subtle">
-            <ul id="recommendations"></ul>
-        </div>
     </section>
 </main>
 
 <div id="toast"></div>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
-<script src="main-staff.js"></script>
+<script src="archived-notifications.js"></script>
 </body>
 </html>
