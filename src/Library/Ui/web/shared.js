@@ -129,6 +129,14 @@ function rolePage(role) {
     return "index.html";
 }
 
+function promptForCurrentPassword() {
+    const value = window.prompt("Enter your current password to save profile changes:", "");
+    if (value === null) {
+        return null;
+    }
+    return value.trim();
+}
+
 const NOTIFICATION_CHANGE_SIGNAL_KEY = "notification-change-signal";
 
 function emitNotificationChangeSignal(action) {

@@ -210,6 +210,14 @@ async function loadBorrowHistory() {
 }
 
 document.getElementById("saveProfileBtn")?.addEventListener("click", () => {
+    const currentPassword = promptForCurrentPassword();
+    if (currentPassword === null) {
+        return;
+    }
+    const currentPasswordInput = document.getElementById("profileCurrentPassword");
+    if (currentPasswordInput) {
+        currentPasswordInput.value = currentPassword;
+    }
     saveProfile().catch((e) => {
         document.getElementById("profileFeedback").textContent = e.message;
         showToast(e.message, true);

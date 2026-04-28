@@ -313,6 +313,9 @@ public class LibrarianService3 {
         if (employeeId == null || employeeId.isBlank()) {
             throw new ValidationException("Employee ID cannot be empty.");
         }
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new ValidationException("Current password is required to save profile changes.");
+        }
 
         User user = userRepository.findByUsername(normalizedTarget)
                 .orElseThrow(() -> new ValidationException("Librarian user not found."));
