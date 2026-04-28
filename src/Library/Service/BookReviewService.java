@@ -107,6 +107,7 @@ public class BookReviewService {
                     review.getUsername(),
                     "Reply to your review",
                     "Author replied to your review for \"" + book.getTitle() + "\": " + normalizedReply,
+                    null,
                     Map.of(
                             "type", "review-reply",
                             "bookId", book.getId(),

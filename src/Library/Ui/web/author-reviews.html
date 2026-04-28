@@ -23,13 +23,29 @@
 
 <main class="layout single-col" data-role="AUTHOR">
     <section class="panel glass-panel">
-        <p id="reviewStatus">Loading reviews...</p>
-        <button id="refreshReviewsBtn" class="secondary" type="button">Refresh Reviews</button>
+        <p id="bookStatus">Loading your published books...</p>
+        <button id="refreshBooksBtn" class="secondary" type="button">Refresh Books</button>
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
-                    <th>Book</th>
+                    <th>Title</th>
+                    <th>Genres</th>
+                    <th>Publish Date</th>
+                    <th>Rating</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody id="publishedBooksBody"></tbody>
+            </table>
+        </div>
+
+        <h3 id="selectedBookHeading">Select a published book to view reviews</h3>
+        <p id="reviewStatus">No book selected.</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
                     <th>Reviewer</th>
                     <th>Rating</th>
                     <th>Review</th>

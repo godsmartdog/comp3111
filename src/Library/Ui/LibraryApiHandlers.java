@@ -685,22 +685,7 @@ public class LibraryApiHandlers {
             }
         });
 
-        server.createContext("/api/author/reviews", exchange -> {
-            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendText(exchange, 405, "Method not allowed.");
-                return;
-            }
-
-            try {
-                User user = requireRole(exchange, Role.AUTHOR);
-                sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForAuthor(user.getUsername())));
-            } catch (ApiAuthException e) {
-                sendText(exchange, 401, e.getMessage());
-            } catch (Exception e) {
-                sendText(exchange, 400, e.getMessage());
-            }
-        });
-
+        // Register more specific author review endpoints BEFORE the generic /api/author/reviews
         server.createContext("/api/author/reviews/reply", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -734,6 +719,22 @@ public class LibraryApiHandlers {
                 String reason = RequestFilters.getTrimmed(form, "reason", "Inappropriate content");
                 BookReview review = bookReviewService.flagReview(user.getUsername(), reviewId, reason);
                 sendJson(exchange, 200, reviewToJson(review));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/reviews", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForAuthor(user.getUsername())));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
