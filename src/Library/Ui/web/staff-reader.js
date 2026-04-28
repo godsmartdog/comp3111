@@ -50,7 +50,7 @@ function renderReaderReviews(reviews) {
 
     reviews.forEach((item) => {
         const li = document.createElement("li");
-        li.textContent = `${item.reviewerFullName || item.username}: ${item.rating}/5 - ${item.reviewText || ""}`;
+        li.innerHTML = formatReviewDisplayHtml(item);
         list.appendChild(li);
     });
 }

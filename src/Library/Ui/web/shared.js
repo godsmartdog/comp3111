@@ -129,6 +129,40 @@ function rolePage(role) {
     return "index.html";
 }
 
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function formatReviewDisplayHtml(item) {
+    const reviewer = escapeHtml(item?.reviewerFullName || item?.username || "Unknown reviewer");
+    const rating = escapeHtml(`${Number(item?.rating || 0)}/5`);
+    const reviewText = escapeHtml(item?.reviewText || "");
+    const replyText = escapeHtml(item?.replyText || "");
+    const replyAt = escapeHtml(item?.repliedAt || "");
+    const flagged = Boolean(item?.flagged);
+    const flagReason = escapeHtml(item?.flagReason || "");
+    const flaggedAt = escapeHtml(item?.flaggedAt || "");
+    const replyLine = replyText
+        ? `<div class="muted" style="margin-top:6px;">Author reply${replyAt ? ` (${replyAt})` : ""}: ${replyText}</div>`
+        : "";
+    const flagLine = flagged
+        ? `<div class="muted" style="margin-top:6px;">Reported${flaggedAt ? ` (${flaggedAt})` : ""}${flagReason ? `: ${flagReason}` : ""}</div>`
+        : "";
+
+    return `
+        <div style="white-space:pre-wrap;">
+            <strong>${reviewer}: ${rating} - ${reviewText}</strong>
+            ${replyLine}
+            ${flagLine}
+        </div>
+    `;
+}
+
 function promptForCurrentPassword() {
     const value = window.prompt("Enter your current password to save profile changes:", "");
     if (value === null) {
