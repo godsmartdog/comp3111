@@ -1,5 +1,15 @@
 const currentUser = requireRole("LIBRARIAN");
 let cachedRequests = [];
+let selectedRequest = null;
+
+const selectedRequestIdInput = document.getElementById("selectedRequestId");
+const selectedTitleInput = document.getElementById("selectedTitle");
+const selectedAuthorInput = document.getElementById("selectedAuthor");
+const selectedGenresInput = document.getElementById("selectedGenres");
+const selectedReasonInput = document.getElementById("selectedReason");
+const generatedDescriptionInput = document.getElementById("generatedDescription");
+const selectedPdfUrlInput = document.getElementById("selectedPdfUrl");
+const pdfResultsBody = document.getElementById("pdfResultsBody");
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -68,6 +78,11 @@ function buildRequestRows(items) {
         const actionCell = row.lastElementChild;
         const requestId = item.id || "";
 
+        const selectBtn = document.createElement("button");
+        selectBtn.className = "secondary";
+        selectBtn.textContent = "Select";
+        selectBtn.addEventListener("click", () => setSelectedRequest(item));
+
         const approveBtn = document.createElement("button");
         approveBtn.className = "secondary";
         approveBtn.textContent = "Approve";
@@ -86,6 +101,8 @@ function buildRequestRows(items) {
         rejectBtn.disabled = status.toLowerCase() !== "pending";
         rejectBtn.addEventListener("click", () => reviewRequest(requestId, "reject", item));
 
+        actionCell.appendChild(selectBtn);
+        actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(approveBtn);
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(uploadBtn);
@@ -116,6 +133,17 @@ async function refreshRequests() {
     const items = await api(path);
     cachedRequests = Array.isArray(items) ? items : [];
     buildRequestRows(cachedRequests.filter(requestMatchesFilters));
+    syncSelectedRequest();
+}
+
+function syncSelectedRequest() {
+    if (!selectedRequest?.id) {
+        return;
+    }
+    const updated = cachedRequests.find((item) => item.id === selectedRequest.id);
+    if (updated) {
+        setSelectedRequest(updated);
+    }
 }
 
 function resetFilters() {
@@ -169,6 +197,149 @@ async function reviewRequest(requestId, action, item = {}) {
     }
 }
 
+function setSelectedRequest(item) {
+    selectedRequest = item;
+    if (selectedRequestIdInput) {
+        selectedRequestIdInput.value = item?.id || "";
+    }
+    if (selectedTitleInput) {
+        selectedTitleInput.value = item?.title || "";
+    }
+    if (selectedAuthorInput) {
+        selectedAuthorInput.value = item?.authorName || "";
+    }
+    if (selectedGenresInput) {
+        selectedGenresInput.value = Array.isArray(item?.genres) ? item.genres.join(", ") : "";
+    }
+    if (selectedReasonInput) {
+        selectedReasonInput.value = item?.reason || "";
+    }
+    if (generatedDescriptionInput && !generatedDescriptionInput.value.trim()) {
+        generatedDescriptionInput.value = item?.reason || "";
+    }
+}
+
+function buildPdfResults(items) {
+    if (!pdfResultsBody) {
+        return;
+    }
+    pdfResultsBody.innerHTML = "";
+
+    if (!items.length) {
+        pdfResultsBody.innerHTML = '<tr><td colspan="3">No PDF results found.</td></tr>';
+        return;
+    }
+
+    items.forEach((item) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+            <td>${item.title || ""}</td>
+            <td>${item.identifier || ""}</td>
+            <td></td>
+        `;
+        const actionCell = row.lastElementChild;
+        const useBtn = document.createElement("button");
+        useBtn.className = "secondary";
+        useBtn.textContent = "Use PDF";
+        useBtn.addEventListener("click", () => {
+            if (selectedPdfUrlInput) {
+                selectedPdfUrlInput.value = item.downloadUrl || "";
+            }
+        });
+        actionCell.appendChild(useBtn);
+        pdfResultsBody.appendChild(row);
+    });
+}
+
+async function searchPdfSources() {
+    try {
+        const title = selectedTitleInput?.value.trim() || "";
+        const authorName = selectedAuthorInput?.value.trim() || "";
+        if (!title && !authorName) {
+            showToast("Enter a title or author to search.", true);
+            return;
+        }
+        const query = new URLSearchParams();
+        if (title) {
+            query.set("title", title);
+        }
+        if (authorName) {
+            query.set("authorName", authorName);
+        }
+        const results = await api(`/api/librarian/book-request/search-pdf?${query.toString()}`);
+        buildPdfResults(Array.isArray(results) ? results : []);
+    } catch (error) {
+        showToast(error.message, true);
+    }
+}
+
+async function generateSummary() {
+    try {
+        if (!selectedRequest?.id) {
+            showToast("Select a request first.", true);
+            return;
+        }
+        const payload = {
+            title: selectedTitleInput?.value.trim() || "",
+            authorName: selectedAuthorInput?.value.trim() || "",
+            genres: selectedGenresInput?.value.trim() || "",
+            reason: selectedReasonInput?.value.trim() || ""
+        };
+        if (!payload.title || !payload.authorName) {
+            showToast("Title and author are required to generate a summary.", true);
+            return;
+        }
+        const response = await api("/api/librarian/book-request/generate-description", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody(payload)
+        });
+        if (generatedDescriptionInput) {
+            generatedDescriptionInput.value = response?.description || "";
+        }
+        showToast("Summary generated.", false);
+    } catch (error) {
+        showToast(error.message, true);
+    }
+}
+
+async function downloadAndUpload() {
+    try {
+        if (!selectedRequest?.id) {
+            showToast("Select a request first.", true);
+            return;
+        }
+        if (String(selectedRequest.status || "").toLowerCase() !== "approved") {
+            showToast("Request must be approved before download.", true);
+            return;
+        }
+        const pdfUrl = selectedPdfUrlInput?.value.trim() || "";
+        if (!pdfUrl) {
+            showToast("Provide a PDF download URL.", true);
+            return;
+        }
+        if (!confirm("Download this PDF and upload it to the library?")) {
+            return;
+        }
+        const comment = (prompt("Upload comment (optional)") || "").trim();
+        const description = generatedDescriptionInput?.value.trim() || "";
+        const response = await api("/api/librarian/book-request/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                requestId: selectedRequest.id,
+                pdfUrl,
+                comment,
+                description
+            })
+        });
+        showToast(response?.message || "Downloaded and uploaded.", false);
+        await refreshRequests();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+}
+
 document.getElementById("refreshRequestsBtn")?.addEventListener("click", () => {
     refreshRequests().catch((error) => showToast(error.message, true));
 });
@@ -188,6 +359,18 @@ document.getElementById("requestSearchInput")?.addEventListener("input", () => {
 
 document.getElementById("requestStatusFilter")?.addEventListener("change", () => {
     refreshRequests().catch((error) => showToast(error.message, true));
+});
+
+document.getElementById("searchPdfBtn")?.addEventListener("click", () => {
+    searchPdfSources();
+});
+
+document.getElementById("generateSummaryBtn")?.addEventListener("click", () => {
+    generateSummary();
+});
+
+document.getElementById("downloadAndUploadBtn")?.addEventListener("click", () => {
+    downloadAndUpload();
 });
 
 if (currentUser) {

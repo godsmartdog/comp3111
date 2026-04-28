@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Library | Book Requests</title>
+    <title>E-Library | Manage New Book Requests and Download Requested Books</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
 
 <header class="topbar page-top">
     <div>
-        <h1>Book Requests</h1>
+        <h1>Manage New Book Requests and Download Requested Books</h1>
         <p id="welcomeLine"></p>
     </div>
     <div class="top-actions">
@@ -22,6 +22,58 @@
 </header>
 
 <main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <h2>Download Requested Books (PDF)</h2>
+        <p class="muted">Search public-domain PDFs, download them, and attach them to an approved request.</p>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="selectedRequestId">Selected Request ID</label>
+                <input id="selectedRequestId" type="text" placeholder="Select a request from the table" readonly>
+            </div>
+            <div class="form-field">
+                <label for="selectedTitle">Title</label>
+                <input id="selectedTitle" type="text" placeholder="Title">
+            </div>
+            <div class="form-field">
+                <label for="selectedAuthor">Author</label>
+                <input id="selectedAuthor" type="text" placeholder="Author name">
+            </div>
+            <div class="form-field">
+                <label for="selectedGenres">Genres (comma-separated)</label>
+                <input id="selectedGenres" type="text" placeholder="Genres">
+            </div>
+            <div class="form-field">
+                <label for="selectedReason">Requester Note</label>
+                <input id="selectedReason" type="text" placeholder="Requester note">
+            </div>
+            <div class="form-field full">
+                <label for="generatedDescription">Summary / Description</label>
+                <textarea id="generatedDescription" rows="3" placeholder="Generate or write a short summary"></textarea>
+            </div>
+            <div class="form-field full">
+                <label for="selectedPdfUrl">PDF Download URL</label>
+                <input id="selectedPdfUrl" type="text" placeholder="Pick a PDF from search results or paste a PDF URL">
+            </div>
+        </div>
+        <div class="toolbar">
+            <button id="searchPdfBtn" class="secondary" type="button">Search PDFs</button>
+            <button id="generateSummaryBtn" class="secondary" type="button">Generate Summary</button>
+            <button id="downloadAndUploadBtn" class="secondary" type="button">Download + Upload</button>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+            <table>
+                <thead>
+                <tr>
+                    <th>PDF Title</th>
+                    <th>Identifier</th>
+                    <th>Download</th>
+                </tr>
+                </thead>
+                <tbody id="pdfResultsBody"></tbody>
+            </table>
+        </div>
+    </section>
+
     <section class="panel glass-panel">
         <h2>Request Review Queue</h2>
         <div class="toolbar">

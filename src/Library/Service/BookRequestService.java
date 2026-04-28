@@ -99,18 +99,33 @@ public class BookRequestService {
     }
 
     public BookRequest2 uploadRequest(String requestId, String comment) {
+        return uploadRequest(requestId, comment, null, "", "");
+    }
+
+    public BookRequest2 uploadRequest(String requestId,
+                                      String comment,
+                                      String summary,
+                                      String filePath,
+                                      String contentType) {
         BookRequest2 request = getRequestByIdForReview(requestId);
         if (request.getStatus() != BookRequestStatus.APPROVED) {
             throw new ValidationException("Only approved requests can be uploaded.");
         }
+
+        String resolvedSummary = (summary == null || summary.isBlank())
+                ? request.getReason()
+                : summary.trim();
 
         Book book = new Book(
                 request.getTitle(),
                 "",
                 request.getAuthorName(),
                 request.getGenres(),
-                request.getReason()
+                resolvedSummary
         );
+        if (filePath != null && !filePath.isBlank()) {
+            book.setFileMetadata(filePath.trim(), contentType == null ? "" : contentType.trim());
+        }
         book.approve(LocalDate.now());
         bookRepository.save(book);
 

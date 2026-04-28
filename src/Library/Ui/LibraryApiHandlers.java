@@ -37,8 +37,13 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +63,8 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class LibraryApiHandlers {
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
@@ -74,6 +81,8 @@ public class LibraryApiHandlers {
     // TODO: Externalize this to environment/config before any production deployment.
     private static final String CRASH_TEST_TOKEN = "enable";
     private static final Path PROFILE_PHOTO_DIR = Paths.get(System.getProperty("user.dir"), "profile-photos");
+    private static final Path REQUESTED_BOOK_DIR = Paths.get(System.getProperty("user.dir"), "downloaded-books");
+    private static final int PDF_SEARCH_LIMIT = 5;
 
     private final AuthService authService;
     private final BookService bookService;
@@ -1077,11 +1086,12 @@ public class LibraryApiHandlers {
 
                 if ("approve".equals(action)) {
                     BookRequest2 approved = bookRequestService.approveRequest(requestId, comment);
+                    String approvalComment = comment.isBlank() ? "" : " Comment: " + comment;
                     notificationService.addNotification(
                             approved.getRequesterUsername(),
                             "Book Request Approved",
-                            "Your request for \"" + approved.getTitle() + "\" was approved by a librarian.",
-                            NotificationPriority.NORMAL,
+                        "Your request for \"" + approved.getTitle() + "\" was approved by a librarian." + approvalComment,
+                        NotificationPriority.HIGH,
                             null,
                             Map.of("type", "other", "requestId", approved.getId(), "status", approved.getStatus().name())
                     );
@@ -1091,11 +1101,13 @@ public class LibraryApiHandlers {
                             "}");
                 } else if ("reject".equals(action)) {
                     BookRequest2 rejected = bookRequestService.rejectRequest(requestId, comment, reason);
+                    String rejectionReason = rejected.getRejectionReason().isBlank() ? "" : " Reason: " + rejected.getRejectionReason();
+                    String rejectionComment = rejected.getLibrarianComment().isBlank() ? "" : " Comment: " + rejected.getLibrarianComment();
                     notificationService.addNotification(
                             rejected.getRequesterUsername(),
                             "Book Request Rejected",
-                            "Your request for \"" + rejected.getTitle() + "\" was rejected by a librarian.",
-                            NotificationPriority.NORMAL,
+                        "Your request for \"" + rejected.getTitle() + "\" was rejected by a librarian." + rejectionReason + rejectionComment,
+                        NotificationPriority.HIGH,
                             null,
                             Map.of("type", "other", "requestId", rejected.getId(), "status", rejected.getStatus().name())
                     );
@@ -1105,10 +1117,11 @@ public class LibraryApiHandlers {
                             "}");
                 } else if ("upload".equals(action)) {
                     BookRequest2 uploaded = bookRequestService.uploadRequest(requestId, comment);
+                    String uploadComment = uploaded.getLibrarianComment().isBlank() ? "" : " Comment: " + uploaded.getLibrarianComment();
                     notificationService.addNotification(
                             uploaded.getRequesterUsername(),
                             "Requested Book Uploaded",
-                            "Your requested book \"" + uploaded.getTitle() + "\" is now available in the library.",
+                        "Your requested book \"" + uploaded.getTitle() + "\" is now available in the library." + uploadComment,
                             NotificationPriority.HIGH,
                             null,
                             Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
@@ -1120,6 +1133,104 @@ public class LibraryApiHandlers {
                 } else {
                     sendText(exchange, 400, "Action must be approve, reject, or upload.");
                 }
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/search-pdf", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String title = RequestFilters.getTrimmed(query, "title", "");
+                String authorName = RequestFilters.getTrimmed(query, "authorName", "");
+                int limit = RequestFilters.parseIntInRange(query, "limit", PDF_SEARCH_LIMIT, 1, 10);
+
+                List<PdfSearchResult> results = searchPublicDomainPdfSources(title, authorName, limit);
+                sendJson(exchange, 200, pdfSearchResultsToJson(results));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/generate-description", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String title = required(form, "title");
+                String authorName = required(form, "authorName");
+                List<String> genres = RequestFilters.parseCsv(form, "genres");
+                String reason = RequestFilters.getTrimmed(form, "reason", "");
+
+                String description = generateBookRequestSummary(title, authorName, genres, reason);
+                sendJson(exchange, 200, "{" +
+                        "\"description\":\"" + JsonUtil.escape(description) + "\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/download", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String requestId = required(form, "requestId");
+                String pdfUrl = required(form, "pdfUrl");
+                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
+                String description = nullToEmpty(form.getOrDefault("description", "")).trim();
+
+                BookRequest2 request = bookRequestService.getRequestByIdForReview(requestId);
+                DownloadedPdf downloadedPdf = downloadRequestedPdf(pdfUrl, request.getId(), request.getTitle());
+                fileService.validateSubmissionFile(downloadedPdf.filePath());
+
+                String resolvedDescription = description.isBlank()
+                        ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason())
+                        : description;
+
+                BookRequest2 uploaded = bookRequestService.uploadRequest(
+                        requestId,
+                        comment,
+                        resolvedDescription,
+                        downloadedPdf.filePath(),
+                        downloadedPdf.contentType()
+                );
+
+                String uploadComment = uploaded.getLibrarianComment().isBlank() ? "" : " Comment: " + uploaded.getLibrarianComment();
+                notificationService.addNotification(
+                        uploaded.getRequesterUsername(),
+                        "Requested Book Downloaded",
+                        "Your requested book \"" + uploaded.getTitle() + "\" was downloaded and added to the library." + uploadComment,
+                        NotificationPriority.HIGH,
+                        null,
+                        Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                );
+
+                sendJson(exchange, 200, "{" +
+                        "\"message\":\"Requested book downloaded and uploaded.\"," +
+                        "\"request\":" + bookRequestToJson(uploaded) +
+                        "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -3940,6 +4051,262 @@ public class LibraryApiHandlers {
             values.add(bookRequestToJson(request));
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private record PdfSearchResult(String identifier, String title, String downloadUrl) {
+    }
+
+    private record DownloadedPdf(String filePath, String contentType) {
+    }
+
+    private String pdfSearchResultsToJson(List<PdfSearchResult> results) {
+        List<String> values = new ArrayList<>();
+        for (PdfSearchResult result : results) {
+            values.add("{" +
+                    "\"identifier\":\"" + JsonUtil.escape(result.identifier()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(result.title()) + "\"," +
+                    "\"downloadUrl\":\"" + JsonUtil.escape(result.downloadUrl()) + "\"" +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit)
+            throws IOException, InterruptedException {
+        String query = buildArchiveSearchQuery(title, authorName);
+        String searchUrl = "https://archive.org/advancedsearch.php?q="
+                + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + "&fl[]=identifier&fl[]=title&rows=" + limit
+                + "&output=json";
+        String searchPayload = httpGet(searchUrl);
+        List<PdfSearchResult> candidates = parseArchiveSearchResults(searchPayload, limit);
+        List<PdfSearchResult> results = new ArrayList<>();
+        for (PdfSearchResult candidate : candidates) {
+            String pdfUrl = resolveArchivePdfUrl(candidate.identifier());
+            if (!pdfUrl.isBlank()) {
+                results.add(new PdfSearchResult(candidate.identifier(), candidate.title(), pdfUrl));
+            }
+        }
+        return results;
+    }
+
+    private String buildArchiveSearchQuery(String title, String authorName) {
+        StringBuilder sb = new StringBuilder("collection:publicdomain AND format:\"Text PDF\"");
+        if (title != null && !title.isBlank()) {
+            sb.append(" AND title:(").append(title.trim()).append(")");
+        }
+        if (authorName != null && !authorName.isBlank()) {
+            sb.append(" AND creator:(").append(authorName.trim()).append(")");
+        }
+        return sb.toString();
+    }
+
+    private List<PdfSearchResult> parseArchiveSearchResults(String json, int limit) {
+        List<PdfSearchResult> results = new ArrayList<>();
+        if (json == null || json.isBlank()) {
+            return results;
+        }
+        Pattern docPattern = Pattern.compile("\\{[^\\{\\}]*?\\\"identifier\\\":\\\"([^\\\"]+)\\\"[^\\{\\}]*?\\\"title\\\":\\\"([^\\\"]*)\\\"[^\\{\\}]*?\\}");
+        Matcher matcher = docPattern.matcher(json);
+        while (matcher.find() && results.size() < limit) {
+            String identifier = unescapeJsonString(matcher.group(1));
+            String title = unescapeJsonString(matcher.group(2));
+            results.add(new PdfSearchResult(identifier, title, ""));
+        }
+        return results;
+    }
+
+    private String resolveArchivePdfUrl(String identifier) throws IOException, InterruptedException {
+        if (identifier == null || identifier.isBlank()) {
+            return "";
+        }
+        String metadataUrl = "https://archive.org/metadata/" + URLEncoder.encode(identifier, StandardCharsets.UTF_8);
+        String metadataJson = httpGet(metadataUrl);
+        if (metadataJson.isBlank()) {
+            return "";
+        }
+        Pattern filePattern = Pattern.compile("\\{[^\\{\\}]*?\\\"name\\\":\\\"([^\\\"]+?\\.pdf)\\\"[^\\{\\}]*?\\\"format\\\":\\\"([^\\\"]*)\\\"[^\\{\\}]*?\\}");
+        Matcher matcher = filePattern.matcher(metadataJson);
+        while (matcher.find()) {
+            String fileName = unescapeJsonString(matcher.group(1));
+            String format = unescapeJsonString(matcher.group(2));
+            if (format.toLowerCase(Locale.ROOT).contains("pdf")) {
+                return "https://archive.org/download/" + identifier + "/" + fileName;
+            }
+        }
+        return "";
+    }
+
+    private DownloadedPdf downloadRequestedPdf(String pdfUrl, String requestId, String title)
+            throws IOException, InterruptedException {
+        if (pdfUrl == null || pdfUrl.isBlank()) {
+            throw new IllegalArgumentException("PDF URL is required.");
+        }
+        URI uri = URI.create(pdfUrl.trim());
+        if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException("Only http/https PDF links are supported.");
+        }
+
+        Files.createDirectories(REQUESTED_BOOK_DIR);
+        Path requestDir = REQUESTED_BOOK_DIR.resolve(sanitizeFileName(requestId));
+        Files.createDirectories(requestDir);
+
+        String safeTitle = sanitizeFileName(title);
+        String fileName = safeTitle.isBlank() ? "requested-book" : safeTitle;
+        if (!fileName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            fileName = fileName + ".pdf";
+        }
+        Path targetPath = requestDir.resolve(fileName);
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .GET()
+                .header("User-Agent", "LibraryBookRequestBot/1.0")
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("Failed to download PDF. Status: " + response.statusCode());
+        }
+
+        String contentType = response.headers().firstValue("Content-Type").orElse("");
+        boolean looksLikePdf = contentType.toLowerCase(Locale.ROOT).contains("pdf")
+                || pdfUrl.toLowerCase(Locale.ROOT).contains(".pdf");
+        if (!looksLikePdf) {
+            throw new IllegalArgumentException("URL does not appear to be a PDF.");
+        }
+
+        long contentLength = response.headers().firstValue("Content-Length")
+                .map(value -> {
+                    try {
+                        return Long.parseLong(value);
+                    } catch (NumberFormatException ignored) {
+                        return -1L;
+                    }
+                })
+                .orElse(-1L);
+        if (contentLength > SecurityConfig.MAX_FILE_SIZE_BYTES) {
+            throw new IllegalArgumentException("PDF is too large. Max size is " + SecurityConfig.MAX_FILE_SIZE_BYTES + " bytes.");
+        }
+
+        Files.copy(response.body(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+        long size = Files.size(targetPath);
+        if (size > SecurityConfig.MAX_FILE_SIZE_BYTES) {
+            Files.deleteIfExists(targetPath);
+            throw new IllegalArgumentException("PDF is too large. Max size is " + SecurityConfig.MAX_FILE_SIZE_BYTES + " bytes.");
+        }
+
+        String resolvedContentType = contentType.isBlank()
+                ? detectContentType(fileName.toLowerCase(Locale.ROOT))
+                : contentType;
+        return new DownloadedPdf(targetPath.toString(), resolvedContentType);
+    }
+
+    private String sanitizeFileName(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim().replaceAll("[^A-Za-z0-9._-]+", "-");
+        if (normalized.length() > 80) {
+            normalized = normalized.substring(0, 80);
+        }
+        return normalized;
+    }
+
+    private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason) {
+        String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
+        String baseUrl = nullToEmpty(System.getenv("INFERENCE_BASE_URL")).trim();
+        String apiKey = nullToEmpty(System.getenv("INFERENCE_API_KEY")).trim();
+        String model = nullToEmpty(System.getenv("INFERENCE_MODEL")).trim();
+        if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) {
+            return fallback;
+        }
+
+        try {
+            String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason);
+            return summary.isBlank() ? fallback : summary;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private String callInferenceSummary(String baseUrl,
+                                        String apiKey,
+                                        String model,
+                                        String title,
+                                        String authorName,
+                                        List<String> genres,
+                                        String reason) throws IOException, InterruptedException {
+        String endpoint = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        endpoint = endpoint + "/chat/completions";
+
+        String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
+        String prompt = "Write a concise 2-3 sentence summary for a library catalog. "
+                + "Use neutral tone and avoid spoilers. "
+                + "Title: " + title + ". Author: " + authorName + ". "
+                + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
+                + (reason == null || reason.isBlank() ? "" : "Requester note: " + reason + ".");
+
+        String payload = "{" +
+                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
+                "\"messages\":[" +
+                "{\"role\":\"system\",\"content\":\"You are a helpful library assistant.\"}," +
+                "{\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
+                "]," +
+                "\"temperature\":0.4" +
+                "}";
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(payload))
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("Inference API error. Status: " + response.statusCode());
+        }
+
+        String content = extractJsonField(response.body(), "content");
+        return unescapeJsonString(content).trim();
+    }
+
+    private String extractJsonField(String json, String fieldName) {
+        if (json == null || json.isBlank()) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile("\\\"" + Pattern.quote(fieldName) + "\\\"\\s*:\\s*\\\"(.*?)\\\"");
+        Matcher matcher = pattern.matcher(json);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return "";
+    }
+
+    private String unescapeJsonString(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\\\\"", "\"")
+                .replace("\\\\n", "\n")
+                .replace("\\\\r", "\r")
+                .replace("\\\\t", "\t")
+                .replace("\\\\/", "/")
+                .replace("\\\\\\\\", "\\");
+    }
+
+    private String httpGet(String url) throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .GET()
+                .header("User-Agent", "LibraryBookRequestBot/1.0")
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("Request failed. Status: " + response.statusCode());
+        }
+        return response.body();
     }
 
     private static String authorSubmissionsToJson(List<BookSubmission2> submissions) {
