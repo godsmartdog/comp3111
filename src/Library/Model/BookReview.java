@@ -9,8 +9,13 @@ public class BookReview {
     private final String bookId;
     private int rating;
     private String reviewText;
+    private String replyText;
+    private boolean flagged;
+    private String flagReason;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime repliedAt;
+    private LocalDateTime flaggedAt;
 
     public BookReview(String username, String bookId, int rating, String reviewText) {
         this.id = UUID.randomUUID().toString();
@@ -18,8 +23,13 @@ public class BookReview {
         this.bookId = bookId == null ? "" : bookId.trim();
         this.rating = rating;
         this.reviewText = reviewText == null ? "" : reviewText.trim();
+        this.replyText = "";
+        this.flagged = false;
+        this.flagReason = "";
         this.createdAt = LocalDateTime.now();
         this.updatedAt = this.createdAt;
+        this.repliedAt = null;
+        this.flaggedAt = null;
     }
 
     public String getId() {
@@ -42,6 +52,18 @@ public class BookReview {
         return reviewText;
     }
 
+    public String getReplyText() {
+        return replyText;
+    }
+
+    public boolean isFlagged() {
+        return flagged;
+    }
+
+    public String getFlagReason() {
+        return flagReason;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -50,9 +72,30 @@ public class BookReview {
         return updatedAt;
     }
 
+    public LocalDateTime getRepliedAt() {
+        return repliedAt;
+    }
+
+    public LocalDateTime getFlaggedAt() {
+        return flaggedAt;
+    }
+
     public void update(int rating, String reviewText) {
         this.rating = rating;
         this.reviewText = reviewText == null ? "" : reviewText.trim();
         this.updatedAt = LocalDateTime.now();
+    }
+
+    public void reply(String replyText) {
+        this.replyText = replyText == null ? "" : replyText.trim();
+        this.repliedAt = LocalDateTime.now();
+        this.updatedAt = this.repliedAt;
+    }
+
+    public void flag(String reason) {
+        this.flagged = true;
+        this.flagReason = reason == null ? "" : reason.trim();
+        this.flaggedAt = LocalDateTime.now();
+        this.updatedAt = this.flaggedAt;
     }
 }

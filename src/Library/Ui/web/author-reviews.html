@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Author Reviews & Replies</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Reviews & Replies</h1>
+        <p id="welcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="author-published.html">My Published Books</a>
+        <a class="link-btn" href="mainAuthor.html">Author Main</a>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="AUTHOR">
+    <section class="panel glass-panel">
+        <p id="reviewStatus">Loading reviews...</p>
+        <button id="refreshReviewsBtn" class="secondary" type="button">Refresh Reviews</button>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Book</th>
+                    <th>Reviewer</th>
+                    <th>Rating</th>
+                    <th>Review</th>
+                    <th>Reply / Flag</th>
+                </tr>
+                </thead>
+                <tbody id="authorReviewsBody"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="author-reviews.js"></script>
+</body>
+</html>

@@ -154,8 +154,11 @@ public class LibraryApiHandlers {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
+        this.notificationService = notificationService == null
+            ? new NotificationService(new MemoryNotificationRepository())
+            : notificationService;
         this.bookReviewService = bookReviewService == null
-            ? new BookReviewService(new MemoryBookReviewRepository(), bookService, borrowService)
+            ? new BookReviewService(new MemoryBookReviewRepository(), bookService, borrowService, this.notificationService)
             : bookReviewService;
         this.bookRequestService = bookRequestService == null
             ? new BookRequestService(new MemoryBookRequestRepository2(), bookService.getBookRepository())
@@ -165,9 +168,6 @@ public class LibraryApiHandlers {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
-        this.notificationService = notificationService == null
-            ? new NotificationService(new MemoryNotificationRepository())
-            : notificationService;
         this.readingProgressService = readingProgressService == null
             ? new ReadingProgressService(new MemoryReadingProgressRepository())
             : readingProgressService;
@@ -677,6 +677,62 @@ public class LibraryApiHandlers {
                 int rating = Integer.parseInt(required(values, "rating"));
                 String reviewText = RequestFilters.getTrimmed(values, "reviewText", "");
                 BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
+                sendJson(exchange, 200, reviewToJson(review));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/reviews", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForAuthor(user.getUsername())));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/reviews/reply", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                String replyText = required(form, "replyText");
+                BookReview review = bookReviewService.replyToReview(user.getUsername(), reviewId, replyText);
+                sendJson(exchange, 200, reviewToJson(review));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/reviews/flag", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                String reason = RequestFilters.getTrimmed(form, "reason", "Inappropriate content");
+                BookReview review = bookReviewService.flagReview(user.getUsername(), reviewId, reason);
                 sendJson(exchange, 200, reviewToJson(review));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -3556,6 +3612,8 @@ public class LibraryApiHandlers {
                 .orElse(review.getUsername());
         String createdAt = review.getCreatedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getCreatedAt());
         String updatedAt = review.getUpdatedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getUpdatedAt());
+        String repliedAt = review.getRepliedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getRepliedAt());
+        String flaggedAt = review.getFlaggedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getFlaggedAt());
 
         return "{" +
                 "\"reviewId\":\"" + JsonUtil.escape(review.getId()) + "\"," +
@@ -3565,7 +3623,12 @@ public class LibraryApiHandlers {
                 "\"reviewerFullName\":\"" + JsonUtil.escape(reviewerFullName) + "\"," +
                 "\"rating\":" + review.getRating() + "," +
                 "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
+            "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
+            "\"flagged\":" + review.isFlagged() + "," +
+            "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
                 "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
+            "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
+            "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
                 "\"updatedAt\":\"" + JsonUtil.escape(updatedAt) + "\"" +
                 "}";
     }
