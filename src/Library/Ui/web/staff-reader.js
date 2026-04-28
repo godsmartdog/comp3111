@@ -781,7 +781,7 @@ async function refreshBorrows(autoBookId = "") {
         const li = document.createElement("li");
         li.innerHTML = `
             <div class="borrow-item-row">
-                <span>${item.bookTitle} (due ${item.dueDate})</span>
+                <span>${item.bookTitle} (due ${formatDateOnly(item.dueDate)})</span>
                 <div class="borrow-item-actions">
                     <button class="secondary" type="button">Read</button>
                 </div>

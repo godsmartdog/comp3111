@@ -37,7 +37,7 @@ function renderApprovedBooks(items) {
             <td>${item.id}</td>
             <td>${item.title}</td>
             <td>${item.author}</td>
-            <td>${item.publishDate || ""}</td>
+            <td>${formatDateOnly(item.publishDate || "")}</td>
             <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
             <td>${item.availableCopies ?? 0}/${item.totalCopies ?? 0}</td>

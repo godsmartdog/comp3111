@@ -58,7 +58,7 @@ async function refreshBorrows() {
         }
 
         if (isReturned) {
-            const returnedDate = item.returnedDate ? ` on ${item.returnedDate}` : "";
+            const returnedDate = item.returnedDate ? ` on ${formatDateOnly(item.returnedDate)}` : "";
             li.innerHTML = `<div class="borrow-item-row"><span>${item.bookTitle} (Returned${returnedDate})</span></div>`;
             list.appendChild(li);
             return;
@@ -66,7 +66,7 @@ async function refreshBorrows() {
 
         li.innerHTML = `
             <div class="borrow-item-row">
-                <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
+                <span>${item.bookTitle} (borrowed ${formatDateOnly(item.borrowDate || "")}, due ${formatDateOnly(item.dueDate || "")})${warningLabel ? ` [${warningLabel}]` : ""}</span>
                 <div class="borrow-item-actions">
                     <a class="link-btn" href="staff-reader.html?bookId=${encodeURIComponent(item.bookId)}">Read</a>
                     <button class="secondary" type="button">Return</button>

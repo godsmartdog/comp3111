@@ -315,7 +315,7 @@ function renderBooks(books) {
         const alreadyBorrowed = activeBorrowedBookIds.has(book.id);
         const availableCopies = Number(book.availableCopies ?? 0);
         const totalCopies = Number(book.totalCopies ?? 0);
-        const publishDate = book.publishDate || "";
+        const publishDate = formatDateOnly(book.publishDate || "");
         const genresText = Array.isArray(book.genres) && book.genres.length > 0
             ? book.genres.join(", ")
             : "-";
@@ -439,7 +439,7 @@ function applyAdvancedFilters(books) {
         const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
         const genreMatch = matchesSelectedGenres(book.genres, selectedGenres, matchMode);
         const publishedDateMatch = !publishedDateFilter
-            || String(book.publishDate || "").trim() === publishedDateFilter.trim();
+            || formatDateOnly(book.publishDate || "") === publishedDateFilter.trim();
         return titleMatch && authorMatch && genreMatch && publishedDateMatch;
     });
 }

@@ -28,7 +28,7 @@ function renderPending(items) {
             <td>${item.authorFullName}</td>
             <td>${genres}</td>
             <td>${item.status || ""}</td>
-            <td>${item.submittedDate}</td>
+            <td>${formatDateOnly(item.submittedDate)}</td>
             <td>${item.fileName}</td>
             <td></td>
         `;
@@ -110,7 +110,7 @@ function applyPendingAdvancedFilters(items) {
         const authorMatch = matchesTextFilter(item.authorFullName, keyword, matchMode);
         const usernameMatch = matchesTextFilter(item.authorUsername, keyword, matchMode);
         const genreMatch = matchesAnyFilter(item.genres, genreFilter, matchMode);
-        const dateMatch = !submittedDateFilter || String(item.submittedDate || "").trim() === submittedDateFilter;
+        const dateMatch = !submittedDateFilter || formatDateOnly(item.submittedDate || "") === submittedDateFilter;
         return (titleMatch || authorMatch || usernameMatch) && genreMatch && dateMatch;
     });
 }

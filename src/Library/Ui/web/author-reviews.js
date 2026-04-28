@@ -56,7 +56,7 @@ function renderPublishedBooks(items) {
         row.innerHTML = `
             <td>${escapeHtml(item.title || "")}</td>
             <td>${Array.isArray(item.genres) ? escapeHtml(item.genres.join(", ")) : ""}</td>
-            <td>${escapeHtml(item.publishDate || "")}</td>
+            <td>${escapeHtml(formatDateOnly(item.publishDate || ""))}</td>
             <td>${formatAverageRating(item)}</td>
         `;
 

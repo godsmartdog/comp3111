@@ -347,7 +347,7 @@ function renderBooks(books) {
         const genresText = Array.isArray(book.genres) && book.genres.length > 0
             ? book.genres.join(", ")
             : "-";
-        const publishDateText = String(book.publishDate || "").trim() || "-";
+        const publishDateText = formatDateOnly(book.publishDate || "") || "-";
 
         if (!borrowable) {
             selectedBookIds.delete(book.id);
@@ -452,7 +452,7 @@ function applyAdvancedFilters(books) {
         const authorMatch = matchesAdvancedFilter(book.author, authorFilter, matchMode);
         const genreMatch = matchesSelectedGenres(book.genres, selectedGenres, matchMode);
         const publishedDateMatch = !publishedDateFilter
-            || String(book.publishDate || "").trim() === publishedDateFilter.trim();
+            || formatDateOnly(book.publishDate || "") === publishedDateFilter.trim();
         return titleMatch && authorMatch && genreMatch && publishedDateMatch;
     });
 }
@@ -535,7 +535,7 @@ async function refreshBorrows() {
         }
 
         if (isReturned) {
-            const returnedDate = item.returnedDate ? ` on ${item.returnedDate}` : "";
+            const returnedDate = item.returnedDate ? ` on ${formatDateOnly(item.returnedDate)}` : "";
             li.innerHTML = `<div class="borrow-item-row"><span>${item.bookTitle} (Returned${returnedDate})</span></div>`;
             list.appendChild(li);
             return;
@@ -543,7 +543,7 @@ async function refreshBorrows() {
 
         li.innerHTML = `
             <div class="borrow-item-row">
-                <span>${item.bookTitle} (borrowed ${item.borrowDate || ""}, due ${item.dueDate})${warningLabel ? ` [${warningLabel}]` : ""}</span>
+                <span>${item.bookTitle} (borrowed ${formatDateOnly(item.borrowDate || "")}, due ${formatDateOnly(item.dueDate || "")})${warningLabel ? ` [${warningLabel}]` : ""}</span>
                 <div class="borrow-item-actions">
                     <button class="secondary" type="button">Read</button>
                     <button class="secondary" type="button">Return</button>
@@ -680,7 +680,7 @@ function renderCurrentNotificationPage() {
     currentItems.forEach((item) => {
             const li = document.createElement("li");
             const readLabel = item.read ? "Read" : "Unread";
-            const created = item.createdDate || item.createdAt || "";
+            const created = formatDateOnly(item.createdDate || item.createdAt || "");
             const priority = (item.priority || "NORMAL").toUpperCase();
             const category = item.category || "Other";
             const priorityClass = `priority-${priority.toLowerCase()}`;
@@ -698,7 +698,7 @@ function renderCurrentNotificationPage() {
                     <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#2f4968;color:#fff;font-size:0.75rem;font-weight:700;">${category}</span>
                     <span class="${priorityClass}" style="margin-left:8px;font-size:0.75rem;font-weight:700;padding:2px 8px;border-radius:999px;${priority === "HIGH" ? "background:#8b2f27;color:#fff;" : priority === "LOW" ? "background:#355b2a;color:#fff;" : "background:#2f4968;color:#fff;"}">${priority}</span>
                     <div>${item.message || ""}</div>
-                    <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
+                    <small>${created}${item.readAt ? ` | read at ${formatDateOnly(item.readAt)}` : ""}${item.archivedAt ? ` | archived at ${formatDateOnly(item.archivedAt)}` : ""}</small>
                 </div>
                 <div class="notification-actions">
                     <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>

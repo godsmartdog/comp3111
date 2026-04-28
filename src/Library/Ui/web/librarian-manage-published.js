@@ -80,7 +80,7 @@ function renderPublishedBooks(items) {
             <td>${escapeHtml(item.title || "")}</td>
             <td>${escapeHtml(item.author || "")}</td>
             <td>${Array.isArray(item.genres) ? escapeHtml(item.genres.join(", ")) : ""}</td>
-            <td>${escapeHtml(item.publishDate || "")}</td>
+            <td>${escapeHtml(formatDateOnly(item.publishDate || ""))}</td>
             <td>${Number(item.availableCopies || 0)}/${Number(item.totalCopies || 0)}</td>
             <td><button class="secondary" type="button">Edit</button></td>
         `;

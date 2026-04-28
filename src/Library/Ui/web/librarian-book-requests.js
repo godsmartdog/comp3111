@@ -68,9 +68,9 @@ function buildRequestRows(items) {
             <td>${item.authorName || ""}</td>
             <td><div class="genre-badge-group">${genres}</div></td>
             <td>${status}</td>
-            <td>${item.requestedDate || ""}</td>
-            <td>${item.approvedDate || ""}</td>
-            <td>${item.uploadedDate || ""}</td>
+            <td>${formatDateOnly(item.requestedDate || "")}</td>
+            <td>${formatDateOnly(item.approvedDate || "")}</td>
+            <td>${formatDateOnly(item.uploadedDate || "")}</td>
             <td>${item.reason || ""}</td>
             <td></td>
         `;

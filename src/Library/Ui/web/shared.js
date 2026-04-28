@@ -138,15 +138,42 @@ function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+function formatDateOnly(value) {
+    if (!value) {
+        return "";
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+        return "";
+    }
+
+    const datePart = raw.split("T")[0].split(" ")[0];
+    const match = datePart.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (match) {
+        const year = match[1];
+        const month = match[2].padStart(2, "0");
+        const day = match[3].padStart(2, "0");
+        return `${year}-${month}-${day}`;
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+    }
+
+    return datePart;
+}
+
 function formatReviewDisplayHtml(item) {
     const reviewer = escapeHtml(item?.reviewerFullName || item?.username || "Unknown reviewer");
     const rating = escapeHtml(`${Number(item?.rating || 0)}/5`);
     const reviewText = escapeHtml(item?.reviewText || "");
     const replyText = escapeHtml(item?.replyText || "");
-    const replyAt = escapeHtml(item?.repliedAt || "");
+    const replyAt = escapeHtml(formatDateOnly(item?.repliedAt || ""));
     const flagged = Boolean(item?.flagged);
     const flagReason = escapeHtml(item?.flagReason || "");
-    const flaggedAt = escapeHtml(item?.flaggedAt || "");
+    const flaggedAt = escapeHtml(formatDateOnly(item?.flaggedAt || ""));
     const replyLine = replyText
         ? `<div class="muted" style="margin-top:6px;">Author reply${replyAt ? ` (${replyAt})` : ""}: ${replyText}</div>`
         : "";
