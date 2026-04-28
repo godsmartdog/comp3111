@@ -76,7 +76,7 @@ function renderApprovedPage() {
         const row = document.createElement("tr");
         row.innerHTML = `
             <td>${item.title || ""}</td>
-            <td>${item.publishDate || ""}</td>
+            <td>${formatDateOnly(item.publishDate || "")}</td>
         `;
         body.appendChild(row);
     });

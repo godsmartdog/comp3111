@@ -34,6 +34,7 @@
             <button id="searchBtn">Search</button>
             <button id="showAllBtn" class="secondary">Show All</button>
         </div>
+        <p id="searchQuota" class="hint">Search quota: showing 0 result(s).</p>
 
         <h3>Advanced Search</h3>
         <div class="toolbar">
@@ -68,6 +69,7 @@
             <button id="clearAdvancedSearchBtn" class="secondary" type="button">Clear Advanced Search</button>
         </div>
         <p class="hint">Genre filter supports multi-select. Hold Ctrl (Windows) or Cmd (Mac) to select multiple genres.</p>
+        <p class="hint">Genre filter supports multi-select. Hold Ctrl (Windows) or Cmd (Mac) to select multiple genres.</p>
 
         <div class="table-wrap">
             <table>
@@ -93,6 +95,7 @@
         </div>
 
         <h3>Borrow</h3>
+        <p id="borrowQuota" class="hint">Borrow quota: loading...</p>
         <div class="inline-row">
             <label for="borrowDays">Days</label>
             <select id="borrowDays">
@@ -113,6 +116,18 @@
             </select>
         </div>
         <p id="selectedBook">Selected book: none</p>
+        <div id="selectedBookSummaryBox" class="panel-subtle">
+            <h4>Reading Summary</h4>
+            <img id="selectedBookCover" alt="Book cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
+            <p id="selectedBookDescription" class="hint">Select a book to view description.</p>
+            <div id="selectedBookFilePreview" style="display:none;gap:10px;flex-direction:column;margin-bottom:8px;"></div>
+            <pre id="selectedBookPreview" style="white-space:pre-wrap;background:#f8f8f8;padding:10px;border-radius:8px;">First 2-page preview will appear here if available.</pre>
+            <h4>Reviews</h4>
+            <p id="selectedBookRatingSummary" class="hint">Average rating: -</p>
+            <div class="reader-scroll-block" style="max-height:220px;">
+                <ul id="selectedBookReviews" class="muted"></ul>
+            </div>
+        </div>
         <div class="toolbar">
             <button id="borrowBtn">Borrow Selected Book</button>
             <button id="borrowBulkBtn" class="secondary" type="button">Borrow Multi-Selected Books</button>
@@ -123,6 +138,7 @@
 <div id="toast"></div>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 <script src="student-books.js"></script>
 </body>
 </html>

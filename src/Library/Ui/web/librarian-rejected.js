@@ -61,7 +61,7 @@ function applyRejectedFilters(items) {
             || matchesText(item.authorFullName, keyword)
             || matchesText(item.authorUsername, keyword);
         const genreMatch = matchesGenres(genres, genreFilter);
-        const dateMatch = !dateFilter || String(item.submittedDate || "").trim() === dateFilter;
+        const dateMatch = !dateFilter || formatDateOnly(item.submittedDate || "") === dateFilter;
         return keywordMatch && genreMatch && dateMatch;
     });
 }
@@ -89,7 +89,7 @@ function renderRejected(items) {
             <td>${safeText(item.title)}</td>
             <td>${safeText(item.authorFullName)}</td>
             <td>${genres.length > 0 ? genres.map((genre) => safeText(genre)).join(", ") : "-"}</td>
-            <td>${safeText(item.submittedDate)}</td>
+            <td>${safeText(formatDateOnly(item.submittedDate))}</td>
             <td>${safeText(item.fileName)}</td>
             <td>${safeText(reason)}</td>
             <td>${safeText(comment)}</td>

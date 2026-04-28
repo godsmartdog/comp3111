@@ -166,7 +166,7 @@ async function refreshSubmittedBooks() {
             <td>${item.id}</td>
             <td>${item.title}</td>
             <td>${item.status}</td>
-            <td>${item.submittedDate || ""}</td>
+            <td>${formatDateOnly(item.submittedDate || "")}</td>
             <td>${item.fileName || ""}</td>
         `;
 

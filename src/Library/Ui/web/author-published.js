@@ -173,7 +173,7 @@ async function refreshPublishedBooks() {
             <td>${item.title}</td>
             <td>${Array.isArray(item.genres) ? item.genres.join(", ") : ""}</td>
             <td>${item.description || item.summary || ""}</td>
-            <td>${item.publishDate || ""}</td>
+            <td>${formatDateOnly(item.publishDate || "")}</td>
             <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
         `;

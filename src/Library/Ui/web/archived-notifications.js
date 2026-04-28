@@ -39,7 +39,7 @@ function renderCurrentNotificationPage() {
 
     currentItems.forEach((item) => {
         const li = document.createElement("li");
-        const created = item.createdDate || item.createdAt || "";
+        const created = formatDateOnly(item.createdDate || item.createdAt || "");
         const readLabel = item.read ? "Read" : "Unread";
         li.style.padding = "10px";
         li.style.borderRadius = "8px";
@@ -49,7 +49,7 @@ function renderCurrentNotificationPage() {
             <div>
                 <strong>[${readLabel}] ${item.title}</strong>
                 <div>${item.message || ""}</div>
-                <small>${created}${item.readAt ? ` | read at ${item.readAt}` : ""}${item.archivedAt ? ` | archived at ${item.archivedAt}` : ""}</small>
+                <small>${created}${item.readAt ? ` | read at ${formatDateOnly(item.readAt)}` : ""}${item.archivedAt ? ` | archived at ${formatDateOnly(item.archivedAt)}` : ""}</small>
             </div>
             <div class="notification-actions">
                 <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>

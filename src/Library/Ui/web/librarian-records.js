@@ -24,7 +24,7 @@ function renderBorrowedRecords(items) {
     status.textContent = `Found ${items.length} borrowed record(s).`;
     items.forEach((item) => {
         const row = document.createElement("tr");
-        const returnDate = item.returnDate || "-";
+        const returnDate = formatDateOnly(item.returnDate || "") || "-";
         const bookLabel = `${item.bookTitle || item.bookId} (${item.bookId})`;
         const isReturned = item.returned === true || String(item.status || "").toLowerCase() === "returned";
         const isOverdue = item.overdue === true || (!isReturned && !!item.dueDate && new Date(item.dueDate) < new Date(new Date().toDateString()));
@@ -41,8 +41,8 @@ function renderBorrowedRecords(items) {
             <td>${item.borrowId}</td>
             <td>${bookLabel}</td>
             <td>${item.borrowerUsername}</td>
-            <td>${item.borrowDate || ""}</td>
-            <td>${item.dueDate || ""}</td>
+            <td>${formatDateOnly(item.borrowDate || "")}</td>
+            <td>${formatDateOnly(item.dueDate || "")}</td>
             <td>${returnDate}</td>
             <td>${statusCell}</td>
         `;

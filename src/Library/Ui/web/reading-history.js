@@ -30,7 +30,7 @@ function formatDuration(minutes) {
 function progressLabel(item) {
     const bookmark = Number(item.bookmarkPage || 0);
     const highlightCount = Number(item.highlightCount || 0);
-    const updatedAt = item.progressUpdatedAt || "";
+    const updatedAt = formatDateOnly(item.progressUpdatedAt || "");
 
     if (bookmark <= 0 && highlightCount <= 0) {
         return "Not started";
@@ -91,13 +91,14 @@ function renderHistory() {
         const row = document.createElement("tr");
         const genres = Array.isArray(item.genres) && item.genres.length > 0 ? item.genres.join(", ") : "-";
         const author = item.authorFullName || item.authorUsername || "-";
-        const returnDate = item.returnedDate || (item.returned ? "Returned" : "-");
+        const returnDateRaw = item.returnedDate || "";
+        const returnDate = returnDateRaw ? formatDateOnly(returnDateRaw) : (item.returned ? "Returned" : "-");
 
         row.innerHTML = `
             <td>${item.bookTitle || ""}</td>
             <td>${author}</td>
             <td>${genres}</td>
-            <td>${item.borrowDate || ""}</td>
+            <td>${formatDateOnly(item.borrowDate || "")}</td>
             <td>${returnDate}</td>
             <td>${formatDuration(item.readingDurationMinutes)}</td>
             <td>${progressLabel(item)}</td>
