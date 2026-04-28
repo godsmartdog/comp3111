@@ -1576,6 +1576,24 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/published-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
+                List<BorrowRecord> borrows = borrowService.listAllBorrowRecords();
+                sendJson(exchange, 200, authorPublishedStatsToJson(books, borrows));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/published-book/update", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -3439,6 +3457,94 @@ public class LibraryApiHandlers {
         BookReviewService.RatingSummary summary = bookReviewService.getRatingSummary(bookId);
         String average = summary.reviewCount() == 0 ? "null" : String.format(Locale.US, "%.2f", summary.averageRating());
         return "\"averageRating\":" + average + ",\"reviewCount\":" + summary.reviewCount();
+    }
+
+    private String authorPublishedStatsToJson(List<Book> books, List<BorrowRecord> borrows) {
+        int totalReads = 0;
+        int totalBorrows = 0;
+        int totalActiveBorrows = 0;
+        int totalReviews = 0;
+        double ratingSum = 0.0;
+        int[] ratingBuckets = new int[5];
+        List<String> bookStatsValues = new ArrayList<>();
+
+        for (Book book : books) {
+            int borrowCount = 0;
+            int activeBorrowCount = 0;
+            java.util.Set<String> uniqueReaders = new java.util.LinkedHashSet<>();
+            for (BorrowRecord record : borrows) {
+                if (book.getId().equals(record.getBookId())) {
+                    borrowCount++;
+                    uniqueReaders.add(record.getUsername());
+                    if (!record.isReturned()) {
+                        activeBorrowCount++;
+                    }
+                }
+            }
+
+            List<BookReview> reviews = bookReviewService.listReviewsForBook(book.getId());
+            BookReviewService.RatingSummary ratingSummary = bookReviewService.getRatingSummary(book.getId());
+            for (BookReview review : reviews) {
+                int rating = Math.max(1, Math.min(5, review.getRating()));
+                ratingBuckets[rating - 1]++;
+            }
+
+            int readCount = uniqueReaders.size();
+            int reviewCount = ratingSummary.reviewCount();
+            totalReads += readCount;
+            totalBorrows += borrowCount;
+            totalActiveBorrows += activeBorrowCount;
+            totalReviews += reviewCount;
+            ratingSum += ratingSummary.averageRating() * reviewCount;
+
+            String average = reviewCount == 0
+                    ? "null"
+                    : String.format(Locale.US, "%.2f", ratingSummary.averageRating());
+            String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
+
+            bookStatsValues.add("{" +
+                    "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                    "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"readCount\":" + readCount + "," +
+                    "\"borrowCount\":" + borrowCount + "," +
+                    "\"activeBorrowCount\":" + activeBorrowCount + "," +
+                    "\"reviewCount\":" + reviewCount + "," +
+                    "\"averageRating\":" + average +
+                    "}");
+        }
+
+        String overallAverage = totalReviews == 0
+                ? "null"
+                : String.format(Locale.US, "%.2f", ratingSum / totalReviews);
+
+        String summary = "{" +
+                "\"bookCount\":" + books.size() + "," +
+                "\"totalReadCount\":" + totalReads + "," +
+                "\"totalBorrowCount\":" + totalBorrows + "," +
+                "\"totalActiveBorrowCount\":" + totalActiveBorrows + "," +
+                "\"totalReviewCount\":" + totalReviews + "," +
+                "\"overallAverageRating\":" + overallAverage +
+                "}";
+
+        String ratingBucketJson = "[" +
+                "{\"label\":\"1-star\",\"count\":" + ratingBuckets[0] + "}," +
+                "{\"label\":\"2-star\",\"count\":" + ratingBuckets[1] + "}," +
+                "{\"label\":\"3-star\",\"count\":" + ratingBuckets[2] + "}," +
+                "{\"label\":\"4-star\",\"count\":" + ratingBuckets[3] + "}," +
+                "{\"label\":\"5-star\",\"count\":" + ratingBuckets[4] + "}" +
+                "]";
+
+        return "{" +
+                "\"summary\":" + summary + "," +
+                "\"books\":[" + String.join(",", bookStatsValues) + "]," +
+                "\"ratingBuckets\":" + ratingBucketJson +
+                "}";
     }
 
     private String reviewToJson(BookReview review) {

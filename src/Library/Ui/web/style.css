@@ -681,6 +681,7 @@ pre {
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .link-btn {
@@ -714,6 +715,57 @@ pre {
 #toast.show {
     opacity: 1;
     transform: translateY(0);
+}
+
+.stats-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin: 12px 0 14px;
+}
+
+.metric-card {
+    border: 1px solid rgba(36, 61, 86, 0.2);
+    border-radius: 12px;
+    padding: 10px;
+    background: rgba(255, 248, 235, 0.72);
+}
+
+.metric-card h3 {
+    margin: 0;
+    font-size: 0.84rem;
+    color: #4f5f73;
+}
+
+.metric-card p {
+    margin: 8px 0 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #1d2d41;
+}
+
+.chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.chart-card {
+    min-height: 320px;
+}
+
+.chart-wrap {
+    position: relative;
+    height: 250px;
+    margin-top: 8px;
 }
 
 @keyframes fade-up {
