@@ -2173,23 +2173,190 @@ public class LibraryApiHandlers {
                 List<Book> items = bookService.listApprovedBooksForLibrarian();
                 List<String> jsonItems = new ArrayList<>();
                 for (Book book : items) {
-                    String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
-                    String availability = book.isAvailable()
-                        ? "Available (" + book.getAvailableCopies() + " copy/copies)"
-                        : "Unavailable";
-                    jsonItems.add("{" +
-                            "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
-                            "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
-                            "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
-                            "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
-                            "\"status\":\"" + availability + "\"," +
-                            reviewStatsJson(book.getId()) + "," +
-                        "\"available\":" + book.isAvailable() + "," +
-                        "\"totalCopies\":" + book.getTotalCopies() + "," +
-                        "\"availableCopies\":" + book.getAvailableCopies() +
-                            "}");
+                    jsonItems.add(librarianPublishedBookToJson(book));
                 }
                 sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/published-book/generate-description", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String title = required(form, "title");
+                String authorNames = RequestFilters.getTrimmed(form, "authorNames", "");
+                List<String> genres = validateSupportedGenres(RequestFilters.parseCsv(form, "genres"));
+
+                String generated = generateBookDescriptionSuggestion(title, authorNames, genres);
+                sendJson(exchange, 200, "{" +
+                        "\"description\":\"" + JsonUtil.escape(generated) + "\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/published-book/add", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                Map<String, String> form;
+                UploadedFile uploadedFile = null;
+                UploadedFile uploadedCoverImage = null;
+
+                if (contentType.startsWith("multipart/form-data")) {
+                    MultipartData multipartData = readMultipartForm(exchange);
+                    form = multipartData.fields();
+                    uploadedFile = multipartData.uploadedFile("file");
+                    uploadedCoverImage = multipartData.uploadedFile("coverImage");
+                } else {
+                    form = readForm(exchange);
+                }
+
+                String title = required(form, "title");
+                String authorNames = required(form, "authorNames");
+                String authorUsername = RequestFilters.getTrimmed(form, "authorUsername", "");
+                List<String> genres = validateSupportedGenres(RequestFilters.parseCsv(form, "genres"));
+                String description = required(form, "description");
+                String filePath = RequestFilters.getTrimmed(form, "filePath", "");
+                String coverImagePath = RequestFilters.getTrimmed(form, "coverImagePath", "");
+
+                String bookFileReference;
+                if (uploadedFile != null) {
+                    fileService.validateSubmissionFile(uploadedFile.path().toString());
+                    bookFileReference = uploadedFile.path().toString();
+                } else {
+                    if (filePath.isEmpty()) {
+                        throw new IllegalArgumentException("Book file is required.");
+                    }
+                    fileService.validateSubmissionFile(filePath);
+                    bookFileReference = filePath;
+                }
+
+                String coverReference = "";
+                if (uploadedCoverImage != null) {
+                    fileService.validateCoverImageFile(uploadedCoverImage.path().toString());
+                    coverReference = uploadedCoverImage.path().toString();
+                } else if (!coverImagePath.isEmpty()) {
+                    fileService.validateCoverImageFile(coverImagePath);
+                    coverReference = coverImagePath;
+                }
+
+                Book book = new Book(title, authorUsername, authorNames, genres, description);
+                String fileName = bookFileReference.toLowerCase(Locale.ROOT);
+                book.setFileMetadata(bookFileReference, detectContentType(fileName));
+                book.setCoverImagePath(coverReference);
+                book.approve(LocalDate.now());
+                bookService.getBookRepository().save(book);
+
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Added",
+                        "A new published book was added by librarian: " + book.getTitle(),
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "submission", "bookId", book.getId())
+                );
+                sendText(exchange, 200, "Published book added successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/published-book/update", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                Map<String, String> form;
+                UploadedFile uploadedFile = null;
+                UploadedFile uploadedCoverImage = null;
+
+                if (contentType.startsWith("multipart/form-data")) {
+                    MultipartData multipartData = readMultipartForm(exchange);
+                    form = multipartData.fields();
+                    uploadedFile = multipartData.uploadedFile("file");
+                    uploadedCoverImage = multipartData.uploadedFile("coverImage");
+                } else {
+                    form = readForm(exchange);
+                }
+
+                String bookId = required(form, "bookId");
+                String title = required(form, "title");
+                String authorNames = required(form, "authorNames");
+                List<String> genres = validateSupportedGenres(RequestFilters.parseCsv(form, "genres"));
+                String description = required(form, "description");
+                String filePath = RequestFilters.getTrimmed(form, "filePath", "");
+                String coverImagePath = RequestFilters.getTrimmed(form, "coverImagePath", "");
+
+                Book existing = bookService.findBookById(bookId)
+                        .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                if (!existing.isApproved()) {
+                    throw new IllegalArgumentException("Only approved books can be edited.");
+                }
+
+                if (!authorNames.trim().equals(existing.getAuthorFullName())) {
+                    throw new IllegalArgumentException("Author name cannot be changed for an existing published book.");
+                }
+
+                existing.updateMetadata(title, genres, description);
+
+                String effectiveFilePath = filePath;
+                if (uploadedFile != null) {
+                    fileService.validateSubmissionFile(uploadedFile.path().toString());
+                    effectiveFilePath = uploadedFile.path().toString();
+                }
+                if (effectiveFilePath.isEmpty()) {
+                    effectiveFilePath = existing.getFilePath();
+                }
+                if (effectiveFilePath.isEmpty()) {
+                    throw new IllegalArgumentException("Book file is required.");
+                }
+                fileService.validateSubmissionFile(effectiveFilePath);
+                existing.setFileMetadata(effectiveFilePath, detectContentType(effectiveFilePath.toLowerCase(Locale.ROOT)));
+
+                String effectiveCoverPath = coverImagePath;
+                if (uploadedCoverImage != null) {
+                    fileService.validateCoverImageFile(uploadedCoverImage.path().toString());
+                    effectiveCoverPath = uploadedCoverImage.path().toString();
+                }
+                if (!effectiveCoverPath.isEmpty()) {
+                    fileService.validateCoverImageFile(effectiveCoverPath);
+                    existing.setCoverImagePath(effectiveCoverPath);
+                }
+
+                bookService.getBookRepository().save(existing);
+                notificationService.addNotification(
+                        user.getUsername(),
+                        "Published Book Updated",
+                        "A published book was updated by librarian: " + existing.getTitle(),
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "submission", "bookId", existing.getId())
+                );
+                sendText(exchange, 200, "Published book updated successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -3508,6 +3675,95 @@ public class LibraryApiHandlers {
                     "}");
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private String librarianPublishedBookToJson(Book book) {
+        String publishDate = book.getPublishDate() == null ? "" : book.getPublishDate().toString();
+        String availability = book.isAvailable()
+                ? "Available (" + book.getAvailableCopies() + " copy/copies)"
+                : "Unavailable";
+        List<String> genreValues = new ArrayList<>();
+        for (String genre : book.getGenres()) {
+            genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+        }
+
+        return "{" +
+                "\"id\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
+                "\"authorUsername\":\"" + JsonUtil.escape(nullToEmpty(book.getAuthorUsername())) + "\"," +
+                "\"description\":\"" + JsonUtil.escape(nullToEmpty(book.getSummary())) + "\"," +
+                "\"genres\":[" + String.join(",", genreValues) + "]," +
+                "\"filePath\":\"" + JsonUtil.escape(nullToEmpty(book.getFilePath())) + "\"," +
+                "\"coverImagePath\":\"" + JsonUtil.escape(nullToEmpty(book.getCoverImagePath())) + "\"," +
+                "\"publishDate\":\"" + JsonUtil.escape(publishDate) + "\"," +
+                "\"status\":\"" + availability + "\"," +
+                reviewStatsJson(book.getId()) + "," +
+                "\"available\":" + book.isAvailable() + "," +
+                "\"totalCopies\":" + book.getTotalCopies() + "," +
+                "\"availableCopies\":" + book.getAvailableCopies() +
+                "}";
+    }
+
+    private List<String> validateSupportedGenres(List<String> genres) {
+        if (genres == null || genres.isEmpty()) {
+            throw new IllegalArgumentException("At least one genre is required.");
+        }
+
+        List<String> supported = authorService.getSupportedGenres();
+        java.util.Set<String> supportedKeys = new java.util.HashSet<>();
+        for (String item : supported) {
+            supportedKeys.add(item.toLowerCase(Locale.ROOT));
+        }
+
+        List<String> normalized = new ArrayList<>();
+        List<String> invalid = new ArrayList<>();
+        for (String item : genres) {
+            String trimmed = nullToEmpty(item).trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String key = trimmed.toLowerCase(Locale.ROOT);
+            if (supportedKeys.contains(key)) {
+                normalized.add(trimmed);
+            } else {
+                invalid.add(trimmed);
+            }
+        }
+
+        if (!invalid.isEmpty()) {
+            throw new IllegalArgumentException("Unsupported genres: " + invalid + ". Supported: " + supported);
+        }
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("At least one genre is required.");
+        }
+        return normalized;
+    }
+
+    private String generateBookDescriptionSuggestion(String title, String authorNames, List<String> genres) {
+        String safeTitle = nullToEmpty(title).trim();
+        if (safeTitle.isEmpty()) {
+            throw new IllegalArgumentException("Title is required.");
+        }
+        if (genres == null || genres.isEmpty()) {
+            throw new IllegalArgumentException("At least one genre is required.");
+        }
+
+        String safeAuthor = nullToEmpty(authorNames).trim();
+        String genrePhrase;
+        if (genres.size() == 1) {
+            genrePhrase = genres.get(0);
+        } else if (genres.size() == 2) {
+            genrePhrase = genres.get(0) + " and " + genres.get(1);
+        } else {
+            genrePhrase = String.join(", ", genres.subList(0, genres.size() - 1)) + ", and " + genres.get(genres.size() - 1);
+        }
+
+        String byline = safeAuthor.isEmpty() ? "" : (" by " + safeAuthor);
+        return "\"" + safeTitle + "\"" + byline + " is a " + genrePhrase
+                + " title that delivers an engaging narrative, clear thematic direction, and reader-friendly pacing. "
+                + "The work combines accessible storytelling with meaningful detail, making it suitable for both casual reading and guided study. "
+                + "Recommended for library readers seeking a well-structured and thoughtfully developed book experience.";
     }
 
     private String reviewStatsJson(String bookId) {
