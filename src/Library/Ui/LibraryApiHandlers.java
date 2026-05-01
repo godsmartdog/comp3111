@@ -83,6 +83,13 @@ public class LibraryApiHandlers {
     private static final Path PROFILE_PHOTO_DIR = Paths.get(System.getProperty("user.dir"), "profile-photos");
     private static final Path REQUESTED_BOOK_DIR = Paths.get(System.getProperty("user.dir"), "downloaded-books");
     private static final int PDF_SEARCH_LIMIT = 5;
+    private static final int PDF_SEARCH_PREFETCH_PAGES = 6;
+    private static final int PDF_SEARCH_MAX_SOURCE_PAGES = 12;
+    private static final int PDF_SEARCH_CACHE_MAX_AGE_MINUTES = 15;
+    private static final int PDF_SEARCH_CACHE_MAX_RESULTS = 60;
+    private static final String PDF_RERANKER_PROVIDER_ENV = "PDF_RERANKER_PROVIDER";
+    private static final String PDF_RERANKER_URL_ENV = "PDF_RERANKER_URL";
+    private static final String PDF_RERANKER_MODEL_ENV = "PDF_RERANKER_MODEL";
 
     private final AuthService authService;
     private final BookService bookService;
@@ -97,6 +104,8 @@ public class LibraryApiHandlers {
     private final NotificationService notificationService;
     private final ReadingProgressService readingProgressService;
     private final SessionSnapshotService sessionSnapshotService;
+
+    private final Map<String, PdfSearchCacheEntry> pdfSearchCache = new ConcurrentHashMap<>();
 
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
     private final Map<String, Long> sessionLastActiveAtMs = new ConcurrentHashMap<>();
@@ -1148,21 +1157,34 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.LIBRARIAN);
+                String sessionId = requireSessionId(exchange);
                 Map<String, String> query = readQuery(exchange.getRequestURI());
                 String title = RequestFilters.getTrimmed(query, "title", "");
                 String authorName = RequestFilters.getTrimmed(query, "authorName", "");
                 int limit = RequestFilters.parseIntInRange(query, "limit", PDF_SEARCH_LIMIT, 1, 10);
+                int page = RequestFilters.parseIntInRange(query, "page", 1, 1, 1000);
+                String searchMode = normalizePdfSearchMode(RequestFilters.getTrimmed(query, "searchMode", "partial"));
                 boolean debug = "1".equals(RequestFilters.getTrimmed(query, "debug", ""));
 
                 PdfSearchStats stats = new PdfSearchStats();
-                List<PdfSearchResult> results = searchPublicDomainPdfSources(title, authorName, limit, stats);
+                PdfSearchPageResult searchPage = searchPublicDomainPdfSources(sessionId, title, authorName, limit, page, searchMode, stats);
                 if (debug) {
                     sendJson(exchange, 200, "{" +
-                            "\"results\":" + pdfSearchResultsToJson(results) + "," +
+                            "\"page\":" + page + "," +
+                            "\"limit\":" + limit + "," +
+                            "\"searchMode\":\"" + JsonUtil.escape(searchMode) + "\"," +
+                            "\"hasNext\":" + searchPage.hasNext() + "," +
+                            "\"results\":" + pdfSearchResultsToJson(searchPage.results()) + "," +
                             "\"debug\":" + pdfSearchDebugToJson(stats) +
                             "}");
                 } else {
-                    sendJson(exchange, 200, pdfSearchResultsToJson(results));
+                    sendJson(exchange, 200, "{" +
+                            "\"page\":" + page + "," +
+                            "\"limit\":" + limit + "," +
+                            "\"searchMode\":\"" + JsonUtil.escape(searchMode) + "\"," +
+                            "\"hasNext\":" + searchPage.hasNext() + "," +
+                            "\"results\":" + pdfSearchResultsToJson(searchPage.results()) +
+                            "}");
                 }
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1184,8 +1206,9 @@ public class LibraryApiHandlers {
                 String authorName = required(form, "authorName");
                 List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String reason = RequestFilters.getTrimmed(form, "reason", "");
+                String content = RequestFilters.getTrimmed(form, "content", "");
 
-                String description = generateBookRequestSummary(title, authorName, genres, reason);
+                String description = generateBookRequestSummary(title, authorName, genres, reason, content);
                 sendJson(exchange, 200, "{" +
                         "\"description\":\"" + JsonUtil.escape(description) + "\"" +
                         "}");
@@ -1209,14 +1232,15 @@ public class LibraryApiHandlers {
                 String pdfUrl = required(form, "pdfUrl");
                 String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
                 String description = nullToEmpty(form.getOrDefault("description", "")).trim();
+                String content = RequestFilters.getTrimmed(form, "content", "");
 
                 BookRequest2 request = bookRequestService.getRequestByIdForReview(requestId);
                 DownloadedPdf downloadedPdf = downloadRequestedPdf(pdfUrl, request.getId(), request.getTitle());
                 fileService.validateSubmissionFile(downloadedPdf.filePath());
 
                 String resolvedDescription = description.isBlank()
-                        ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason())
-                        : description;
+                    ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason(), content)
+                    : description;
 
                 BookRequest2 uploaded = bookRequestService.uploadRequest(
                         requestId,
@@ -2006,7 +2030,7 @@ public class LibraryApiHandlers {
                 String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note);
                 sendJson(exchange, 200, "{" +
                         "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
-                        "\"message\":\"Summary generated. Review and edit it before submitting.\"" +
+                        "\"message\":\"Summary generated! You can edit it or click Submit to proceed.\"" +
                         "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -2039,7 +2063,7 @@ public class LibraryApiHandlers {
 
                 String title = required(form, "title");
                 List<String> genres = RequestFilters.parseCsv(form, "genres");
-                String description = required(form, "description");
+                String description = form.getOrDefault("description", "").trim();
                 String filePath = form.getOrDefault("filePath", "").trim();
                 String coverImagePath = form.getOrDefault("coverImagePath", "").trim();
 
@@ -4124,14 +4148,370 @@ public class LibraryApiHandlers {
                 "}";
     }
 
-    private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit, PdfSearchStats stats)
+    private record PdfSearchPageResult(List<PdfSearchResult> results, boolean hasNext) {
+    }
+
+    private static final class PdfSearchCacheEntry {
+        private final List<PdfSearchResult> candidates = new ArrayList<>();
+        private List<PdfSearchResult> rankedResults = new ArrayList<>();
+        private int nextSourcePage = 1;
+        private boolean exhausted;
+        private long updatedAtMs;
+    }
+
+    private PdfSearchPageResult searchPublicDomainPdfSources(String sessionId,
+                                                             String title,
+                                                             String authorName,
+                                                             int limit,
+                                                             int page,
+                                                             String searchMode,
+                                                             PdfSearchStats stats)
             throws IOException, InterruptedException {
-        int perSourceLimit = Math.max(1, Math.min(limit, 3));
+        cleanupExpiredPdfSearchCache();
+
+        String cacheKey = buildPdfSearchCacheKey(sessionId, title, authorName, searchMode);
+        PdfSearchCacheEntry cacheEntry = pdfSearchCache.computeIfAbsent(cacheKey, key -> new PdfSearchCacheEntry());
+        int requestedCount = Math.max(1, page * limit + 1);
+        int prefetchCount = page <= 1 ? Math.max(requestedCount, limit * PDF_SEARCH_PREFETCH_PAGES) : requestedCount;
+
+        synchronized (cacheEntry) {
+            long now = System.currentTimeMillis();
+            if (isPdfSearchCacheExpired(cacheEntry, now)) {
+                resetPdfSearchCacheEntry(cacheEntry);
+            }
+
+            ensurePdfSearchCache(cacheEntry, sessionId, title, authorName, searchMode, prefetchCount, stats);
+
+            int startIndex = Math.max(0, (page - 1) * limit);
+            List<PdfSearchResult> pageResults = slicePdfSearchResults(cacheEntry.rankedResults, startIndex, limit);
+            boolean hasNext = cacheEntry.rankedResults.size() > page * limit;
+            cacheEntry.updatedAtMs = now;
+            return new PdfSearchPageResult(pageResults, hasNext);
+        }
+    }
+
+    private void ensurePdfSearchCache(PdfSearchCacheEntry cacheEntry,
+                                      String sessionId,
+                                      String title,
+                                      String authorName,
+                                      String searchMode,
+                                      int targetCount,
+                                      PdfSearchStats stats)
+            throws IOException, InterruptedException {
+        while (!cacheEntry.exhausted
+                && cacheEntry.rankedResults.size() < targetCount
+                && cacheEntry.nextSourcePage <= PDF_SEARCH_MAX_SOURCE_PAGES) {
+            List<PdfSearchResult> fetchedCandidates = fetchPdfSearchCandidates(title, authorName, cacheEntry.nextSourcePage, searchMode, stats);
+            if (fetchedCandidates.isEmpty()) {
+                cacheEntry.exhausted = true;
+                break;
+            }
+
+            mergePdfResults(cacheEntry.candidates, fetchedCandidates, PDF_SEARCH_CACHE_MAX_RESULTS);
+            cacheEntry.rankedResults = rankPdfSearchResults(cacheEntry.candidates, title, authorName, searchMode);
+            cacheEntry.nextSourcePage += 1;
+
+            if (cacheEntry.rankedResults.size() >= PDF_SEARCH_CACHE_MAX_RESULTS) {
+                break;
+            }
+        }
+
+        if (cacheEntry.nextSourcePage > PDF_SEARCH_MAX_SOURCE_PAGES) {
+            cacheEntry.exhausted = true;
+        }
+    }
+
+    private List<PdfSearchResult> fetchPdfSearchCandidates(String title,
+                                                          String authorName,
+                                                          int sourcePage,
+                                                          String searchMode,
+                                                          PdfSearchStats stats)
+            throws IOException, InterruptedException {
         List<PdfSearchResult> results = new ArrayList<>();
-        List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, stats);
+        mergePdfResults(results, searchArchivePdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        mergePdfResults(results, searchGoogleBooksPdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        return results;
+    }
+
+    private List<PdfSearchResult> rankPdfSearchResults(List<PdfSearchResult> candidates,
+                                                       String title,
+                                                       String authorName,
+                                                       String searchMode) {
+        if (candidates == null || candidates.isEmpty()) {
+            return List.of();
+        }
+
+        List<PdfSearchResult> filtered = new ArrayList<>();
+        for (PdfSearchResult candidate : candidates) {
+            if (isExactPdfSearchMode(searchMode)) {
+                if (matchesStrictPdfQuery(candidate, title, authorName)) {
+                    filtered.add(candidate);
+                }
+            } else {
+                int score = scorePdfResult(candidate, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                if (score >= 18) {
+                    filtered.add(candidate);
+                }
+            }
+        }
+
+        if (filtered.isEmpty()) {
+            return filtered;
+        }
+
+        if (isExactPdfSearchMode(searchMode)) {
+            filtered.sort((left, right) -> {
+                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                if (leftScore != rightScore) {
+                    return Integer.compare(rightScore, leftScore);
+                }
+                return left.title().compareToIgnoreCase(right.title());
+            });
+            return filtered;
+        }
+
+        List<String> rerankedIds = rerankPdfResultsWithLocalModel(filtered, title, authorName, searchMode);
+        if (!rerankedIds.isEmpty()) {
+            Map<String, Integer> order = new LinkedHashMap<>();
+            for (int index = 0; index < rerankedIds.size(); index += 1) {
+                order.put(rerankedIds.get(index), index);
+            }
+            filtered.sort((left, right) -> {
+                Integer leftIndex = order.get(left.identifier());
+                Integer rightIndex = order.get(right.identifier());
+                if (leftIndex != null || rightIndex != null) {
+                    if (leftIndex == null) {
+                        return 1;
+                    }
+                    if (rightIndex == null) {
+                        return -1;
+                    }
+                    if (!leftIndex.equals(rightIndex)) {
+                        return Integer.compare(leftIndex, rightIndex);
+                    }
+                }
+
+                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                if (leftScore != rightScore) {
+                    return Integer.compare(rightScore, leftScore);
+                }
+                return left.title().compareToIgnoreCase(right.title());
+            });
+        } else {
+            filtered.sort((left, right) -> {
+                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
+                if (leftScore != rightScore) {
+                    return Integer.compare(rightScore, leftScore);
+                }
+                return left.title().compareToIgnoreCase(right.title());
+            });
+        }
+
+        return filtered;
+    }
+
+    private List<String> rerankPdfResultsWithLocalModel(List<PdfSearchResult> candidates,
+                                                        String title,
+                                                        String authorName,
+                                                        String searchMode) {
+        String provider = nullToEmpty(System.getenv(PDF_RERANKER_PROVIDER_ENV)).trim().toLowerCase(Locale.ROOT);
+        if (provider.isBlank() || provider.equals("none") || provider.equals("off") || provider.equals("heuristic")) {
+            return List.of();
+        }
+
+        try {
+            if (provider.equals("ollama")) {
+                return rerankPdfResultsWithOllama(candidates, title, authorName, searchMode);
+            }
+            if (provider.equals("openai")) {
+                return rerankPdfResultsWithOpenAiCompatibleApi(candidates, title, authorName, searchMode);
+            }
+        } catch (Exception ignored) {
+            // Fall back to heuristic ranking when the local model endpoint is unavailable.
+        }
+
+        return List.of();
+    }
+
+    private List<String> rerankPdfResultsWithOllama(List<PdfSearchResult> candidates,
+                                                    String title,
+                                                    String authorName,
+                                                    String searchMode) throws IOException, InterruptedException {
+        String baseUrl = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
+        if (baseUrl.isBlank()) {
+            baseUrl = "http://localhost:11434";
+        }
+        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
+        if (model.isBlank()) {
+            model = "llama3.1";
+        }
+
+        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
+        String payload = "{" +
+                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
+                "\"prompt\":\"" + JsonUtil.escape(prompt) + "\"," +
+                "\"stream\":false," +
+                "\"format\":\"json\"," +
+                "\"options\":{" +
+                "\"temperature\":0" +
+                "}" +
+                "}";
+        String response = httpPostJson(baseUrl + "/api/generate", payload, Map.of("Content-Type", "application/json"));
+            String modelJson = extractJsonStringField(response, "response");
+            String rankingJson = modelJson.isBlank() ? response : modelJson;
+        return extractJsonStringArray(rankingJson, "rankedIds");
+    }
+
+    private List<String> rerankPdfResultsWithOpenAiCompatibleApi(List<PdfSearchResult> candidates,
+                                                                 String title,
+                                                                 String authorName,
+                                                                 String searchMode) throws IOException, InterruptedException {
+        String endpoint = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
+        if (endpoint.isBlank()) {
+            return List.of();
+        }
+        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
+        if (model.isBlank()) {
+            model = "local-model";
+        }
+
+        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
+        String payload = "{" +
+                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
+                "\"temperature\":0," +
+                "\"messages\":[{" +
+                "\"role\":\"system\",\"content\":\"You rank librarian PDF search results. Return only JSON.\"},{" +
+                "\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
+                "]}";
+        String response = httpPostJson(endpoint, payload, Map.of("Content-Type", "application/json"));
+        List<String> rankedIds = new ArrayList<>();
+        for (String choice : extractJsonObjectsFromArray(response, "choices")) {
+            String message = extractJsonBlock(choice, "message");
+            String parsed = extractJsonStringField(message, "content");
+            rankedIds = extractJsonStringArray(parsed, "rankedIds");
+            if (!rankedIds.isEmpty()) {
+                break;
+            }
+        }
+        return rankedIds;
+    }
+
+    private String buildPdfRerankPrompt(String title, String authorName, String searchMode, List<PdfSearchResult> candidates) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("Rank PDF search candidates for a librarian.\n");
+        prompt.append("Return only JSON in the form {\"rankedIds\":[...]} .\n");
+        prompt.append("Exclude unrelated items entirely.\n");
+        prompt.append("Search mode: ").append(searchMode).append("\n");
+        prompt.append("Query title: ").append(title == null ? "" : title.trim()).append("\n");
+        prompt.append("Query author: ").append(authorName == null ? "" : authorName.trim()).append("\n");
+        prompt.append("Candidates:\n");
+        for (PdfSearchResult candidate : candidates) {
+            prompt.append("- id: ").append(candidate.identifier())
+                    .append(" | title: ").append(candidate.title())
+                    .append(" | authors: ").append(String.join(", ", candidate.authors()))
+                    .append(" | source: ").append(candidate.source())
+                    .append('\n');
+        }
+        prompt.append("Rank by title/author fit first, then overall semantic closeness.");
+        return prompt.toString();
+    }
+
+    private boolean matchesStrictPdfQuery(PdfSearchResult candidate, String title, String authorName) {
+        if (!matchesStrictSearchText(candidate.title(), title)) {
+            return false;
+        }
+
+        if (authorName == null || authorName.isBlank()) {
+            return true;
+        }
+
+        String authorText = String.join(" ", candidate.authors());
+        return matchesStrictSearchText(authorText, authorName);
+    }
+
+    private boolean matchesStrictSearchText(String candidateText, String queryText) {
+        String normalizedCandidate = normalizeSearchTerm(candidateText);
+        String normalizedQuery = normalizeSearchTerm(queryText);
+        if (normalizedQuery.isBlank()) {
+            return true;
+        }
+        if (normalizedCandidate.equals(normalizedQuery)) {
+            return true;
+        }
+        if (normalizedCandidate.startsWith(normalizedQuery + " ")) {
+            return true;
+        }
+        if (normalizedCandidate.contains(" " + normalizedQuery + " ")) {
+            return true;
+        }
+        if (normalizedCandidate.endsWith(" " + normalizedQuery)) {
+            return true;
+        }
+        return normalizedCandidate.contains(normalizedQuery);
+    }
+
+    private void cleanupExpiredPdfSearchCache() {
+        long now = System.currentTimeMillis();
+        long cutoff = now - (PDF_SEARCH_CACHE_MAX_AGE_MINUTES * 60L * 1000L);
+        pdfSearchCache.entrySet().removeIf(entry -> entry.getValue().updatedAtMs > 0 && entry.getValue().updatedAtMs < cutoff);
+    }
+
+    private boolean isPdfSearchCacheExpired(PdfSearchCacheEntry cacheEntry, long now) {
+        long cutoff = now - (PDF_SEARCH_CACHE_MAX_AGE_MINUTES * 60L * 1000L);
+        return cacheEntry.updatedAtMs > 0 && cacheEntry.updatedAtMs < cutoff;
+    }
+
+    private void resetPdfSearchCacheEntry(PdfSearchCacheEntry cacheEntry) {
+        cacheEntry.candidates.clear();
+        cacheEntry.rankedResults = new ArrayList<>();
+        cacheEntry.nextSourcePage = 1;
+        cacheEntry.exhausted = false;
+        cacheEntry.updatedAtMs = 0L;
+    }
+
+    private List<PdfSearchResult> slicePdfSearchResults(List<PdfSearchResult> results, int startIndex, int limit) {
+        if (results == null || results.isEmpty() || limit <= 0 || startIndex >= results.size()) {
+            return List.of();
+        }
+        int endIndex = Math.min(results.size(), startIndex + limit);
+        return new ArrayList<>(results.subList(startIndex, endIndex));
+    }
+
+    private String buildPdfSearchCacheKey(String sessionId, String title, String authorName, String searchMode) {
+        return normalizeSearchTerm(nullToEmpty(sessionId)) + "|"
+                + normalizeSearchTerm(title) + "|"
+                + normalizeSearchTerm(authorName) + "|"
+                + normalizePdfSearchMode(searchMode);
+    }
+
+    private String httpPostJson(String url, String body, Map<String, String> headers) throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(20))
+                .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                builder.header(entry.getKey(), entry.getValue());
+            }
+        }
+        HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("Request failed. Status: " + response.statusCode());
+        }
+        return response.body();
+    }
+
+    private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit, int page, String searchMode, PdfSearchStats stats)
+            throws IOException, InterruptedException {
+        int perSourceLimit = Math.max(1, Math.min(limit, 5));
+        List<PdfSearchResult> results = new ArrayList<>();
+        List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
         mergePdfResults(results, archiveResults, limit);
 
-        List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, stats);
+        List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
         mergePdfResults(results, googleResults, limit);
 
         sortPdfResultsByRelevance(results, title, authorName);
@@ -4196,22 +4576,26 @@ public class LibraryApiHandlers {
         return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
-    private List<PdfSearchResult> searchArchivePdfSources(String title, String authorName, int limit, PdfSearchStats stats)
+    private List<PdfSearchResult> searchArchivePdfSources(String title, String authorName, int limit, int page, String searchMode, PdfSearchStats stats)
             throws IOException, InterruptedException {
-        String query = buildArchiveSearchQuery(title, authorName);
-        List<PdfSearchResult> results = searchArchiveByQuery(query, limit, stats);
+        String query = buildArchiveSearchQuery(title, authorName, searchMode);
+        List<PdfSearchResult> results = searchArchiveByQuery(query, limit, page, stats);
         if (!results.isEmpty()) {
+            return results;
+        }
+
+        if (isExactPdfSearchMode(searchMode)) {
             return results;
         }
 
         String relaxedQuery = buildArchiveSearchQueryRelaxed(title, authorName);
         if (!relaxedQuery.isBlank()) {
-            return searchArchiveByQuery(relaxedQuery, limit, stats);
+            return searchArchiveByQuery(relaxedQuery, limit, page, stats);
         }
         return results;
     }
 
-    private List<PdfSearchResult> searchArchiveByQuery(String query, int limit, PdfSearchStats stats)
+    private List<PdfSearchResult> searchArchiveByQuery(String query, int limit, int page, PdfSearchStats stats)
             throws IOException, InterruptedException {
         if (query == null || query.isBlank()) {
             return List.of();
@@ -4219,6 +4603,7 @@ public class LibraryApiHandlers {
         String searchUrl = "https://archive.org/advancedsearch.php?q="
                 + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&fl[]=identifier&fl[]=title&rows=" + limit
+                + "&page=" + Math.max(1, page)
                 + "&output=json";
         String searchPayload = httpGet(searchUrl);
         List<PdfSearchResult> candidates = parseArchiveSearchResults(searchPayload, limit);
@@ -4234,20 +4619,24 @@ public class LibraryApiHandlers {
         return results;
     }
 
-    private List<PdfSearchResult> searchGoogleBooksPdfSources(String title, String authorName, int limit, PdfSearchStats stats)
+    private List<PdfSearchResult> searchGoogleBooksPdfSources(String title, String authorName, int limit, int page, String searchMode, PdfSearchStats stats)
             throws IOException, InterruptedException {
         String apiKey = nullToEmpty(System.getenv("GOOGLE_BOOKS_API_KEY")).trim();
         if (apiKey.isBlank()) {
             return List.of();
         }
 
-        String query = buildGoogleBooksQuery(title, authorName);
+        String query = buildGoogleBooksQuery(title, authorName, searchMode);
         if (query.isBlank()) {
             return List.of();
         }
 
-        List<PdfSearchResult> results = searchGoogleBooksByQuery(query, apiKey, limit, stats);
+        List<PdfSearchResult> results = searchGoogleBooksByQuery(query, apiKey, limit, title, authorName, page, stats);
         if (!results.isEmpty()) {
+            return results;
+        }
+
+        if (isExactPdfSearchMode(searchMode)) {
             return results;
         }
 
@@ -4255,14 +4644,15 @@ public class LibraryApiHandlers {
         if (relaxedQuery.isBlank()) {
             return results;
         }
-        return searchGoogleBooksByQuery(relaxedQuery, apiKey, limit, stats);
+        return searchGoogleBooksByQuery(relaxedQuery, apiKey, limit, title, authorName, page, stats);
     }
 
-    private List<PdfSearchResult> searchGoogleBooksByQuery(String query, String apiKey, int limit, PdfSearchStats stats)
+    private List<PdfSearchResult> searchGoogleBooksByQuery(String query, String apiKey, int limit, String title, String authorName, int page, PdfSearchStats stats)
             throws IOException, InterruptedException {
         String searchUrl = "https://www.googleapis.com/books/v1/volumes?q="
                 + URLEncoder.encode(query, StandardCharsets.UTF_8)
-            + "&maxResults=" + Math.min(Math.max(limit, 1), 3)
+            + "&maxResults=" + Math.min(Math.max(limit, 1), 40)
+                + "&startIndex=" + Math.max(0, (Math.max(1, page) - 1) * Math.max(1, limit))
                 + "&filter=free-ebooks"
                 + "&orderBy=relevance"
                 + "&printType=books"
@@ -4309,10 +4699,10 @@ public class LibraryApiHandlers {
         }
     }
 
-    private String buildArchiveSearchQuery(String title, String authorName) {
+    private String buildArchiveSearchQuery(String title, String authorName, String searchMode) {
         StringBuilder sb = new StringBuilder("collection:publicdomain AND format:\"Text PDF\"");
-        String titleQuery = buildOrQuery(title);
-        String authorQuery = buildOrQuery(authorName);
+        String titleQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(title) + "\"" : buildOrQuery(title);
+        String authorQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(authorName) + "\"" : buildOrQuery(authorName);
         if (!titleQuery.isBlank()) {
             sb.append(" AND title:(").append(titleQuery).append(")");
         }
@@ -4354,16 +4744,26 @@ public class LibraryApiHandlers {
         return joiner.toString();
     }
 
-    private String buildGoogleBooksQuery(String title, String authorName) {
+    private String buildGoogleBooksQuery(String title, String authorName, String searchMode) {
         StringBuilder sb = new StringBuilder();
         if (title != null && !title.isBlank()) {
-            sb.append("intitle:").append(title.trim());
+            sb.append("intitle:");
+            if (isExactPdfSearchMode(searchMode)) {
+                sb.append('"').append(buildExactQuery(title)).append('"');
+            } else {
+                sb.append(title.trim());
+            }
         }
         if (authorName != null && !authorName.isBlank()) {
             if (sb.length() > 0) {
                 sb.append("+");
             }
-            sb.append("inauthor:").append(authorName.trim());
+            sb.append("inauthor:");
+            if (isExactPdfSearchMode(searchMode)) {
+                sb.append('"').append(buildExactQuery(authorName)).append('"');
+            } else {
+                sb.append(authorName.trim());
+            }
         }
         return sb.toString();
     }
@@ -4382,19 +4782,30 @@ public class LibraryApiHandlers {
         return sb.toString();
     }
 
+    private boolean isExactPdfSearchMode(String searchMode) {
+        return "exact".equalsIgnoreCase(nullToEmpty(searchMode).trim());
+    }
+
+    private String normalizePdfSearchMode(String searchMode) {
+        return isExactPdfSearchMode(searchMode) ? "exact" : "partial";
+    }
+
+    private String buildExactQuery(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim().replace("\\", " ").replace("\"", " ").replaceAll("\\s+", " ").trim();
+    }
+
     private record GoogleBookCandidate(String id, String title) {
     }
 
     private List<GoogleBookCandidate> parseGoogleBooksCandidates(String json, int limit) {
         List<GoogleBookCandidate> results = new ArrayList<>();
-        if (json == null || json.isBlank()) {
-            return results;
-        }
-
-        Pattern itemPattern = Pattern.compile("\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"books#volume\\\".*?\\}\s*(?:,|\\])", Pattern.DOTALL);
-        Matcher itemMatcher = itemPattern.matcher(json);
-        while (itemMatcher.find() && results.size() < limit) {
-            String chunk = itemMatcher.group();
+        for (String chunk : extractJsonObjectsFromArray(json, "items")) {
+            if (results.size() >= limit) {
+                break;
+            }
             String id = extractJsonField(chunk, "id");
             if (id.isBlank()) {
                 continue;
@@ -4414,7 +4825,8 @@ public class LibraryApiHandlers {
                 + URLEncoder.encode(id, StandardCharsets.UTF_8)
                 + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         String payload = httpGet(url);
-        String pdfBlock = extractJsonBlock(payload, "pdf");
+            String accessInfoBlock = extractJsonBlock(payload, "accessInfo");
+            String pdfBlock = extractJsonBlock(accessInfoBlock, "pdf");
         if (pdfBlock.isBlank()) {
             return null;
         }
@@ -4434,17 +4846,14 @@ public class LibraryApiHandlers {
 
     private List<PdfSearchResult> parseGoogleBooksPdfResults(String json, int limit) {
         List<PdfSearchResult> results = new ArrayList<>();
-        if (json == null || json.isBlank()) {
-            return results;
-        }
-
-        Pattern itemPattern = Pattern.compile("\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"books#volume\\\".*?\\}\s*(?:,|\\])", Pattern.DOTALL);
-        Matcher itemMatcher = itemPattern.matcher(json);
-        while (itemMatcher.find() && results.size() < limit) {
-            String chunk = itemMatcher.group();
+        for (String chunk : extractJsonObjectsFromArray(json, "items")) {
+            if (results.size() >= limit) {
+                break;
+            }
             String id = extractJsonField(chunk, "id");
             String title = extractJsonField(chunk, "title");
-            String pdfBlock = extractJsonBlock(chunk, "pdf");
+            String accessInfoBlock = extractJsonBlock(chunk, "accessInfo");
+            String pdfBlock = extractJsonBlock(accessInfoBlock, "pdf");
             if (pdfBlock.isBlank()) {
                 continue;
             }
@@ -4500,17 +4909,80 @@ public class LibraryApiHandlers {
 
     private List<PdfSearchResult> parseArchiveSearchResults(String json, int limit) {
         List<PdfSearchResult> results = new ArrayList<>();
-        if (json == null || json.isBlank()) {
-            return results;
-        }
-        Pattern docPattern = Pattern.compile("\\{[^\\{\\}]*?\\\"identifier\\\":\\\"([^\\\"]+)\\\"[^\\{\\}]*?\\\"title\\\":\\\"([^\\\"]*)\\\"[^\\{\\}]*?\\}");
-        Matcher matcher = docPattern.matcher(json);
-        while (matcher.find() && results.size() < limit) {
-            String identifier = unescapeJsonString(matcher.group(1));
-            String title = unescapeJsonString(matcher.group(2));
+        for (String doc : extractJsonObjectsFromArray(json, "docs")) {
+            if (results.size() >= limit) {
+                break;
+            }
+            String identifier = extractJsonField(doc, "identifier");
+            String title = extractJsonField(doc, "title");
+            if (identifier.isBlank()) {
+                continue;
+            }
             results.add(new PdfSearchResult(identifier, title, "", "Internet Archive", List.of()));
         }
         return results;
+    }
+
+    private List<String> extractJsonObjectsFromArray(String json, String arrayFieldName) {
+        List<String> objects = new ArrayList<>();
+        if (json == null || json.isBlank() || arrayFieldName == null || arrayFieldName.isBlank()) {
+            return objects;
+        }
+
+        String searchToken = "\"" + arrayFieldName + "\"";
+        int fieldIndex = json.indexOf(searchToken);
+        if (fieldIndex < 0) {
+            return objects;
+        }
+
+        int arrayStart = json.indexOf('[', fieldIndex);
+        if (arrayStart < 0) {
+            return objects;
+        }
+
+        boolean inString = false;
+        boolean escaped = false;
+        int depth = 0;
+        int objectStart = -1;
+        for (int i = arrayStart + 1; i < json.length(); i++) {
+            char ch = json.charAt(i);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                } else if (ch == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (ch == '"') {
+                inString = true;
+                continue;
+            }
+            if (ch == '{') {
+                if (depth == 0) {
+                    objectStart = i;
+                }
+                depth++;
+                continue;
+            }
+            if (ch == '}') {
+                if (depth > 0) {
+                    depth--;
+                    if (depth == 0 && objectStart >= 0) {
+                        objects.add(json.substring(objectStart, i + 1));
+                        objectStart = -1;
+                    }
+                }
+                continue;
+            }
+            if (ch == ']' && depth == 0) {
+                break;
+            }
+        }
+        return objects;
     }
 
     private String resolveArchivePdfUrl(String identifier) throws IOException, InterruptedException {
@@ -4631,17 +5103,17 @@ public class LibraryApiHandlers {
         return normalized;
     }
 
-    private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason) {
+    private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason, String content) {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
         String baseUrl = nullToEmpty(System.getenv("INFERENCE_BASE_URL")).trim();
         String apiKey = nullToEmpty(System.getenv("INFERENCE_API_KEY")).trim();
         String model = nullToEmpty(System.getenv("INFERENCE_MODEL")).trim();
-        if (baseUrl.isBlank() || apiKey.isBlank() || model.isBlank()) {
+        if (baseUrl.isBlank() || model.isBlank()) {
             return fallback;
         }
 
         try {
-            String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason);
+            String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason, content);
             return summary.isBlank() ? fallback : summary;
         } catch (Exception e) {
             return fallback;
@@ -4649,7 +5121,7 @@ public class LibraryApiHandlers {
     }
 
     private String generateAuthorSubmissionSummary(String authorName, String title, List<String> genres, String note) {
-        String summary = generateBookRequestSummary(title, authorName, genres, note);
+        String summary = generateBookRequestSummary(title, authorName, genres, note, "");
         return summary == null ? "" : summary.trim();
     }
 
@@ -4659,16 +5131,20 @@ public class LibraryApiHandlers {
                                         String title,
                                         String authorName,
                                         List<String> genres,
-                                        String reason) throws IOException, InterruptedException {
+                                        String reason,
+                                        String content) throws IOException, InterruptedException {
         String endpoint = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         endpoint = endpoint + "/chat/completions";
 
         String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
+                        String extractedContent = nullToEmpty(content).trim();
         String prompt = "Write a concise 2-3 sentence summary for a library catalog. "
                 + "Use neutral tone and avoid spoilers. "
+                            + (extractedContent.isBlank() ? "" : "Base the summary primarily on the following extracted text from the first two pages. ")
                 + "Title: " + title + ". Author: " + authorName + ". "
                 + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
-                + (reason == null || reason.isBlank() ? "" : "Requester note: " + reason + ".");
+                            + (reason == null || reason.isBlank() ? "" : "Requester note: " + reason + ". ")
+                            + (extractedContent.isBlank() ? "" : "Extracted text: " + extractedContent + ".");
 
         String payload = "{" +
                 "\"model\":\"" + JsonUtil.escape(model) + "\"," +
@@ -4676,15 +5152,19 @@ public class LibraryApiHandlers {
                 "{\"role\":\"system\",\"content\":\"You are a helpful library assistant.\"}," +
                 "{\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
                 "]," +
-                "\"temperature\":0.4" +
+                            "\"max_tokens\":200," +
+                            "\"temperature\":0.7" +
                 "}";
 
         HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(payload))
-                .build();
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(endpoint))
+            .header("Content-Type", "application/json");
+        if (!apiKey.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + apiKey);
+        }
+        HttpRequest request = requestBuilder
+            .POST(HttpRequest.BodyPublishers.ofString(payload))
+            .build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IOException("Inference API error. Status: " + response.statusCode());
@@ -4702,6 +5182,18 @@ public class LibraryApiHandlers {
         Matcher matcher = pattern.matcher(json);
         if (matcher.find()) {
             return matcher.group(1);
+        }
+        return "";
+    }
+
+    private String extractJsonStringField(String json, String fieldName) {
+        if (json == null || json.isBlank()) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile("\\\"" + Pattern.quote(fieldName) + "\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\\\"])*)\\\"");
+        Matcher matcher = pattern.matcher(json);
+        if (matcher.find()) {
+            return unescapeJsonString(matcher.group(1));
         }
         return "";
     }

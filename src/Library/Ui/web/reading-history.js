@@ -36,7 +36,7 @@ function progressLabel(item) {
         return "Not started";
     }
 
-    const parts = [`Bookmark ${bookmark}`];
+    const parts = [`Bookmark :page ${bookmark}`];
     parts.push(`${highlightCount} highlight(s)`);
     if (updatedAt) {
         parts.push(`updated ${updatedAt}`);

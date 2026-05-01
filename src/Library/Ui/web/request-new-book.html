@@ -16,8 +16,7 @@
     </div>
     <div class="top-actions">
         <a id="homeLink" class="link-btn" href="index.html">Portal Home</a>
-        <a class="link-btn" href="mainStudent.html">Student Main</a>
-        <a class="link-btn" href="mainStaff.html">Staff Main</a>
+
         <button id="logoutBtn" class="secondary">Logout</button>
     </div>
 </header>
@@ -97,6 +96,28 @@
 </main>
 
 <div id="toast"></div>
+<script>
+        (function() {
+            // Get role from main's data-role attribute
+            const main = document.querySelector('main');
+            const role = main ? main.getAttribute('data-role') : null;
+            
+            // Update home link based on role
+            const homeLink = document.getElementById('homeLink');
+            if (homeLink && role) {
+                switch(role) {
+                    case 'STUDENT':
+                        homeLink.href = 'mainStudent.html';
+                        break;
+                    case 'STAFF':
+                        homeLink.href = 'mainStaff.html';
+                        break;
+                    default:
+                        homeLink.href = 'index.html';
+                }
+            }
+        })();
+    </script>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
 <script src="request-new-book.js"></script>

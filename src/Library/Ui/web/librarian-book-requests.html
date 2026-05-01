@@ -57,6 +57,10 @@
         </div>
         <div class="toolbar">
             <button id="searchPdfBtn" class="secondary" type="button">Search PDFs</button>
+            <select id="pdfSearchMode">
+                <option value="partial" selected>Partial match</option>
+                <option value="exact">Exact match</option>
+            </select>
             <button id="generateSummaryBtn" class="secondary" type="button">Generate Summary</button>
             <button id="downloadAndUploadBtn" class="secondary" type="button">Download + Upload</button>
         </div>
@@ -72,6 +76,11 @@
                 </thead>
                 <tbody id="pdfResultsBody"></tbody>
             </table>
+        </div>
+        <div class="toolbar" style="margin-top:12px; justify-content:space-between;">
+            <button id="prevPdfPageBtn" class="secondary" type="button">Previous</button>
+            <span id="pdfPageInfo" class="muted">Page 1</span>
+            <button id="nextPdfPageBtn" class="secondary" type="button">Next</button>
         </div>
     </section>
 
@@ -116,6 +125,7 @@
 <div id="toast"></div>
 <script src="background-animation.js"></script>
 <script src="shared.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 <script src="librarian-book-requests.js"></script>
 </body>
 </html>

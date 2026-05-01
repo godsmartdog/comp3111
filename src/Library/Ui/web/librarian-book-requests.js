@@ -1,6 +1,9 @@
 const currentUser = requireRole("LIBRARIAN");
 let cachedRequests = [];
 let selectedRequest = null;
+let currentPdfSearchPage = 1;
+let currentPdfSearchHasNext = false;
+let currentPdfSearchQuery = { title: "", authorName: "", searchMode: "partial" };
 
 const selectedRequestIdInput = document.getElementById("selectedRequestId");
 const selectedTitleInput = document.getElementById("selectedTitle");
@@ -10,6 +13,10 @@ const selectedReasonInput = document.getElementById("selectedReason");
 const generatedDescriptionInput = document.getElementById("generatedDescription");
 const selectedPdfUrlInput = document.getElementById("selectedPdfUrl");
 const pdfResultsBody = document.getElementById("pdfResultsBody");
+const pdfSearchModeInput = document.getElementById("pdfSearchMode");
+const prevPdfPageBtn = document.getElementById("prevPdfPageBtn");
+const nextPdfPageBtn = document.getElementById("nextPdfPageBtn");
+const pdfPageInfo = document.getElementById("pdfPageInfo");
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -252,14 +259,66 @@ function buildPdfResults(items) {
     });
 }
 
-async function searchPdfSources() {
+async function extractFirstTwoPagesTextFromPdfUrl(pdfUrl) {
+    if (!pdfUrl) {
+        return "";
+    }
+    if (typeof pdfjsLib === "undefined") {
+        throw new Error("PDF text extraction dependency is missing.");
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const response = await fetch(pdfUrl);
+    if (!response.ok) {
+        throw new Error("Failed to load PDF for text extraction.");
+    }
+
+    const bytes = await response.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const pageCount = Math.min(2, Number(pdf.numPages || 0));
+    const pages = [];
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const text = Array.isArray(textContent?.items)
+            ? textContent.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim()
+            : "";
+        if (text) {
+            pages.push(text);
+        }
+    }
+
+    return pages.join("\n\n").trim();
+}
+
+function updatePdfSearchPaging(page, hasNext) {
+    currentPdfSearchPage = Math.max(1, page || 1);
+    currentPdfSearchHasNext = Boolean(hasNext);
+    if (pdfPageInfo) {
+        pdfPageInfo.textContent = `Page ${currentPdfSearchPage}`;
+    }
+    if (prevPdfPageBtn) {
+        prevPdfPageBtn.disabled = currentPdfSearchPage <= 1;
+    }
+    if (nextPdfPageBtn) {
+        nextPdfPageBtn.disabled = !currentPdfSearchHasNext;
+    }
+}
+
+async function searchPdfSources(page = 1) {
     try {
         const title = selectedTitleInput?.value.trim() || "";
         const authorName = selectedAuthorInput?.value.trim() || "";
+        const searchMode = pdfSearchModeInput?.value === "exact" ? "exact" : "partial";
         if (!title && !authorName) {
             showToast("Enter a title or author to search.", true);
             return;
         }
+        currentPdfSearchQuery = { title, authorName, searchMode };
         const query = new URLSearchParams();
         if (title) {
             query.set("title", title);
@@ -267,8 +326,21 @@ async function searchPdfSources() {
         if (authorName) {
             query.set("authorName", authorName);
         }
-        const results = await api(`/api/librarian/book-request/search-pdf?${query.toString()}`);
-        buildPdfResults(Array.isArray(results) ? results : []);
+        query.set("page", String(Math.max(1, page)));
+        query.set("limit", "5");
+        query.set("searchMode", searchMode);
+
+        const response = await api(`/api/librarian/book-request/search-pdf?${query.toString()}`);
+        const results = Array.isArray(response)
+            ? response
+            : Array.isArray(response?.results)
+                ? response.results
+                : [];
+        buildPdfResults(results);
+        updatePdfSearchPaging(
+            Number(response?.page || page || 1),
+            response?.hasNext === undefined ? results.length >= 5 : Boolean(response.hasNext)
+        );
     } catch (error) {
         showToast(error.message, true);
     }
@@ -280,14 +352,24 @@ async function generateSummary() {
             showToast("Select a request first.", true);
             return;
         }
+        const pdfUrl = selectedPdfUrlInput?.value.trim() || "";
+        if (!pdfUrl) {
+            showToast("Select a PDF download URL before generating a summary.", true);
+            return;
+        }
         const payload = {
             title: selectedTitleInput?.value.trim() || "",
             authorName: selectedAuthorInput?.value.trim() || "",
             genres: selectedGenresInput?.value.trim() || "",
-            reason: selectedReasonInput?.value.trim() || ""
+            reason: selectedReasonInput?.value.trim() || "",
+            content: await extractFirstTwoPagesTextFromPdfUrl(pdfUrl)
         };
         if (!payload.title || !payload.authorName) {
             showToast("Title and author are required to generate a summary.", true);
+            return;
+        }
+        if (!payload.content) {
+            showToast("Could not extract readable text from the first two PDF pages.", true);
             return;
         }
         const response = await api("/api/librarian/book-request/generate-description", {
@@ -324,6 +406,7 @@ async function downloadAndUpload() {
         }
         const comment = (prompt("Upload comment (optional)") || "").trim();
         const description = generatedDescriptionInput?.value.trim() || "";
+        const content = description ? "" : await extractFirstTwoPagesTextFromPdfUrl(pdfUrl);
         const response = await api("/api/librarian/book-request/download", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -331,7 +414,8 @@ async function downloadAndUpload() {
                 requestId: selectedRequest.id,
                 pdfUrl,
                 comment,
-                description
+                description,
+                content
             })
         });
         showToast(response?.message || "Downloaded and uploaded.", false);
@@ -363,7 +447,19 @@ document.getElementById("requestStatusFilter")?.addEventListener("change", () =>
 });
 
 document.getElementById("searchPdfBtn")?.addEventListener("click", () => {
-    searchPdfSources();
+    searchPdfSources(1);
+});
+
+prevPdfPageBtn?.addEventListener("click", () => {
+    if (currentPdfSearchPage > 1) {
+        searchPdfSources(currentPdfSearchPage - 1);
+    }
+});
+
+nextPdfPageBtn?.addEventListener("click", () => {
+    if (currentPdfSearchHasNext) {
+        searchPdfSources(currentPdfSearchPage + 1);
+    }
 });
 
 document.getElementById("generateSummaryBtn")?.addEventListener("click", () => {
@@ -375,5 +471,6 @@ document.getElementById("downloadAndUploadBtn")?.addEventListener("click", () =>
 });
 
 if (currentUser) {
+    updatePdfSearchPaging(1, false);
     refreshRequests().catch((error) => showToast(error.message, true));
 }

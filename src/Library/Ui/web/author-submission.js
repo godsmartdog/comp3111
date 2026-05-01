@@ -290,12 +290,6 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", async (
             showToast("Select at least one genre before generating a summary.", true);
             return;
         }
-        if (description?.value.trim()) {
-            const replace = window.confirm("Replace the current description with a generated summary?");
-            if (!replace) {
-                return;
-            }
-        }
 
         const response = await api("/api/author/submit/generate-summary", {
             method: "POST",
@@ -310,7 +304,7 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", async (
         if (description) {
             description.value = response?.summary || "";
         }
-        showToast(response?.message || "Summary generated.", false);
+        showToast(response?.message || "Summary generated. You can now submit!", false);
     } catch (error) {
         showToast(error.message, true);
     }
