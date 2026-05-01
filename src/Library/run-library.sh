@@ -40,22 +40,6 @@ if ! $MODE_TESTS && ! $MODE_WEB && ! $MODE_SMOKE; then
 fi
 
 # ---------------------------------------------------------------------------
-# Runtime environment — mirrors Run-Library.ps1 (Windows) so Phase 3 features
-# 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS.
-# Each variable is only set if not already exported, so a user can override
-# any of these by exporting them before invoking this script.
-# ---------------------------------------------------------------------------
-: "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
-: "${INFERENCE_BASE_URL:=http://127.0.0.1:1234/v1}"
-: "${INFERENCE_API_KEY:=}"
-: "${INFERENCE_MODEL:=local-model}"
-export GOOGLE_BOOKS_API_KEY INFERENCE_BASE_URL INFERENCE_API_KEY INFERENCE_MODEL
-
-echo "Google Books API key: ${GOOGLE_BOOKS_API_KEY:+set}${GOOGLE_BOOKS_API_KEY:-(empty)}"
-echo "Inference base URL:   $INFERENCE_BASE_URL"
-echo "Inference model:      $INFERENCE_MODEL"
-
-# ---------------------------------------------------------------------------
 # Resolve java / javac
 # ---------------------------------------------------------------------------
 resolve_tool() {
