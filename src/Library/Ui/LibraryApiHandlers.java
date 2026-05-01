@@ -5170,8 +5170,8 @@ public class LibraryApiHandlers {
             throw new IOException("Inference API error. Status: " + response.statusCode());
         }
 
-        String content = extractJsonField(response.body(), "content");
-        return unescapeJsonString(content).trim();
+        String responseContent = extractJsonField(response.body(), "content");
+        return unescapeJsonString(responseContent).trim();
     }
 
     private String extractJsonField(String json, String fieldName) {
