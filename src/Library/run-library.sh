@@ -51,7 +51,11 @@ fi
 : "${INFERENCE_MODEL:=local-model}"
 export GOOGLE_BOOKS_API_KEY INFERENCE_BASE_URL INFERENCE_API_KEY INFERENCE_MODEL
 
-echo "Google Books API key: ${GOOGLE_BOOKS_API_KEY:+set}${GOOGLE_BOOKS_API_KEY:-(empty)}"
+if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
+    echo "Google Books API key: set"
+else
+    echo "Google Books API key: (empty)"
+fi
 echo "Inference base URL:   $INFERENCE_BASE_URL"
 echo "Inference model:      $INFERENCE_MODEL"
 
