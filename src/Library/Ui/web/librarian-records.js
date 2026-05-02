@@ -150,13 +150,28 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     });
 });
 
-document.getElementById("exportRecordsCsvBtn")?.addEventListener("click", () => {
-    const params = new URLSearchParams();
-    const keyword = (document.getElementById("recordsKeyword")?.value || "").trim();
-    if (keyword) params.set("keyword", keyword);
-    if (activeTab && activeTab !== "all") params.set("tab", activeTab);
-    const qs = params.toString();
-    window.location.href = `/api/librarian/borrowed-records-export${qs ? `?${qs}` : ""}`;
+document.getElementById("exportRecordsCsvBtn")?.addEventListener("click", async () => {
+    try {
+        const params = new URLSearchParams();
+        const keyword = (document.getElementById("recordsKeyword")?.value || "").trim();
+        if (keyword) params.set("keyword", keyword);
+        if (activeTab && activeTab !== "all") params.set("tab", activeTab);
+        const qs = params.toString();
+        const url = `/api/librarian/borrowed-records-export${qs ? `?${qs}` : ""}`;
+
+        const blob = await fetchProtectedBlob(url);
+        const blobUrl = URL.createObjectURL(blob);
+        const filename = `borrowed-records-${new Date().toISOString().slice(0, 10)}.csv`;
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (error) {
+        showToast(error.message || "Export failed", true);
+    }
 });
 
 if (currentUser) {
