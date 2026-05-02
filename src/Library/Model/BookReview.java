@@ -12,12 +12,17 @@ public class BookReview {
     private String replyText;
     private boolean flagged;
     private String flagReason;
+    private boolean anonymous;
     private final LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime repliedAt;
     private LocalDateTime flaggedAt;
 
     public BookReview(String username, String bookId, int rating, String reviewText) {
+        this(username, bookId, rating, reviewText, false);
+    }
+
+    public BookReview(String username, String bookId, int rating, String reviewText, boolean anonymous) {
         this.id = UUID.randomUUID().toString();
         this.username = username == null ? "" : username.trim();
         this.bookId = bookId == null ? "" : bookId.trim();
@@ -26,6 +31,7 @@ public class BookReview {
         this.replyText = "";
         this.flagged = false;
         this.flagReason = "";
+        this.anonymous = anonymous;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = this.createdAt;
         this.repliedAt = null;
@@ -80,9 +86,23 @@ public class BookReview {
         return flaggedAt;
     }
 
+    public boolean isAnonymous() {
+        return anonymous;
+    }
+
+    public void setAnonymous(boolean anonymous) {
+        this.anonymous = anonymous;
+        this.updatedAt = LocalDateTime.now();
+    }
+
     public void update(int rating, String reviewText) {
+        update(rating, reviewText, this.anonymous);
+    }
+
+    public void update(int rating, String reviewText, boolean anonymous) {
         this.rating = rating;
         this.reviewText = reviewText == null ? "" : reviewText.trim();
+        this.anonymous = anonymous;
         this.updatedAt = LocalDateTime.now();
     }
 

@@ -604,10 +604,11 @@ public class LibraryApiHandlers {
                         return;
                     }
 
-                    requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                    User viewer = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
                     Map<String, String> query = readQuery(exchange.getRequestURI());
                     String bookId = required(query, "bookId");
-                    sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId)));
+                    String sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId, sort), viewer.getUsername()));
                 } catch (ApiAuthException e) {
                     sendText(exchange, 401, e.getMessage());
                 } catch (Exception e) {
@@ -628,8 +629,9 @@ public class LibraryApiHandlers {
                     String bookId = required(form, "bookId");
                     int rating = Integer.parseInt(required(form, "rating"));
                     String reviewText = RequestFilters.getTrimmed(form, "reviewText", "");
-                    BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
-                    sendJson(exchange, 200, reviewToJson(review));
+                    boolean anonymous = parseBooleanFlag(form.get("anonymous"));
+                    BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText, anonymous);
+                    sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
                 } catch (ApiAuthException e) {
                     sendText(exchange, 401, e.getMessage());
                 } catch (Exception e) {
@@ -647,8 +649,9 @@ public class LibraryApiHandlers {
                         String bookId = required(query, "bookId");
                         int rating = Integer.parseInt(required(query, "rating"));
                         String reviewText = RequestFilters.getTrimmed(query, "reviewText", "");
-                        BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
-                        sendJson(exchange, 200, reviewToJson(review));
+                        boolean anonymous = parseBooleanFlag(query.get("anonymous"));
+                        BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText, anonymous);
+                        sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
                         return;
                     }
                 } catch (ApiAuthException e) {
@@ -694,8 +697,9 @@ public class LibraryApiHandlers {
                 String bookId = required(values, "bookId");
                 int rating = Integer.parseInt(required(values, "rating"));
                 String reviewText = RequestFilters.getTrimmed(values, "reviewText", "");
-                BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText);
-                sendJson(exchange, 200, reviewToJson(review));
+                boolean anonymous = parseBooleanFlag(values.get("anonymous"));
+                BookReview review = bookReviewService.submitReview(user.getUsername(), bookId, rating, reviewText, anonymous);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1142,6 +1146,28 @@ public class LibraryApiHandlers {
                 } else {
                     sendText(exchange, 400, "Action must be approve, reject, or upload.");
                 }
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/priority", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String requestId = required(form, "requestId");
+                boolean priority = parseBooleanFlag(form.get("priority"));
+                BookRequest2 updated = bookRequestService.setPriority(requestId, priority);
+                sendJson(exchange, 200, "{" +
+                        "\"message\":\"" + (priority ? "Marked as priority." : "Priority cleared.") + "\"," +
+                        "\"request\":" + bookRequestToJson(updated) +
+                        "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -2339,9 +2365,38 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String genreFilter = RequestFilters.getTrimmed(query, "genre", "");
+                String authorFilter = RequestFilters.getTrimmed(query, "author", "").toLowerCase(Locale.ROOT);
+                String statusFilter = RequestFilters.getTrimmed(query, "status", "").toLowerCase(Locale.ROOT);
                 List<Book> items = bookService.listApprovedBooksForLibrarian();
                 List<String> jsonItems = new ArrayList<>();
                 for (Book book : items) {
+                    if (!genreFilter.isEmpty()) {
+                        boolean matched = false;
+                        for (String g : book.getGenres()) {
+                            if (g.equalsIgnoreCase(genreFilter)) {
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if (!matched) {
+                            continue;
+                        }
+                    }
+                    if (!authorFilter.isEmpty()) {
+                        String authorFullName = book.getAuthorFullName() == null ? "" : book.getAuthorFullName().toLowerCase(Locale.ROOT);
+                        String authorUsername = book.getAuthorUsername() == null ? "" : book.getAuthorUsername().toLowerCase(Locale.ROOT);
+                        if (!authorFullName.contains(authorFilter) && !authorUsername.contains(authorFilter)) {
+                            continue;
+                        }
+                    }
+                    if (statusFilter.equals("available") && !book.isAvailable()) {
+                        continue;
+                    }
+                    if (statusFilter.equals("unavailable") && book.isAvailable()) {
+                        continue;
+                    }
                     jsonItems.add(librarianPublishedBookToJson(book));
                 }
                 sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
@@ -2736,6 +2791,40 @@ public class LibraryApiHandlers {
                 List<User> users = librarianService.listUsersForManagement(keyword, role, status);
                 List<BorrowRecord> borrows = borrowService.listAllBorrowRecords();
                 sendJson(exchange, 200, managedUsersToJson(users, borrows, librarian.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/users/create", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String username = required(form, "username");
+                String fullName = required(form, "fullName");
+                String password = required(form, "password");
+                String roleRaw = required(form, "role").trim().toUpperCase(Locale.ROOT);
+                Role role;
+                try {
+                    role = Role.valueOf(roleRaw);
+                } catch (IllegalArgumentException ex) {
+                    sendText(exchange, 400, "Invalid role.");
+                    return;
+                }
+                String bio = nullToEmpty(form.get("bio"));
+                String employeeId = nullToEmpty(form.get("employeeId"));
+                User created = librarianService.createManagedUser(username, fullName, password, role, bio, employeeId);
+                sendJson(exchange, 200, "{" +
+                        "\"message\":\"User created.\"," +
+                        "\"username\":\"" + JsonUtil.escape(created.getUsername()) + "\"," +
+                        "\"role\":\"" + created.getRole() + "\"" +
+                        "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -4030,10 +4119,14 @@ public class LibraryApiHandlers {
     }
 
     private String reviewToJson(BookReview review) {
+        return reviewToJson(review, "");
+    }
+
+    private String reviewToJson(BookReview review, String viewerUsername) {
         String bookTitle = bookService.findBookById(review.getBookId())
                 .map(Book::getTitle)
                 .orElse(review.getBookId());
-        String reviewerFullName = authService.findUserByUsername(review.getUsername())
+        String realReviewerFullName = authService.findUserByUsername(review.getUsername())
                 .map(User::getFullName)
                 .orElse(review.getUsername());
         String createdAt = review.getCreatedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getCreatedAt());
@@ -4041,12 +4134,20 @@ public class LibraryApiHandlers {
         String repliedAt = review.getRepliedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getRepliedAt());
         String flaggedAt = review.getFlaggedAt() == null ? "" : DATE_TIME_FORMATTER.format(review.getFlaggedAt());
 
+        boolean isOwnReview = viewerUsername != null
+                && !viewerUsername.isEmpty()
+                && viewerUsername.equals(review.getUsername());
+        boolean maskIdentity = review.isAnonymous() && !isOwnReview;
+        String displayUsername = maskIdentity ? "" : review.getUsername();
+        String displayFullName = maskIdentity ? "Anonymous" : realReviewerFullName;
+
         return "{" +
                 "\"reviewId\":\"" + JsonUtil.escape(review.getId()) + "\"," +
                 "\"bookId\":\"" + JsonUtil.escape(review.getBookId()) + "\"," +
                 "\"bookTitle\":\"" + JsonUtil.escape(bookTitle) + "\"," +
-                "\"username\":\"" + JsonUtil.escape(review.getUsername()) + "\"," +
-                "\"reviewerFullName\":\"" + JsonUtil.escape(reviewerFullName) + "\"," +
+                "\"username\":\"" + JsonUtil.escape(displayUsername) + "\"," +
+                "\"reviewerFullName\":\"" + JsonUtil.escape(displayFullName) + "\"," +
+                "\"anonymous\":" + review.isAnonymous() + "," +
                 "\"rating\":" + review.getRating() + "," +
                 "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
             "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
@@ -4060,9 +4161,13 @@ public class LibraryApiHandlers {
     }
 
     private String reviewsToJson(List<BookReview> reviews) {
+        return reviewsToJson(reviews, "");
+    }
+
+    private String reviewsToJson(List<BookReview> reviews, String viewerUsername) {
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
-            values.add(reviewToJson(review));
+            values.add(reviewToJson(review, viewerUsername));
         }
         return "[" + String.join(",", values) + "]";
     }
@@ -4071,7 +4176,7 @@ public class LibraryApiHandlers {
         List<BookReview> reviews = bookReviewService.listReviewsByUser(username);
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
-            values.add(reviewToJson(review));
+            values.add(reviewToJson(review, username));
         }
         return "[" + String.join(",", values) + "]";
     }
@@ -4099,7 +4204,8 @@ public class LibraryApiHandlers {
                 "\"rejectionReason\":\"" + JsonUtil.escape(nullToEmpty(request.getRejectionReason())) + "\"," +
                 "\"approvedDate\":\"" + JsonUtil.escape(approvedDate) + "\"," +
                 "\"uploadedDate\":\"" + JsonUtil.escape(uploadedDate) + "\"," +
-                "\"bookId\":\"" + JsonUtil.escape(nullToEmpty(request.getBookId())) + "\"" +
+                "\"bookId\":\"" + JsonUtil.escape(nullToEmpty(request.getBookId())) + "\"," +
+                "\"priority\":" + request.isPriority() +
                 "}";
     }
 
@@ -5563,6 +5669,14 @@ public class LibraryApiHandlers {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private static boolean parseBooleanFlag(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim().toLowerCase(Locale.ROOT);
+        return trimmed.equals("true") || trimmed.equals("1") || trimmed.equals("on") || trimmed.equals("yes");
     }
 
     private record MultipartData(Map<String, String> fields, Map<String, UploadedFile> uploadedFiles) {

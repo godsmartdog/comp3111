@@ -21,6 +21,7 @@ public class BookRequest2 {
     private LocalDate approvedDate;
     private LocalDate uploadedDate;
     private String bookId;
+    private boolean priority;
 
     public BookRequest2(String title,
                         String requesterUsername,
@@ -67,6 +68,8 @@ public class BookRequest2 {
     public LocalDate getApprovedDate() { return approvedDate; }
     public LocalDate getUploadedDate() { return uploadedDate; }
     public String getBookId() { return bookId; }
+    public boolean isPriority() { return priority; }
+    public void setPriority(boolean priority) { this.priority = priority; }
 
     public void approve(String comment) {
         this.status = BookRequestStatus.APPROVED;

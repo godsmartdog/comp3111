@@ -45,29 +45,51 @@ public class BookRequestService {
                 normalizedGenres,
                 normalizedReason
         );
+        for (BookRequest2 existing : requestRepository.findByRequesterUsername(requesterUsername)) {
+            if (existing.getStatus() != BookRequestStatus.PENDING
+                    && existing.getStatus() != BookRequestStatus.APPROVED) {
+                continue;
+            }
+            String existingTitle = existing.getTitle() == null ? "" : existing.getTitle().trim();
+            if (existingTitle.equalsIgnoreCase(normalizedTitle)) {
+                throw new ValidationException(
+                        "You already have a request for this title (status: " + existing.getStatus() + ").");
+            }
+        }
+        requestRepository.save(request);
+        return request;
+    }
+
+    public BookRequest2 setPriority(String requestId, boolean priority) {
+        BookRequest2 request = getRequestByIdForReview(requestId);
+        request.setPriority(priority);
         requestRepository.save(request);
         return request;
     }
 
     public List<BookRequest2> listRequests() {
         return requestRepository.findAll().stream()
-                .sorted(Comparator.comparing(BookRequest2::getRequestedDate).reversed()
-                        .thenComparing(BookRequest2::getId))
+                .sorted(prioritySortComparator())
                 .collect(Collectors.toList());
     }
 
     public List<BookRequest2> listRequestsByRequester(String username) {
         return requestRepository.findByRequesterUsername(username).stream()
-                .sorted(Comparator.comparing(BookRequest2::getRequestedDate).reversed()
-                        .thenComparing(BookRequest2::getId))
+                .sorted(prioritySortComparator())
                 .collect(Collectors.toList());
     }
 
     public List<BookRequest2> listRequestsByStatus(BookRequestStatus status) {
         return requestRepository.findByStatus(status).stream()
-                .sorted(Comparator.comparing(BookRequest2::getRequestedDate).reversed()
-                        .thenComparing(BookRequest2::getId))
+                .sorted(prioritySortComparator())
                 .collect(Collectors.toList());
+    }
+
+    private static Comparator<BookRequest2> prioritySortComparator() {
+        return Comparator
+                .comparing((BookRequest2 r) -> !r.isPriority())
+                .thenComparing(BookRequest2::getRequestedDate, Comparator.reverseOrder())
+                .thenComparing(BookRequest2::getId);
     }
 
     public BookRequest2 getRequestByIdForReview(String requestId) {

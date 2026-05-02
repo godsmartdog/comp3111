@@ -221,3 +221,59 @@ document.getElementById("selectAllUsers")?.addEventListener("change", (event) =>
 if (currentUser) {
     loadUsers().catch((e) => showToast(e.message, true));
 }
+
+function syncAddUserRoleFields() {
+    const role = document.getElementById("newRole")?.value || "";
+    const bioField = document.getElementById("newBioField");
+    const empField = document.getElementById("newEmployeeIdField");
+    if (bioField) bioField.style.display = role === "AUTHOR" ? "" : "none";
+    if (empField) empField.style.display = role === "LIBRARIAN" ? "" : "none";
+}
+
+document.getElementById("showAddUserBtn")?.addEventListener("click", () => {
+    const section = document.getElementById("addUserSection");
+    if (section) {
+        section.style.display = section.style.display === "none" ? "" : "none";
+    }
+    syncAddUserRoleFields();
+});
+
+document.getElementById("cancelAddUserBtn")?.addEventListener("click", () => {
+    const section = document.getElementById("addUserSection");
+    if (section) {
+        section.style.display = "none";
+    }
+    ["newUsername", "newFullName", "newPassword", "newBio", "newEmployeeId"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+    });
+});
+
+document.getElementById("newRole")?.addEventListener("change", syncAddUserRoleFields);
+
+document.getElementById("createUserBtn")?.addEventListener("click", async () => {
+    try {
+        const username = document.getElementById("newUsername")?.value.trim() || "";
+        const fullName = document.getElementById("newFullName")?.value.trim() || "";
+        const password = document.getElementById("newPassword")?.value || "";
+        const role = document.getElementById("newRole")?.value || "STUDENT";
+        const bio = document.getElementById("newBio")?.value.trim() || "";
+        const employeeId = document.getElementById("newEmployeeId")?.value.trim() || "";
+
+        if (!username || !fullName || !password) {
+            showToast("Username, full name, and password are required.", true);
+            return;
+        }
+
+        const response = await api("/api/librarian/users/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ username, fullName, password, role, bio, employeeId })
+        });
+        showToast(response?.message || "User created.", false);
+        document.getElementById("cancelAddUserBtn")?.click();
+        await loadUsers();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});

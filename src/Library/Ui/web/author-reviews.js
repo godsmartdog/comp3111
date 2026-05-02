@@ -106,9 +106,12 @@ function renderSelectedBookReviews(items) {
     status.textContent = `Found ${items.length} review(s) for ${selectedBook.title || selectedBook.id}.`;
 
     items.forEach((item) => {
+        const reviewerLabel = item.anonymous
+            ? "Anonymous"
+            : (item.reviewerFullName || item.username || "");
         const row = document.createElement("tr");
         row.innerHTML = `
-            <td>${escapeHtml(item.reviewerFullName || item.username || "")}</td>
+            <td>${escapeHtml(reviewerLabel)}</td>
             <td>${Number(item.rating || 0)}/5</td>
             <td>${formatReviewText(item)}</td>
             <td>
@@ -123,7 +126,7 @@ function renderSelectedBookReviews(items) {
 
         row.querySelector(".reply-btn")?.addEventListener("click", async () => {
             try {
-                const replyText = prompt(`Reply to ${item.reviewerFullName || item.username}:`, item.replyText || "");
+                const replyText = prompt(`Reply to ${reviewerLabel}:`, item.replyText || "");
                 if (replyText === null) {
                     return;
                 }

@@ -57,7 +57,9 @@ function renderReaderReviews(reviews) {
 
 async function loadBookReviewsAndSyncInput(bookId) {
     try {
-        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+        const sortSelect = document.getElementById("reviewSort");
+        const sort = sortSelect?.value || "recent";
+        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sort=${encodeURIComponent(sort)}`);
         renderReaderReviews(reviews);
 
         const currentReview = Array.isArray(reviews)
@@ -65,11 +67,15 @@ async function loadBookReviewsAndSyncInput(bookId) {
             : null;
         const ratingSelect = document.getElementById("reviewRating");
         const reviewTextInput = document.getElementById("reviewTextInput");
+        const anonymousCheckbox = document.getElementById("reviewAnonymous");
         if (ratingSelect) {
             ratingSelect.value = String(currentReview?.rating || 5);
         }
         if (reviewTextInput) {
             reviewTextInput.value = currentReview?.reviewText || "";
+        }
+        if (anonymousCheckbox) {
+            anonymousCheckbox.checked = Boolean(currentReview?.anonymous);
         }
     } catch (_) {
         renderReaderReviews([]);
@@ -836,19 +842,27 @@ document.getElementById("saveReviewBtn")?.addEventListener("click", async () => 
 
         const rating = Number(document.getElementById("reviewRating")?.value || "5");
         const reviewText = document.getElementById("reviewTextInput")?.value || "";
+        const anonymous = Boolean(document.getElementById("reviewAnonymous")?.checked);
         await api("/api/reviews/submit", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({
                 bookId: selectedBorrowedBookId,
                 rating,
-                reviewText
+                reviewText,
+                anonymous: anonymous ? "true" : "false"
             })
         });
         await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
         showToast("Review saved.", false);
     } catch (error) {
         showToast(error.message, true);
+    }
+});
+
+document.getElementById("reviewSort")?.addEventListener("change", async () => {
+    if (selectedBorrowedBookId) {
+        await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
     }
 });
 

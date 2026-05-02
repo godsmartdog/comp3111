@@ -38,6 +38,10 @@ public class BookReviewService {
     }
 
     public BookReview submitReview(String username, String bookId, int rating, String reviewText) {
+        return submitReview(username, bookId, rating, reviewText, false);
+    }
+
+    public BookReview submitReview(String username, String bookId, int rating, String reviewText, boolean anonymous) {
         String normalizedUsername = normalize(username);
         String normalizedBookId = normalize(bookId);
         validateRating(rating);
@@ -51,12 +55,13 @@ public class BookReviewService {
             throw new BusinessException("You can only review books you have borrowed.");
         }
 
+        final boolean anonymousFlag = anonymous;
         BookReview review = reviewRepository.findByUsernameAndBookId(normalizedUsername, normalizedBookId)
                 .map(existing -> {
-                    existing.update(rating, reviewText);
+                    existing.update(rating, reviewText, anonymousFlag);
                     return existing;
                 })
-                .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText));
+                .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText, anonymousFlag));
 
         reviewRepository.save(review);
         return review;
@@ -66,6 +71,13 @@ public class BookReviewService {
         String normalizedBookId = normalize(bookId);
         return reviewRepository.findByBookId(normalizedBookId).stream()
                 .sorted(reviewComparator())
+                .collect(Collectors.toList());
+    }
+
+    public List<BookReview> listReviewsForBook(String bookId, String sort) {
+        String normalizedBookId = normalize(bookId);
+        return reviewRepository.findByBookId(normalizedBookId).stream()
+                .sorted(reviewComparatorForSort(sort))
                 .collect(Collectors.toList());
     }
 
@@ -171,6 +183,25 @@ public class BookReviewService {
     private static Comparator<BookReview> reviewComparator() {
         return Comparator.comparing(BookReview::getUpdatedAt, Comparator.reverseOrder())
                 .thenComparing(BookReview::getId);
+    }
+
+    private static Comparator<BookReview> reviewComparatorForSort(String sort) {
+        String normalized = sort == null ? "" : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        Comparator<BookReview> recentDesc = Comparator.comparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                .thenComparing(BookReview::getId);
+        switch (normalized) {
+            case "highest":
+                return Comparator.comparingInt(BookReview::getRating).reversed()
+                        .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                        .thenComparing(BookReview::getId);
+            case "lowest":
+                return Comparator.comparingInt(BookReview::getRating)
+                        .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                        .thenComparing(BookReview::getId);
+            case "recent":
+            default:
+                return recentDesc;
+        }
     }
 
     private static void validateRating(int rating) {
