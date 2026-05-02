@@ -1570,6 +1570,98 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/student/reading-history-export", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String keyword = RequestFilters.getTrimmed(query, "q", "");
+                String authorFilter = RequestFilters.getTrimmed(query, "author", "");
+                String genreFilter = RequestFilters.getTrimmed(query, "genre", "");
+                LocalDate borrowDateFrom = parseDateFilter(query, "borrowDateFrom");
+                LocalDate borrowDateTo = parseDateFilter(query, "borrowDateTo");
+                LocalDate returnDateFrom = parseDateFilter(query, "returnDateFrom");
+                LocalDate returnDateTo = parseDateFilter(query, "returnDateTo");
+                String sortBy = parseReadingHistorySortBy(query);
+                String sortDir = parseReadingHistorySortDir(query);
+
+                List<ReadingHistoryEntry> entries = new ArrayList<>();
+                for (BorrowRecord record : borrowService.listBorrowsByUser(user.getUsername())) {
+                    Book book = bookService.findBookById(record.getBookId()).orElse(null);
+                    String title = book == null ? record.getBookId() : book.getTitle();
+                    String authorUsername = book == null ? "" : book.getAuthorUsername();
+                    String authorFullName = book == null ? "" : book.getAuthorFullName();
+                    List<String> genres = book == null ? List.of() : book.getGenres();
+                    ReadingProgress progress = readingProgressService.findProgress(user.getUsername(), record.getBookId()).orElse(null);
+                    LocalDate returnedDate = record.getReturnedDate();
+                    int durationMinutes = progress == null ? 0 : progress.getTotalReadingMinutes();
+                    int bookmarkPage = progress == null ? 0 : progress.getBookmarkPage();
+                    int highlightCount = progress == null ? 0 : progress.getHighlights().size();
+                    String progressUpdatedAt = progress == null ? "" : DATE_TIME_FORMATTER.format(progress.getUpdatedAt());
+
+                    ReadingHistoryEntry entry = new ReadingHistoryEntry(
+                            record.getId(),
+                            record.getBookId(),
+                            title,
+                            authorUsername,
+                            authorFullName,
+                            genres,
+                            record.getBorrowDate(),
+                            record.getDueDate(),
+                            returnedDate,
+                            record.isReturned(),
+                            record.isOverdue(LocalDate.now()),
+                            durationMinutes,
+                            bookmarkPage,
+                            highlightCount,
+                            progressUpdatedAt
+                    );
+
+                    if (matchesReadingHistoryFilters(entry, keyword, authorFilter, genreFilter, borrowDateFrom, borrowDateTo, returnDateFrom, returnDateTo)) {
+                        entries.add(entry);
+                    }
+                }
+                entries.sort(readingHistoryComparator(sortBy, sortDir));
+
+                LocalDate today = LocalDate.now();
+                StringBuilder csv = new StringBuilder();
+                csv.append("Book Title,Author,Genres,Borrow Date,Return Date,Reading Duration,Bookmark Page,Highlights Count\n");
+                for (ReadingHistoryEntry entry : entries) {
+                    String author = entry.authorFullName() == null || entry.authorFullName().isEmpty()
+                            ? entry.authorUsername() : entry.authorFullName();
+                    String genres = String.join("; ", entry.genres());
+                    String borrowDate = entry.borrowDate() == null ? "" : entry.borrowDate().toString();
+                    String returnDate = entry.returnedDate() == null
+                            ? (entry.returned() ? "Returned" : "")
+                            : entry.returnedDate().toString();
+                    String duration = entry.readingDurationMinutes() + " min";
+                    csv.append(csvEscape(entry.bookTitle())).append(',')
+                            .append(csvEscape(author)).append(',')
+                            .append(csvEscape(genres)).append(',')
+                            .append(csvEscape(borrowDate)).append(',')
+                            .append(csvEscape(returnDate)).append(',')
+                            .append(csvEscape(duration)).append(',')
+                            .append(csvEscape(String.valueOf(entry.bookmarkPage()))).append(',')
+                            .append(csvEscape(String.valueOf(entry.highlightCount()))).append('\n');
+                }
+
+                byte[] body = csv.toString().getBytes(StandardCharsets.UTF_8);
+                String filename = "reading-history-" + today + ".csv";
+                exchange.getResponseHeaders().set("Content-Type", "text/csv; charset=UTF-8");
+                exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrow/content", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
