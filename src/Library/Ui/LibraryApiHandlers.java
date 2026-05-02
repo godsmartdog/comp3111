@@ -2918,7 +2918,8 @@ public class LibraryApiHandlers {
                 java.util.Set<String> authors = new java.util.HashSet<>();
                 java.util.Set<String> genres = new java.util.HashSet<>();
                 for (Book book : approved) {
-                    String au = book.getAuthorUsername();
+                    String au = book.getAuthorFullName();
+                    if (au == null || au.isBlank()) au = book.getAuthorUsername();
                     if (au != null && !au.isBlank()) authors.add(au.trim().toLowerCase(Locale.ROOT));
                     if (book.getGenres() != null) {
                         for (String g : book.getGenres()) {
