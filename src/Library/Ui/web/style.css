@@ -917,3 +917,14 @@ pre {
 .sentiment-positive { background: #d4edda; color: #155724; }
 .sentiment-negative { background: #f8d7da; color: #721c24; }
 .sentiment-neutral  { background: #e2e3e5; color: #383d41; }
+
+.priority-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 700;
+    display: inline-block;
+}
+.priority-high   { background: #f8d7da; color: #721c24; }
+.priority-medium { background: #ffe5b4; color: #8a4b00; }
+.priority-normal { background: #d4edda; color: #155724; }
