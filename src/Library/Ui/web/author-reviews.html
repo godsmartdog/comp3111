@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E-Library | Author Reviews & Replies</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <canvas id="bgCanvas"></canvas>
@@ -42,6 +43,22 @@
 
         <h3 id="selectedBookHeading">Select a published book to view reviews</h3>
         <p id="reviewStatus">No book selected.</p>
+
+        <details open id="feedbackAnalyticsSection">
+            <summary><strong>Feedback Analytics</strong></summary>
+            <p id="feedbackAnalyticsStatus" class="muted">No review data yet.</p>
+            <div class="chart-grid">
+                <article class="panel-subtle chart-card">
+                    <h3>Sentiment Breakdown</h3>
+                    <div class="chart-wrap"><canvas id="sentimentBreakdownChart" width="300" height="300"></canvas></div>
+                </article>
+                <article class="panel-subtle chart-card">
+                    <h3>Rating Distribution</h3>
+                    <div class="chart-wrap"><canvas id="ratingDistributionRecap" width="400" height="300"></canvas></div>
+                </article>
+            </div>
+        </details>
+
         <div class="table-wrap">
             <table>
                 <thead>

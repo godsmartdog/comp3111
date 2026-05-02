@@ -905,3 +905,15 @@ pre {
     font-size: 0.95em;
     cursor: pointer;
 }
+
+.sentiment-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: 6px;
+    display: inline-block;
+}
+.sentiment-positive { background: #d4edda; color: #155724; }
+.sentiment-negative { background: #f8d7da; color: #721c24; }
+.sentiment-neutral  { background: #e2e3e5; color: #383d41; }
