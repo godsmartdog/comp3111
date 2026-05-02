@@ -110,6 +110,17 @@ public class LibraryApiHandlers {
     private final Map<String, User> sessions = new ConcurrentHashMap<>();
     private final Map<String, Long> sessionLastActiveAtMs = new ConcurrentHashMap<>();
     private final Map<String, List<String>> userActivityLogs = new ConcurrentHashMap<>();
+    // Slice 6: in-memory edit ledger for published books (3.8 NTH Version History).
+    // Keyed by bookId; capped per-book at MAX_VERSION_HISTORY entries.
+    private static final int MAX_VERSION_HISTORY = 50;
+    private final Map<String, List<BookVersion>> bookVersions = new ConcurrentHashMap<>();
+
+    private record BookVersion(String timestamp,
+                               String editorUsername,
+                               String fieldName,
+                               String oldValue,
+                               String newValue) {}
+
     private volatile SessionSnapshotSchema latestSessionSnapshot;
 
     private record ReadingHistoryEntry(String recordId,
@@ -2760,6 +2771,12 @@ public class LibraryApiHandlers {
                     throw new IllegalArgumentException("Author name cannot be changed for an existing published book.");
                 }
 
+                // Slice 6: capture pre-update snapshot for version-history diff.
+                String oldTitle = nullToEmpty(existing.getTitle());
+                String oldAuthorFullName = nullToEmpty(existing.getAuthorFullName());
+                String oldDescription = nullToEmpty(existing.getSummary());
+                String oldGenresCsv = existing.getGenres() == null ? "" : String.join(",", existing.getGenres());
+
                 existing.updateMetadata(title, genres, description);
 
                 String effectiveFilePath = filePath;
@@ -2787,6 +2804,17 @@ public class LibraryApiHandlers {
                 }
 
                 bookService.getBookRepository().save(existing);
+
+                // Slice 6: diff and append to in-memory version history (cap last 50).
+                String newTitle = nullToEmpty(existing.getTitle());
+                String newAuthorFullName = nullToEmpty(existing.getAuthorFullName());
+                String newDescription = nullToEmpty(existing.getSummary());
+                String newGenresCsv = existing.getGenres() == null ? "" : String.join(",", existing.getGenres());
+                recordBookVersionIfChanged(existing.getId(), user.getUsername(), "title", oldTitle, newTitle);
+                recordBookVersionIfChanged(existing.getId(), user.getUsername(), "authorFullName", oldAuthorFullName, newAuthorFullName);
+                recordBookVersionIfChanged(existing.getId(), user.getUsername(), "description", oldDescription, newDescription);
+                recordBookVersionIfChanged(existing.getId(), user.getUsername(), "genres", oldGenresCsv, newGenresCsv);
+
                 notificationService.addNotification(
                         user.getUsername(),
                         "Published Book Updated",
@@ -2796,6 +2824,119 @@ public class LibraryApiHandlers {
                         Map.of("type", "submission", "bookId", existing.getId())
                 );
                 sendText(exchange, 200, "Published book updated successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        // Slice 6: bulk delete published books (3.8 NTH Bulk Operations).
+        server.createContext("/api/librarian/published-books-bulk-delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String csv = RequestFilters.getTrimmed(form, "bookIds", "");
+                if (csv.isEmpty()) {
+                    throw new IllegalArgumentException("bookIds is required.");
+                }
+                int deleted = 0;
+                List<String> failedItems = new ArrayList<>();
+                for (String raw : csv.split(",")) {
+                    String id = raw.trim();
+                    if (id.isEmpty()) continue;
+                    try {
+                        Book existing = bookService.findBookById(id)
+                                .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                        if (!existing.isApproved()) {
+                            throw new IllegalArgumentException("Only approved books can be deleted.");
+                        }
+                        bookService.getBookRepository().deleteById(id);
+                        bookVersions.remove(id);
+                        deleted++;
+                    } catch (Exception ex) {
+                        failedItems.add("{\"id\":\"" + JsonUtil.escape(id) + "\",\"reason\":\"" + JsonUtil.escape(ex.getMessage() == null ? "Failed" : ex.getMessage()) + "\"}");
+                    }
+                }
+                String payload = "{\"deleted\":" + deleted + ",\"failed\":[" + String.join(",", failedItems) + "]}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        // Slice 6: version history per published book (3.8 NTH Version History).
+        server.createContext("/api/librarian/published-book-history", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String bookId = RequestFilters.getTrimmed(query, "bookId", "");
+                if (bookId.isEmpty()) {
+                    throw new IllegalArgumentException("bookId is required.");
+                }
+                List<BookVersion> entries = bookVersions.getOrDefault(bookId, new ArrayList<>());
+                List<BookVersion> sorted = new ArrayList<>(entries);
+                sorted.sort((a, b) -> b.timestamp().compareTo(a.timestamp()));
+                List<String> jsonItems = new ArrayList<>();
+                for (BookVersion v : sorted) {
+                    jsonItems.add("{" +
+                            "\"timestamp\":\"" + JsonUtil.escape(v.timestamp()) + "\"," +
+                            "\"editorUsername\":\"" + JsonUtil.escape(v.editorUsername()) + "\"," +
+                            "\"fieldName\":\"" + JsonUtil.escape(v.fieldName()) + "\"," +
+                            "\"oldValue\":\"" + JsonUtil.escape(v.oldValue()) + "\"," +
+                            "\"newValue\":\"" + JsonUtil.escape(v.newValue()) + "\"" +
+                            "}");
+                }
+                sendJson(exchange, 200, "[" + String.join(",", jsonItems) + "]");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        // Slice 6: library admin stats (3.8 NTH Admin Tools).
+        server.createContext("/api/librarian/library-admin-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                List<Book> approved = bookService.listApprovedBooksForLibrarian();
+                int totalBooks = approved.size();
+                java.util.Set<String> authors = new java.util.HashSet<>();
+                java.util.Set<String> genres = new java.util.HashSet<>();
+                for (Book book : approved) {
+                    String au = book.getAuthorUsername();
+                    if (au != null && !au.isBlank()) authors.add(au.trim().toLowerCase(Locale.ROOT));
+                    if (book.getGenres() != null) {
+                        for (String g : book.getGenres()) {
+                            if (g != null && !g.isBlank()) genres.add(g.trim().toLowerCase(Locale.ROOT));
+                        }
+                    }
+                }
+                int totalAuthors = authors.size();
+                int genreCoverage = genres.size();
+                double avg = totalAuthors == 0 ? 0.0 : ((double) totalBooks / (double) totalAuthors);
+                String avgFmt = String.format(Locale.ROOT, "%.2f", avg);
+                String payload = "{" +
+                        "\"totalBooks\":" + totalBooks + "," +
+                        "\"totalAuthors\":" + totalAuthors + "," +
+                        "\"genreCoverage\":" + genreCoverage + "," +
+                        "\"avgBooksPerAuthor\":" + avgFmt +
+                        "}";
+                sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -5956,6 +6097,29 @@ public class LibraryApiHandlers {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    // Slice 6: append to in-memory book version ledger if value changed; cap last 50.
+    private void recordBookVersionIfChanged(String bookId,
+                                            String editorUsername,
+                                            String fieldName,
+                                            String oldValue,
+                                            String newValue) {
+        String oldV = nullToEmpty(oldValue);
+        String newV = nullToEmpty(newValue);
+        if (oldV.equals(newV)) {
+            return;
+        }
+        String ts = LocalDateTime.now().format(DATE_TIME_FORMATTER);
+        BookVersion entry = new BookVersion(ts, editorUsername, fieldName, oldV, newV);
+        bookVersions.compute(bookId, (k, list) -> {
+            List<BookVersion> updated = list == null ? new ArrayList<>() : new ArrayList<>(list);
+            updated.add(entry);
+            if (updated.size() > MAX_VERSION_HISTORY) {
+                updated = new ArrayList<>(updated.subList(updated.size() - MAX_VERSION_HISTORY, updated.size()));
+            }
+            return updated;
+        });
     }
 
     private static boolean parseBooleanFlag(String value) {
