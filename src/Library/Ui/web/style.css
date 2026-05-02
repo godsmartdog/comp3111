@@ -894,3 +894,14 @@ pre {
     opacity: 0.6;
     filter: grayscale(80%);
 }
+
+.dashboard-prefs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 6px 16px;
+    margin-top: 8px;
+}
+.dashboard-prefs label {
+    font-size: 0.95em;
+    cursor: pointer;
+}

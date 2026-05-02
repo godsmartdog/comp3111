@@ -3,6 +3,12 @@ const currentUser = requireRole("AUTHOR");
 let readsChart = null;
 let ratingChart = null;
 let genreChart = null;
+let trendChart = null;
+
+let lastTimeline = [];
+let trendBucket = "week";
+
+const DASHBOARD_PREFS_KEY = "author-stats-dashboard-prefs";
 
 if (currentUser) {
     const welcome = document.getElementById("authorStatsWelcomeLine");
@@ -40,6 +46,10 @@ function clearCharts() {
     if (genreChart) {
         genreChart.destroy();
         genreChart = null;
+    }
+    if (trendChart) {
+        trendChart.destroy();
+        trendChart = null;
     }
 }
 
@@ -194,6 +204,142 @@ function renderSummary(summary) {
     document.getElementById("metricAverageRating").textContent = formatAverageRating(summary.overallAverageRating);
 }
 
+function isoWeekKey(d) {
+    // ISO week: Thursday in current week decides the year.
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = (date.getUTCDay() + 6) % 7; // Mon=0
+    date.setUTCDate(date.getUTCDate() - dayNum + 3);
+    const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+    const week = 1 + Math.round(((date - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+    return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function bucketTimeline(timeline, bucket) {
+    const buckets = new Map();
+    (timeline || []).forEach((entry) => {
+        if (!entry || !entry.date) return;
+        const d = new Date(`${entry.date}T00:00:00Z`);
+        if (Number.isNaN(d.getTime())) return;
+        let key;
+        if (bucket === "month") {
+            key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        } else {
+            key = isoWeekKey(d);
+        }
+        buckets.set(key, (buckets.get(key) || 0) + Number(entry.count || 0));
+    });
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function drawTrendChart(timeline) {
+    const canvas = document.getElementById("trendChart");
+    const status = document.getElementById("trendStatus");
+    if (!canvas) return;
+
+    if (trendChart) {
+        trendChart.destroy();
+        trendChart = null;
+    }
+
+    const points = bucketTimeline(timeline, trendBucket);
+    if (points.length === 0) {
+        if (status) status.textContent = "No borrow data yet.";
+        canvas.style.display = "none";
+        return;
+    }
+    canvas.style.display = "";
+    if (status) status.textContent = "";
+
+    trendChart = new Chart(canvas, {
+        type: "line",
+        data: {
+            labels: points.map(([k]) => k),
+            datasets: [{
+                label: trendBucket === "month" ? "Borrows / Month" : "Borrows / Week",
+                data: points.map(([, v]) => v),
+                borderColor: "#8e44ad",
+                backgroundColor: "rgba(142,68,173,0.2)",
+                fill: true,
+                tension: 0.25
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+function loadDashboardPrefs() {
+    try {
+        const raw = localStorage.getItem(DASHBOARD_PREFS_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveDashboardPrefs(prefs) {
+    try {
+        localStorage.setItem(DASHBOARD_PREFS_KEY, JSON.stringify(prefs));
+    } catch (e) {
+        // ignore quota
+    }
+}
+
+function applyDashboardVisibility(section, visible) {
+    document.querySelectorAll(`[data-section="${section}"]`).forEach((el) => {
+        if (el.tagName === "INPUT") return;
+        // For metric ids, we want to hide the parent .metric-card; the article itself has data-section.
+        el.style.display = visible ? "" : "none";
+    });
+}
+
+function initDashboardPrefs() {
+    const prefs = loadDashboardPrefs();
+    document.querySelectorAll('#dashboardPrefs input[type="checkbox"]').forEach((cb) => {
+        const section = cb.dataset.section;
+        if (Object.prototype.hasOwnProperty.call(prefs, section)) {
+            cb.checked = !!prefs[section];
+        }
+        applyDashboardVisibility(section, cb.checked);
+        cb.addEventListener("change", () => {
+            const all = loadDashboardPrefs();
+            all[section] = cb.checked;
+            saveDashboardPrefs(all);
+            applyDashboardVisibility(section, cb.checked);
+        });
+    });
+}
+
+document.querySelectorAll('#trendBucketStrip .tab-btn').forEach((btn) => {
+    btn.addEventListener("click", () => {
+        trendBucket = btn.dataset.bucket || "week";
+        document.querySelectorAll('#trendBucketStrip .tab-btn').forEach((b) => {
+            b.classList.toggle("active", b === btn);
+        });
+        drawTrendChart(lastTimeline);
+    });
+});
+
+document.getElementById("exportStatsCsvBtn")?.addEventListener("click", async () => {
+    try {
+        const blob = await fetchProtectedBlob("/api/author/stats-export");
+        const blobUrl = URL.createObjectURL(blob);
+        const filename = `author-stats-${new Date().toISOString().slice(0, 10)}.csv`;
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (error) {
+        showToast(error.message || "Export failed", true);
+    }
+});
+
 async function refreshAuthorStats() {
     const status = document.getElementById("authorStatsStatus");
     if (!status) {
@@ -206,12 +352,14 @@ async function refreshAuthorStats() {
     const summary = payload?.summary || {};
     const books = Array.isArray(payload?.books) ? payload.books : [];
     const ratingBuckets = Array.isArray(payload?.ratingBuckets) ? payload.ratingBuckets : [];
+    lastTimeline = Array.isArray(payload?.borrowsTimeline) ? payload.borrowsTimeline : [];
 
     renderSummary(summary);
     clearCharts();
 
     if (books.length === 0) {
         status.textContent = "No published books found. Publish books to unlock analytics.";
+        drawTrendChart(lastTimeline);
         return;
     }
 
@@ -220,6 +368,7 @@ async function refreshAuthorStats() {
     drawReadsChart(books);
     drawRatingPieChart(ratingBuckets);
     drawGenreBarChart(books);
+    drawTrendChart(lastTimeline);
 }
 
 document.getElementById("refreshAuthorStatsBtn")?.addEventListener("click", () => {
@@ -237,6 +386,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 if (currentUser) {
+    initDashboardPrefs();
     refreshAuthorStats().catch((error) => {
         const status = document.getElementById("authorStatsStatus");
         if (status) {
