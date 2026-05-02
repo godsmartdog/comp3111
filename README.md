@@ -109,3 +109,28 @@ The project was developed incrementally through feature branches and pull reques
 - Additional UI polishing and consistency improvements across portals
 - Persistent storage or database-backed repositories instead of in-memory data only
 - Deployment hardening, operational configuration, and production-ready hosting support
+
+## Phase 3 — Nice-to-Have Enhancements
+
+Phase 3 NTH enhancements live on branch `phase-3-nice-to-have` and are
+documentation-tracked under [`docs/`](docs/):
+
+- [PHASE3_NTH_COVERAGE.md](docs/PHASE3_NTH_COVERAGE.md) — spec-section ↔ slice ↔ commit matrix
+- [PHASE3_NTH_AUDIT.md](docs/PHASE3_NTH_AUDIT.md) — outstanding TODOs, pre-existing failing tests, in-memory state notes
+- [PHASE3_NTH_CHANGELOG.md](docs/PHASE3_NTH_CHANGELOG.md) — slice-by-slice changelog
+
+### Run
+
+```bash
+cd src/Library
+bash ./run-library.sh --tests        # compile + run integration tests
+bash ./run-library.sh --web          # launch web server (default port 8080)
+```
+
+### Demo accounts
+
+All seeded by `LibraryManagementApp` on startup (password is shared):
+
+- Librarian: `librarian1` / `Password1!`
+- Author:    `author1`    / `Password1!`
+- Student:   `student1`   / `Password1!`
