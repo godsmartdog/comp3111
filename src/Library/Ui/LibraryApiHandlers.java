@@ -2657,6 +2657,61 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/borrowed-records-export", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String keyword = RequestFilters.getTrimmed(query, "keyword", "").toLowerCase(Locale.ROOT);
+                String tab = RequestFilters.getTrimmed(query, "tab", "all").toLowerCase(Locale.ROOT);
+                java.time.LocalDate today = java.time.LocalDate.now();
+
+                StringBuilder csv = new StringBuilder();
+                csv.append("Borrow ID,Book ID,Book Title,Borrower Username,Borrow Date,Due Date,Return Date,Status\n");
+
+                for (BorrowRecord record : borrowService.listAllBorrowRecords()) {
+                    String title = bookService.findBookById(record.getBookId())
+                            .map(Book::getTitle)
+                            .orElse(record.getBookId());
+                    boolean returned = record.isReturned();
+                    boolean overdue = !returned && record.getDueDate() != null && record.getDueDate().isBefore(today);
+                    String status = returned ? "Returned" : "Borrowed";
+
+                    if (!keyword.isEmpty()) {
+                        String haystack = (title + " " + record.getUsername() + " " + record.getId()).toLowerCase(Locale.ROOT);
+                        if (!haystack.contains(keyword)) continue;
+                    }
+                    if (tab.equals("active") && (returned || overdue)) continue;
+                    if (tab.equals("overdue") && (returned || !overdue)) continue;
+                    if (tab.equals("returned") && !returned) continue;
+
+                    csv.append(csvEscape(record.getId())).append(',')
+                            .append(csvEscape(record.getBookId())).append(',')
+                            .append(csvEscape(title)).append(',')
+                            .append(csvEscape(record.getUsername())).append(',')
+                            .append(csvEscape(String.valueOf(record.getBorrowDate()))).append(',')
+                            .append(csvEscape(String.valueOf(record.getDueDate()))).append(',')
+                            .append(csvEscape(record.getReturnedDate() == null ? "" : record.getReturnedDate().toString())).append(',')
+                            .append(csvEscape(status)).append('\n');
+                }
+
+                byte[] body = csv.toString().getBytes(StandardCharsets.UTF_8);
+                String filename = "borrowed-records-" + today + ".csv";
+                exchange.getResponseHeaders().set("Content-Type", "text/csv; charset=UTF-8");
+                exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/submission/read", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -5677,6 +5732,16 @@ public class LibraryApiHandlers {
         }
         String trimmed = value.trim().toLowerCase(Locale.ROOT);
         return trimmed.equals("true") || trimmed.equals("1") || trimmed.equals("on") || trimmed.equals("yes");
+    }
+
+    private static String csvEscape(String value) {
+        if (value == null) return "";
+        boolean needsQuote = value.indexOf(',') >= 0
+                || value.indexOf('"') >= 0
+                || value.indexOf('\n') >= 0
+                || value.indexOf('\r') >= 0;
+        if (!needsQuote) return value;
+        return "\"" + value.replace("\"", "\"\"") + "\"";
     }
 
     private record MultipartData(Map<String, String> fields, Map<String, UploadedFile> uploadedFiles) {
