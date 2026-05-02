@@ -22,6 +22,32 @@
 
 <main class="layout single-col" data-role="LIBRARIAN">
     <section class="panel glass-panel">
+        <h2>Library Admin Tools</h2>
+        <details open id="adminToolsSection">
+            <summary><strong>Library Overview</strong></summary>
+            <div class="metrics-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px;">
+                <div class="metric-card" style="padding:12px;border:1px solid var(--panel-border,#ccc);border-radius:8px;">
+                    <div class="muted" style="font-size:0.8em;">Total Published Books</div>
+                    <div id="adminTotalBooks" style="font-size:1.6em;font-weight:600;">—</div>
+                </div>
+                <div class="metric-card" style="padding:12px;border:1px solid var(--panel-border,#ccc);border-radius:8px;">
+                    <div class="muted" style="font-size:0.8em;">Authors with Published Books</div>
+                    <div id="adminTotalAuthors" style="font-size:1.6em;font-weight:600;">—</div>
+                </div>
+                <div class="metric-card" style="padding:12px;border:1px solid var(--panel-border,#ccc);border-radius:8px;">
+                    <div class="muted" style="font-size:0.8em;">Genre Coverage</div>
+                    <div id="adminGenreCoverage" style="font-size:1.6em;font-weight:600;">—</div>
+                </div>
+                <div class="metric-card" style="padding:12px;border:1px solid var(--panel-border,#ccc);border-radius:8px;">
+                    <div class="muted" style="font-size:0.8em;">Avg Books / Author</div>
+                    <div id="adminAvgBooksPerAuthor" style="font-size:1.6em;font-weight:600;">—</div>
+                </div>
+            </div>
+            <p id="adminStatsStatus" class="hint" style="margin-top:8px;">Loading library stats...</p>
+        </details>
+    </section>
+
+    <section class="panel glass-panel">
         <h2>Published Books</h2>
         <div class="toolbar">
             <input id="bookKeyword" type="text" placeholder="Search by title, author, or id">
@@ -63,6 +89,7 @@
             </select>
             <button id="applyFiltersBtn" class="secondary" type="button">Apply</button>
             <button id="resetFiltersBtn" class="secondary" type="button">Reset</button>
+            <button id="bulkDeleteBtn" class="secondary" type="button" disabled>Delete Selected</button>
         </div>
         <p id="booksStatus" class="hint">Loading published books...</p>
 
@@ -70,6 +97,7 @@
             <table>
                 <thead>
                 <tr>
+                    <th><input type="checkbox" id="bulkSelectAll" title="Select all"></th>
                     <th>Title</th>
                     <th>Author</th>
                     <th>Genres</th>
@@ -142,6 +170,24 @@
             <button id="saveEditBtn" type="button">Save Changes</button>
             <button id="clearEditBtn" class="secondary" type="button">Clear</button>
         </div>
+
+        <details id="versionHistorySection" style="margin-top:12px;">
+            <summary><strong>Version History</strong></summary>
+            <p id="versionHistoryStatus" class="hint">Select a book to view its edit history.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Editor</th>
+                        <th>Field</th>
+                        <th>Old → New</th>
+                    </tr>
+                    </thead>
+                    <tbody id="versionHistoryBody"></tbody>
+                </table>
+            </div>
+        </details>
     </section>
 
     <section class="panel glass-panel">

@@ -68,8 +68,9 @@ function renderPublishedBooks(items) {
     if (!Array.isArray(items) || items.length === 0) {
         status.textContent = "No published books found.";
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="6" class="muted">No published books found.</td>';
+        row.innerHTML = '<td colspan="7" class="muted">No published books found.</td>';
         body.appendChild(row);
+        updateBulkDeleteState();
         return;
     }
 
@@ -77,6 +78,7 @@ function renderPublishedBooks(items) {
     items.forEach((item) => {
         const row = document.createElement("tr");
         row.innerHTML = `
+            <td><input type="checkbox" class="bulk-row-checkbox" data-book-id="${escapeHtml(item.id || "")}"></td>
             <td>${escapeHtml(item.title || "")}</td>
             <td>${escapeHtml(item.author || "")}</td>
             <td>${Array.isArray(item.genres) ? escapeHtml(item.genres.join(", ")) : ""}</td>
@@ -88,8 +90,98 @@ function renderPublishedBooks(items) {
         row.querySelector("button")?.addEventListener("click", () => {
             loadBookForEdit(item.id);
         });
+        row.querySelector(".bulk-row-checkbox")?.addEventListener("change", updateBulkDeleteState);
         body.appendChild(row);
     });
+    const selectAll = document.getElementById("bulkSelectAll");
+    if (selectAll) {
+        selectAll.checked = false;
+    }
+    updateBulkDeleteState();
+}
+
+function getSelectedBookIds() {
+    return Array.from(document.querySelectorAll(".bulk-row-checkbox"))
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.getAttribute("data-book-id"))
+        .filter(Boolean);
+}
+
+function updateBulkDeleteState() {
+    const btn = document.getElementById("bulkDeleteBtn");
+    if (!btn) return;
+    const count = getSelectedBookIds().length;
+    btn.disabled = count === 0;
+    btn.textContent = count > 0 ? `Delete Selected (${count})` : "Delete Selected";
+}
+
+async function bulkDeleteSelected() {
+    const ids = getSelectedBookIds();
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected book(s)? This cannot be undone.`)) {
+        return;
+    }
+    const result = await api("/api/librarian/published-books-bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({ bookIds: ids.join(",") })
+    });
+    const deleted = Number(result?.deleted || 0);
+    const failed = Array.isArray(result?.failed) ? result.failed : [];
+    if (failed.length === 0) {
+        showToast(`Deleted ${deleted} book(s).`, false);
+    } else {
+        showToast(`Deleted ${deleted}; ${failed.length} failed: ${failed.map((f) => f.id).join(", ")}`, true);
+    }
+    await refreshBooks();
+    refreshAdminStats().catch(() => {});
+}
+
+async function refreshAdminStats() {
+    const status = document.getElementById("adminStatsStatus");
+    try {
+        const data = await api("/api/librarian/library-admin-stats");
+        document.getElementById("adminTotalBooks").textContent = String(data.totalBooks ?? 0);
+        document.getElementById("adminTotalAuthors").textContent = String(data.totalAuthors ?? 0);
+        document.getElementById("adminGenreCoverage").textContent = String(data.genreCoverage ?? 0);
+        const avg = Number(data.avgBooksPerAuthor);
+        document.getElementById("adminAvgBooksPerAuthor").textContent = Number.isFinite(avg) ? avg.toFixed(2) : "0.00";
+        if (status) status.textContent = "Library stats up to date.";
+    } catch (error) {
+        if (status) status.textContent = `Failed to load stats: ${error.message}`;
+    }
+}
+
+async function refreshVersionHistory(bookId) {
+    const body = document.getElementById("versionHistoryBody");
+    const status = document.getElementById("versionHistoryStatus");
+    if (!body || !status) return;
+    body.innerHTML = "";
+    if (!bookId) {
+        status.textContent = "Select a book to view its edit history.";
+        return;
+    }
+    status.textContent = "Loading version history...";
+    try {
+        const items = await api(`/api/librarian/published-book-history?bookId=${encodeURIComponent(bookId)}`);
+        if (!Array.isArray(items) || items.length === 0) {
+            status.textContent = "No edits recorded yet.";
+            return;
+        }
+        status.textContent = `${items.length} edit entr${items.length === 1 ? "y" : "ies"}.`;
+        items.forEach((entry) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${escapeHtml(entry.timestamp || "")}</td>
+                <td>${escapeHtml(entry.editorUsername || "")}</td>
+                <td>${escapeHtml(entry.fieldName || "")}</td>
+                <td><span class="muted">${escapeHtml(entry.oldValue || "")}</span> → ${escapeHtml(entry.newValue || "")}</td>
+            `;
+            body.appendChild(row);
+        });
+    } catch (error) {
+        status.textContent = `Failed to load history: ${error.message}`;
+    }
 }
 
 function loadBookForEdit(bookId) {
@@ -118,6 +210,7 @@ function loadBookForEdit(bookId) {
         editCoverInput.value = "";
     }
     showToast("Book loaded for editing.", false);
+    refreshVersionHistory(target.id).catch(() => {});
 }
 
 function clearEditForm() {
@@ -272,6 +365,7 @@ async function saveEdit() {
     showToast(text || "Published book updated.", false);
     await refreshBooks();
     loadBookForEdit(selectedEditBookId);
+    refreshAdminStats().catch(() => {});
 }
 
 async function addBook() {
@@ -329,6 +423,7 @@ async function addBook() {
     showToast(text || "Published book added.", false);
     clearAddForm();
     await refreshBooks();
+    refreshAdminStats().catch(() => {});
 }
 
 document.getElementById("searchBooksBtn")?.addEventListener("click", () => {
@@ -453,6 +548,22 @@ document.getElementById("clearAddBtn")?.addEventListener("click", () => {
 });
 
 if (currentUser) {
+    document.getElementById("bulkSelectAll")?.addEventListener("change", (event) => {
+        const checked = !!event.target.checked;
+        document.querySelectorAll(".bulk-row-checkbox").forEach((cb) => { cb.checked = checked; });
+        updateBulkDeleteState();
+    });
+    document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
+        bulkDeleteSelected().catch((error) => showToast(error.message, true));
+    });
+    const vhSection = document.getElementById("versionHistorySection");
+    vhSection?.addEventListener("toggle", () => {
+        if (vhSection.open && selectedEditBookId) {
+            refreshVersionHistory(selectedEditBookId).catch(() => {});
+        }
+    });
+
+    refreshAdminStats().catch(() => {});
     refreshBooks().catch((error) => {
         const status = document.getElementById("booksStatus");
         if (status) {
