@@ -348,9 +348,11 @@ document.getElementById("resetFiltersBtn")?.addEventListener("click", () => {
     const g = document.getElementById("filterGenre");
     const a = document.getElementById("filterAuthor");
     const s = document.getElementById("filterStatus");
+    const k = document.getElementById("bookKeyword");
     if (g) g.value = "";
     if (a) a.value = "";
     if (s) s.value = "";
+    if (k) k.value = "";
     refreshBooks().catch((error) => showToast(error.message, true));
 });
 

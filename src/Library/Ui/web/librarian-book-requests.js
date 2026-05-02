@@ -137,7 +137,7 @@ function buildRequestRows(items) {
 
 async function togglePriority(requestId, priority) {
     try {
-        await api("/api/librarian/book-request/priority", {
+        await api("/api/librarian/book-request-priority", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({ requestId, priority: priority ? "true" : "false" })

@@ -1153,7 +1153,7 @@ public class LibraryApiHandlers {
             }
         });
 
-        server.createContext("/api/librarian/book-request/priority", exchange -> {
+        server.createContext("/api/librarian/book-request-priority", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
                 return;
@@ -2798,7 +2798,7 @@ public class LibraryApiHandlers {
             }
         });
 
-        server.createContext("/api/librarian/users/create", exchange -> {
+        server.createContext("/api/librarian/users-create", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
                 return;
