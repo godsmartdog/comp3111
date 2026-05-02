@@ -2,6 +2,109 @@ const currentUser = requireRole("AUTHOR");
 let publishedBooks = [];
 let selectedBook = null;
 let selectedBookReviews = [];
+let sentimentChart = null;
+let ratingRecapChart = null;
+
+const SENTIMENT_POSITIVE = ["good","great","excellent","amazing","wonderful","love","loved","best","fantastic","awesome","brilliant","enjoyed","helpful","insightful","engaging","perfect","superb","favourite","favorite","masterpiece","interesting","fun","recommend"];
+const SENTIMENT_NEGATIVE = ["bad","terrible","awful","worst","boring","hate","hated","poor","disappointing","confusing","weak","lame","slow","dull","mediocre","frustrating","wasted","horrible","skip","avoid"];
+const POS_SET = new Set(SENTIMENT_POSITIVE);
+const NEG_SET = new Set(SENTIMENT_NEGATIVE);
+
+const REPLY_TEMPLATES = [
+    "Thank you for your kind feedback. We're glad you enjoyed the book!",
+    "Thank you for the honest review. We appreciate your thoughts and will consider this for future work.",
+    "Thank you for taking the time to share your perspective. We'd love to hear more — feel free to reach out."
+];
+
+function classifySentiment(text) {
+    const tokens = String(text || "").toLowerCase().split(/\W+/).filter(Boolean);
+    let pos = 0;
+    let neg = 0;
+    tokens.forEach((t) => {
+        if (POS_SET.has(t)) pos++;
+        if (NEG_SET.has(t)) neg++;
+    });
+    if (pos > neg) return "positive";
+    if (neg > pos) return "negative";
+    return "neutral";
+}
+
+function sentimentBadgeHtml(text) {
+    const s = classifySentiment(text);
+    const label = s.toUpperCase();
+    return `<span class="sentiment-badge sentiment-${s}">${label}</span>`;
+}
+
+function renderFeedbackAnalytics(items) {
+    const status = document.getElementById("feedbackAnalyticsStatus");
+    const sentCanvas = document.getElementById("sentimentBreakdownChart");
+    const ratingCanvas = document.getElementById("ratingDistributionRecap");
+    if (!sentCanvas || !ratingCanvas) return;
+
+    if (sentimentChart) { sentimentChart.destroy(); sentimentChart = null; }
+    if (ratingRecapChart) { ratingRecapChart.destroy(); ratingRecapChart = null; }
+
+    if (typeof Chart === "undefined") {
+        if (status) status.textContent = "Charts unavailable (Chart.js failed to load).";
+        return;
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+        if (status) status.textContent = "No review data yet.";
+        sentCanvas.style.display = "none";
+        ratingCanvas.style.display = "none";
+        return;
+    }
+
+    sentCanvas.style.display = "";
+    ratingCanvas.style.display = "";
+    if (status) status.textContent = `Aggregated across ${items.length} review(s) for the selected book.`;
+
+    const counts = { positive: 0, neutral: 0, negative: 0 };
+    items.forEach((it) => {
+        counts[classifySentiment(it.reviewText || "")]++;
+    });
+
+    sentimentChart = new Chart(sentCanvas, {
+        type: "doughnut",
+        data: {
+            labels: ["Positive", "Neutral", "Negative"],
+            datasets: [{
+                data: [counts.positive, counts.neutral, counts.negative],
+                backgroundColor: ["#28a745", "#6c757d", "#dc3545"]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom" } }
+        }
+    });
+
+    const ratingBuckets = [0, 0, 0, 0, 0];
+    items.forEach((it) => {
+        const r = Math.max(1, Math.min(5, Number(it.rating || 0)));
+        if (r >= 1 && r <= 5) ratingBuckets[r - 1]++;
+    });
+
+    ratingRecapChart = new Chart(ratingCanvas, {
+        type: "bar",
+        data: {
+            labels: ["1★", "2★", "3★", "4★", "5★"],
+            datasets: [{
+                label: "Reviews",
+                data: ratingBuckets,
+                backgroundColor: ["#d35454", "#e67e22", "#f1c40f", "#2ecc71", "#2980b9"]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -92,6 +195,7 @@ function renderSelectedBookReviews(items) {
         const row = document.createElement("tr");
         row.innerHTML = '<td colspan="4" class="muted">No book selected.</td>';
         body.appendChild(row);
+        renderFeedbackAnalytics([]);
         return;
     }
 
@@ -100,6 +204,7 @@ function renderSelectedBookReviews(items) {
         const row = document.createElement("tr");
         row.innerHTML = '<td colspan="4" class="muted">No reviews available yet.</td>';
         body.appendChild(row);
+        renderFeedbackAnalytics([]);
         return;
     }
 
@@ -110,10 +215,11 @@ function renderSelectedBookReviews(items) {
             ? "Anonymous"
             : (item.reviewerFullName || item.username || "");
         const row = document.createElement("tr");
+        const sentimentBadge = sentimentBadgeHtml(item.reviewText || "");
         row.innerHTML = `
             <td>${escapeHtml(reviewerLabel)}</td>
             <td>${Number(item.rating || 0)}/5</td>
-            <td>${formatReviewText(item)}</td>
+            <td>${formatReviewText(item)} ${sentimentBadge}</td>
             <td>
                 <div>${item.replyText ? `<strong>Reply:</strong> ${escapeHtml(item.replyText)}` : ""}</div>
                 <div>${item.flagged ? `<strong>Reported</strong>${item.flagReason ? `: ${escapeHtml(item.flagReason)}` : ""}` : ""}</div>
@@ -121,26 +227,61 @@ function renderSelectedBookReviews(items) {
                     <button class="secondary reply-btn" type="button">Reply</button>
                     <button class="secondary flag-btn" type="button">Flag</button>
                 </div>
+                <div class="reply-panel" style="display:none; margin-top:8px;">
+                    <select class="reply-template-select">
+                        <option value="" selected disabled>(Choose a template…)</option>
+                        ${REPLY_TEMPLATES.map((t, i) => `<option value="${i}">${escapeHtml(t.length > 60 ? t.slice(0, 60) + "…" : t)}</option>`).join("")}
+                    </select>
+                    <textarea class="reply-textarea" rows="3" style="width:100%; margin-top:6px;" placeholder="Write your reply..."></textarea>
+                    <div class="toolbar" style="margin-top:6px;">
+                        <button class="reply-send-btn" type="button">Send Reply</button>
+                        <button class="secondary reply-cancel-btn" type="button">Cancel</button>
+                    </div>
+                </div>
             </td>
         `;
 
-        row.querySelector(".reply-btn")?.addEventListener("click", async () => {
+        const replyBtn = row.querySelector(".reply-btn");
+        const replyPanel = row.querySelector(".reply-panel");
+        const replyTextarea = row.querySelector(".reply-textarea");
+        const replyTemplateSelect = row.querySelector(".reply-template-select");
+        const replySendBtn = row.querySelector(".reply-send-btn");
+        const replyCancelBtn = row.querySelector(".reply-cancel-btn");
+
+        replyBtn?.addEventListener("click", () => {
+            if (!replyPanel) return;
+            replyPanel.style.display = replyPanel.style.display === "none" ? "" : "none";
+            if (replyPanel.style.display !== "none" && replyTextarea && !replyTextarea.value) {
+                replyTextarea.value = item.replyText || "";
+                replyTextarea.focus();
+            }
+        });
+
+        replyTemplateSelect?.addEventListener("change", () => {
+            const idx = Number(replyTemplateSelect.value);
+            if (!Number.isNaN(idx) && REPLY_TEMPLATES[idx] && replyTextarea) {
+                const sep = replyTextarea.value && !replyTextarea.value.endsWith(" ") && !replyTextarea.value.endsWith("\n") ? " " : "";
+                replyTextarea.value = `${replyTextarea.value}${sep}${REPLY_TEMPLATES[idx]}`;
+                replyTextarea.focus();
+            }
+            replyTemplateSelect.value = "";
+        });
+
+        replyCancelBtn?.addEventListener("click", () => {
+            if (replyPanel) replyPanel.style.display = "none";
+        });
+
+        replySendBtn?.addEventListener("click", async () => {
             try {
-                const replyText = prompt(`Reply to ${reviewerLabel}:`, item.replyText || "");
-                if (replyText === null) {
-                    return;
-                }
-                const trimmed = replyText.trim();
+                const trimmed = (replyTextarea?.value || "").trim();
                 if (!trimmed) {
                     throw new Error("Reply cannot be empty.");
                 }
-
                 const payload = await api("/api/author/reviews/reply", {
                     method: "POST",
                     headers: { "Content-Type": "application/x-www-form-urlencoded" },
                     body: formBody({ reviewId: item.reviewId, replyText: trimmed })
                 });
-
                 showToast("Reply sent and notification delivered to the reviewer.", false);
                 item.replyText = payload.replyText || trimmed;
                 item.repliedAt = payload.repliedAt || item.repliedAt;
@@ -171,6 +312,8 @@ function renderSelectedBookReviews(items) {
 
         body.appendChild(row);
     });
+
+    renderFeedbackAnalytics(items);
 }
 
 async function loadPublishedBooks() {
