@@ -5,6 +5,37 @@ let currentPdfSearchPage = 1;
 let currentPdfSearchHasNext = false;
 let currentPdfSearchQuery = { title: "", authorName: "", searchMode: "partial" };
 
+// Slice 7: client-side sort state for the request queue table.
+// state: { key: string|null, direction: "asc"|"desc"|null }
+let requestSortState = { key: null, direction: null };
+
+// Slice 7: derive priority bucket from request age (days since submitted).
+function derivePriority(item) {
+    const status = String(item.status || "").toLowerCase();
+    // Already-handled requests are always Normal.
+    if (status !== "pending") {
+        return { level: "normal", label: "NORMAL", days: 0 };
+    }
+    const submitted = item.requestedDate || item.requestedAt || "";
+    if (!submitted) {
+        return { level: "normal", label: "NORMAL", days: 0 };
+    }
+    const submittedMs = Date.parse(submitted);
+    if (!Number.isFinite(submittedMs)) {
+        return { level: "normal", label: "NORMAL", days: 0 };
+    }
+    const days = Math.floor((Date.now() - submittedMs) / (1000 * 60 * 60 * 24));
+    if (days >= 14) return { level: "high", label: "HIGH", days };
+    if (days >= 7)  return { level: "medium", label: "MED", days };
+    return { level: "normal", label: "NORMAL", days };
+}
+
+function priorityRank(level) {
+    if (level === "high") return 0;
+    if (level === "medium") return 1;
+    return 2;
+}
+
 const selectedRequestIdInput = document.getElementById("selectedRequestId");
 const selectedTitleInput = document.getElementById("selectedTitle");
 const selectedAuthorInput = document.getElementById("selectedAuthor");
@@ -54,6 +85,45 @@ function requestMatchesFilters(item) {
         || genres.some((genre) => genre.includes(search));
 }
 
+function applyRequestSort(items) {
+    if (!requestSortState.key || !requestSortState.direction) {
+        return items;
+    }
+    const key = requestSortState.key;
+    const dir = requestSortState.direction === "desc" ? -1 : 1;
+    const out = items.slice();
+    out.sort((a, b) => {
+        let av;
+        let bv;
+        if (key === "priorityRank") {
+            av = priorityRank(derivePriority(a).level);
+            bv = priorityRank(derivePriority(b).level);
+        } else if (key === "requestedDate") {
+            av = Date.parse(a.requestedDate || "") || 0;
+            bv = Date.parse(b.requestedDate || "") || 0;
+        } else {
+            av = normalizeText(a[key] || "");
+            bv = normalizeText(b[key] || "");
+        }
+        if (av < bv) return -1 * dir;
+        if (av > bv) return  1 * dir;
+        return 0;
+    });
+    return out;
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll("th.sortable").forEach((th) => {
+        const key = th.getAttribute("data-sort-key");
+        const base = th.textContent.replace(/[\s▲▼]+$/u, "").replace(/\s+$/u, "");
+        if (key === requestSortState.key && requestSortState.direction) {
+            th.textContent = `${base} ${requestSortState.direction === "asc" ? "▲" : "▼"}`;
+        } else {
+            th.textContent = base;
+        }
+    });
+}
+
 function buildRequestRows(items) {
     const body = document.getElementById("requestBody");
     if (!body) {
@@ -61,8 +131,9 @@ function buildRequestRows(items) {
     }
 
     body.innerHTML = "";
+    const sorted = applyRequestSort(items);
 
-    items.forEach((item) => {
+    sorted.forEach((item) => {
         const row = document.createElement("tr");
         if (item.priority) {
             row.classList.add("request-priority");
@@ -71,9 +142,12 @@ function buildRequestRows(items) {
             ? item.genres.map((genre) => `<span class="genre-badge">${genre}</span>`).join("")
             : '<span class="genre-badge genre-badge-empty">None</span>';
         const status = item.status || "PENDING";
+        const pri = derivePriority(item);
+        const star = item.priority ? " ★" : "";
 
         row.innerHTML = `
-            <td>${item.priority ? "★" : ""}</td>
+            <td><input type="checkbox" class="bulk-request-checkbox" data-request-id="${item.id || ""}" data-status="${(item.status || "").toLowerCase()}"></td>
+            <td><span class="priority-badge priority-${pri.level}">${pri.label}</span>${star}</td>
             <td>${item.title || ""}</td>
             <td>${item.requesterFullName || ""}</td>
             <td>${item.authorName || ""}</td>
@@ -127,12 +201,73 @@ function buildRequestRows(items) {
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(priorityBtn);
 
+        const cb = row.querySelector(".bulk-request-checkbox");
+        cb?.addEventListener("change", updateBulkRequestButtonsState);
+
         body.appendChild(row);
     });
 
-    if (!items.length) {
-        body.innerHTML = '<tr><td colspan="11">No matching requests.</td></tr>';
+    if (!sorted.length) {
+        body.innerHTML = '<tr><td colspan="12">No matching requests.</td></tr>';
     }
+
+    const selectAll = document.getElementById("bulkSelectAllRequests");
+    if (selectAll) selectAll.checked = false;
+    updateBulkRequestButtonsState();
+    updateSortIndicators();
+}
+
+function getSelectedRequestIds(filter = () => true) {
+    return Array.from(document.querySelectorAll(".bulk-request-checkbox"))
+        .filter((cb) => cb.checked && filter(cb))
+        .map((cb) => cb.getAttribute("data-request-id"))
+        .filter(Boolean);
+}
+
+function updateBulkRequestButtonsState() {
+    const approveBtn = document.getElementById("bulkApproveBtn");
+    const rejectBtn = document.getElementById("bulkRejectBtn");
+    const pendingCount = getSelectedRequestIds((cb) => cb.getAttribute("data-status") === "pending").length;
+    const totalCount = getSelectedRequestIds().length;
+    if (approveBtn) {
+        approveBtn.disabled = pendingCount === 0;
+        approveBtn.textContent = pendingCount > 0 ? `Approve Selected (${pendingCount})` : "Approve Selected";
+    }
+    if (rejectBtn) {
+        rejectBtn.disabled = pendingCount === 0;
+        rejectBtn.textContent = pendingCount > 0 ? `Reject Selected (${pendingCount})` : "Reject Selected";
+    }
+    // Note: only pending rows can be approved/rejected; non-pending selections are ignored.
+    void totalCount;
+}
+
+async function bulkReviewSelected(action) {
+    const ids = getSelectedRequestIds((cb) => cb.getAttribute("data-status") === "pending");
+    if (ids.length === 0) return;
+    const verb = action === "approve" ? "Approve" : "Reject";
+    if (!confirm(`${verb} ${ids.length} selected request(s)?`)) {
+        return;
+    }
+    let succeeded = 0;
+    const failed = [];
+    for (const id of ids) {
+        try {
+            await api("/api/librarian/book-request/review", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ requestId: id, action, comment: "", reason: "" })
+            });
+            succeeded++;
+        } catch (error) {
+            failed.push(id);
+        }
+    }
+    if (failed.length === 0) {
+        showToast(`${verb}d ${succeeded}.`, false);
+    } else {
+        showToast(`${verb}d ${succeeded}, failed ${failed.length}: ${failed.join(", ")}`, true);
+    }
+    await refreshRequests();
 }
 
 async function togglePriority(requestId, priority) {
@@ -496,6 +631,44 @@ document.getElementById("downloadAndUploadBtn")?.addEventListener("click", () =>
 });
 
 if (currentUser) {
+    // Slice 7: bulk select-all + bulk approve/reject.
+    document.getElementById("bulkSelectAllRequests")?.addEventListener("change", (event) => {
+        const checked = !!event.target.checked;
+        document.querySelectorAll(".bulk-request-checkbox").forEach((cb) => { cb.checked = checked; });
+        updateBulkRequestButtonsState();
+    });
+    document.getElementById("bulkApproveBtn")?.addEventListener("click", () => {
+        bulkReviewSelected("approve").catch((error) => showToast(error.message, true));
+    });
+    document.getElementById("bulkRejectBtn")?.addEventListener("click", () => {
+        bulkReviewSelected("reject").catch((error) => showToast(error.message, true));
+    });
+
+    // Slice 7: column sort cycle (asc → desc → unsorted).
+    document.querySelectorAll("th.sortable").forEach((th) => {
+        th.style.cursor = "pointer";
+        th.addEventListener("click", () => {
+            const key = th.getAttribute("data-sort-key");
+            if (!key) return;
+            if (requestSortState.key !== key) {
+                requestSortState = { key, direction: "asc" };
+            } else if (requestSortState.direction === "asc") {
+                requestSortState = { key, direction: "desc" };
+            } else {
+                requestSortState = { key: null, direction: null };
+            }
+            buildRequestRows(cachedRequests.filter(requestMatchesFilters));
+        });
+    });
+
+    // Slice 7: Enter-to-apply on the keyword search input.
+    document.getElementById("requestSearchInput")?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            buildRequestRows(cachedRequests.filter(requestMatchesFilters));
+        }
+    });
+
     updatePdfSearchPaging(1, false);
     refreshRequests().catch((error) => showToast(error.message, true));
 }

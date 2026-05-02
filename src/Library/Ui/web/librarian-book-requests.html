@@ -99,18 +99,23 @@
             <button id="resetRequestFiltersBtn" class="secondary" type="button">Reset</button>
         </div>
         <button id="refreshRequestsBtn" class="secondary" type="button">Refresh Requests</button>
+        <div class="toolbar">
+            <button id="bulkApproveBtn" type="button" disabled>Approve Selected</button>
+            <button id="bulkRejectBtn" class="secondary" type="button" disabled>Reject Selected</button>
+        </div>
 
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
-                    <th>Priority</th>
-                    <th>Title</th>
-                    <th>Requester</th>
+                    <th><input type="checkbox" id="bulkSelectAllRequests" title="Select all"></th>
+                    <th data-sort-key="priorityRank" class="sortable">Priority</th>
+                    <th data-sort-key="title" class="sortable">Title</th>
+                    <th data-sort-key="requesterFullName" class="sortable">Requester</th>
                     <th>Author</th>
                     <th>Genres</th>
-                    <th>Status</th>
-                    <th>Submitted</th>
+                    <th data-sort-key="status" class="sortable">Status</th>
+                    <th data-sort-key="requestedDate" class="sortable">Submitted</th>
                     <th>Approved</th>
                     <th>Uploaded</th>
                     <th>Reason</th>
