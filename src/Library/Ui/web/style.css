@@ -835,11 +835,13 @@ pre {
     padding: 6px 14px;
     border: 1px solid #ccc;
     background: #f5f5f5;
+    color: #333;
     cursor: pointer;
     border-radius: 4px;
 }
 .tab-btn.active {
     background: #cce5ff;
     border-color: #5a9bd4;
+    color: #1a3d6b;
     font-weight: 600;
 }
