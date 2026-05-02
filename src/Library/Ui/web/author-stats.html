@@ -23,57 +23,89 @@
 
 <main class="layout single-col" data-role="AUTHOR">
     <section class="panel glass-panel">
+        <details>
+            <summary><strong>Dashboard Settings</strong></summary>
+            <p class="muted">Toggle which sections are visible. Preferences are saved in your browser.</p>
+            <div id="dashboardPrefs" class="dashboard-prefs">
+                <label><input type="checkbox" data-section="metricBookCount" checked> Total Published Books</label>
+                <label><input type="checkbox" data-section="metricReadCount" checked> Total Reads</label>
+                <label><input type="checkbox" data-section="metricBorrowCount" checked> Total Borrows</label>
+                <label><input type="checkbox" data-section="metricActiveBorrowCount" checked> Active Borrows</label>
+                <label><input type="checkbox" data-section="metricReviewCount" checked> Total Reviews</label>
+                <label><input type="checkbox" data-section="metricAverageRating" checked> Average Rating</label>
+                <label><input type="checkbox" data-section="readsBarChart" checked> Top Books by Reads</label>
+                <label><input type="checkbox" data-section="ratingPieChart" checked> Review Rating Distribution</label>
+                <label><input type="checkbox" data-section="genreBarChart" checked> Genre Mix</label>
+                <label><input type="checkbox" data-section="trendChart" checked> Borrows Trend</label>
+            </div>
+        </details>
+    </section>
+
+    <section class="panel glass-panel">
         <div class="stats-toolbar">
             <h2>Published Book Performance</h2>
-            <button id="refreshAuthorStatsBtn" class="secondary" type="button">Refresh Metrics</button>
+            <div>
+                <button id="refreshAuthorStatsBtn" class="secondary" type="button">Refresh Metrics</button>
+                <button id="exportStatsCsvBtn" class="secondary" type="button">Export Report (CSV)</button>
+            </div>
         </div>
 
         <p id="authorStatsStatus">Loading author analytics...</p>
 
         <div class="stats-grid" id="authorStatsCards">
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricBookCount">
                 <h3>Published Books</h3>
                 <p id="metricBookCount">--</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricReadCount">
                 <h3>Total Reads</h3>
                 <p id="metricReadCount">--</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricBorrowCount">
                 <h3>Total Borrows</h3>
                 <p id="metricBorrowCount">--</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricActiveBorrowCount">
                 <h3>Active Borrows</h3>
                 <p id="metricActiveBorrowCount">--</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricReviewCount">
                 <h3>Total Reviews</h3>
                 <p id="metricReviewCount">--</p>
             </article>
-            <article class="metric-card">
+            <article class="metric-card" data-section="metricAverageRating">
                 <h3>Average Rating</h3>
                 <p id="metricAverageRating">--</p>
             </article>
         </div>
 
         <div class="chart-grid">
-            <article class="panel-subtle chart-card">
+            <article class="panel-subtle chart-card" data-section="readsBarChart">
                 <h3>Top Books by Reads</h3>
                 <p class="muted">Industry standard author dashboard view for demand concentration.</p>
                 <div class="chart-wrap"><canvas id="readsBarChart"></canvas></div>
             </article>
 
-            <article class="panel-subtle chart-card">
+            <article class="panel-subtle chart-card" data-section="ratingPieChart">
                 <h3>Review Rating Distribution</h3>
                 <p class="muted">Pie chart of 1 to 5-star reviews across your catalog.</p>
                 <div class="chart-wrap"><canvas id="ratingPieChart"></canvas></div>
             </article>
 
-            <article class="panel-subtle chart-card">
+            <article class="panel-subtle chart-card" data-section="genreBarChart">
                 <h3>Genre Mix by Published Books</h3>
                 <p class="muted">Bar chart to identify category strengths and content balance.</p>
                 <div class="chart-wrap"><canvas id="genreBarChart"></canvas></div>
+            </article>
+
+            <article class="panel-subtle chart-card" data-section="trendChart">
+                <h3>Borrows Trend</h3>
+                <div class="toolbar tab-strip" id="trendBucketStrip">
+                    <button class="tab-btn active" type="button" data-bucket="week">Weekly</button>
+                    <button class="tab-btn" type="button" data-bucket="month">Monthly</button>
+                </div>
+                <p id="trendStatus" class="muted"></p>
+                <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
             </article>
         </div>
     </section>

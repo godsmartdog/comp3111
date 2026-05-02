@@ -1913,6 +1913,129 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/stats-export", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                List<Book> books = authorService.listPublishedBooksByAuthor(user.getUsername());
+                List<BorrowRecord> borrows = borrowService.listAllBorrowRecords();
+
+                int totalReads = 0;
+                int totalBorrows = 0;
+                int totalActiveBorrows = 0;
+                int totalReviews = 0;
+                double ratingSum = 0.0;
+                int[] ratingBuckets = new int[5];
+
+                java.util.Set<String> authorBookIds = new java.util.LinkedHashSet<>();
+                for (Book b : books) authorBookIds.add(b.getId());
+
+                java.util.LinkedHashMap<String, Integer> readsByTitle = new java.util.LinkedHashMap<>();
+                java.util.LinkedHashMap<String, Integer> genreCounter = new java.util.LinkedHashMap<>();
+
+                for (Book book : books) {
+                    int borrowCount = 0;
+                    int activeBorrowCount = 0;
+                    java.util.Set<String> uniqueReaders = new java.util.LinkedHashSet<>();
+                    for (BorrowRecord record : borrows) {
+                        if (book.getId().equals(record.getBookId())) {
+                            borrowCount++;
+                            uniqueReaders.add(record.getUsername());
+                            if (!record.isReturned()) activeBorrowCount++;
+                        }
+                    }
+                    List<BookReview> reviews = bookReviewService.listReviewsForBook(book.getId());
+                    BookReviewService.RatingSummary ratingSummary = bookReviewService.getRatingSummary(book.getId());
+                    for (BookReview r : reviews) {
+                        int rating = Math.max(1, Math.min(5, r.getRating()));
+                        ratingBuckets[rating - 1]++;
+                    }
+                    int readCount = uniqueReaders.size();
+                    int reviewCount = ratingSummary.reviewCount();
+                    totalReads += readCount;
+                    totalBorrows += borrowCount;
+                    totalActiveBorrows += activeBorrowCount;
+                    totalReviews += reviewCount;
+                    ratingSum += ratingSummary.averageRating() * reviewCount;
+                    readsByTitle.merge(book.getTitle(), readCount, Integer::sum);
+                    List<String> genres = book.getGenres();
+                    if (genres == null || genres.isEmpty()) {
+                        genreCounter.merge("Unspecified", 1, Integer::sum);
+                    } else {
+                        for (String g : genres) {
+                            String key = g == null || g.isBlank() ? "Unspecified" : g.trim();
+                            genreCounter.merge(key, 1, Integer::sum);
+                        }
+                    }
+                }
+
+                java.util.TreeMap<String, Integer> dailyCounts = new java.util.TreeMap<>();
+                for (BorrowRecord record : borrows) {
+                    if (!authorBookIds.contains(record.getBookId())) continue;
+                    if (record.getBorrowDate() == null) continue;
+                    dailyCounts.merge(record.getBorrowDate().toString(), 1, Integer::sum);
+                }
+
+                String overallAverage = totalReviews == 0
+                        ? "0.00"
+                        : String.format(Locale.US, "%.2f", ratingSum / totalReviews);
+
+                LocalDate today = LocalDate.now();
+                StringBuilder csv = new StringBuilder();
+                csv.append("Summary\n");
+                csv.append("Metric,Value\n");
+                csv.append("Published Books,").append(books.size()).append('\n');
+                csv.append("Total Reads,").append(totalReads).append('\n');
+                csv.append("Total Borrows,").append(totalBorrows).append('\n');
+                csv.append("Active Borrows,").append(totalActiveBorrows).append('\n');
+                csv.append("Total Reviews,").append(totalReviews).append('\n');
+                csv.append("Average Rating,").append(overallAverage).append('\n');
+                csv.append('\n');
+
+                csv.append("Top Books by Reads\n");
+                csv.append("Title,Reads\n");
+                readsByTitle.entrySet().stream()
+                        .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                        .forEach(e -> csv.append(csvEscape(e.getKey())).append(',').append(e.getValue()).append('\n'));
+                csv.append('\n');
+
+                csv.append("Review Rating Distribution\n");
+                csv.append("Stars,Count\n");
+                for (int i = 5; i >= 1; i--) {
+                    csv.append(i).append(',').append(ratingBuckets[i - 1]).append('\n');
+                }
+                csv.append('\n');
+
+                csv.append("Genre Mix\n");
+                csv.append("Genre,Books\n");
+                genreCounter.entrySet().stream()
+                        .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                        .forEach(e -> csv.append(csvEscape(e.getKey())).append(',').append(e.getValue()).append('\n'));
+                csv.append('\n');
+
+                csv.append("Borrows Timeline\n");
+                csv.append("Date,Count\n");
+                for (Map.Entry<String, Integer> e : dailyCounts.entrySet()) {
+                    csv.append(csvEscape(e.getKey())).append(',').append(e.getValue()).append('\n');
+                }
+
+                byte[] body = csv.toString().getBytes(StandardCharsets.UTF_8);
+                String filename = "author-stats-" + today + ".csv";
+                exchange.getResponseHeaders().set("Content-Type", "text/csv; charset=UTF-8");
+                exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/published-book/update", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -4258,10 +4381,27 @@ public class LibraryApiHandlers {
                 "{\"label\":\"5-star\",\"count\":" + ratingBuckets[4] + "}" +
                 "]";
 
+        // Borrows timeline: daily counts across all of this author's books
+        java.util.Set<String> authorBookIds = new java.util.LinkedHashSet<>();
+        for (Book b : books) authorBookIds.add(b.getId());
+        java.util.TreeMap<String, Integer> dailyCounts = new java.util.TreeMap<>();
+        for (BorrowRecord record : borrows) {
+            if (!authorBookIds.contains(record.getBookId())) continue;
+            if (record.getBorrowDate() == null) continue;
+            String key = record.getBorrowDate().toString();
+            dailyCounts.merge(key, 1, Integer::sum);
+        }
+        List<String> timelineEntries = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : dailyCounts.entrySet()) {
+            timelineEntries.add("{\"date\":\"" + JsonUtil.escape(e.getKey()) + "\",\"count\":" + e.getValue() + "}");
+        }
+        String borrowsTimelineJson = "[" + String.join(",", timelineEntries) + "]";
+
         return "{" +
                 "\"summary\":" + summary + "," +
                 "\"books\":[" + String.join(",", bookStatsValues) + "]," +
-                "\"ratingBuckets\":" + ratingBucketJson +
+                "\"ratingBuckets\":" + ratingBucketJson + "," +
+                "\"borrowsTimeline\":" + borrowsTimelineJson +
                 "}";
     }
 
