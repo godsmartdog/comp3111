@@ -59,6 +59,36 @@ public class LibrarianService3 {
         return user;
     }
 
+    public User createManagedUser(String username, String fullName, String password,
+                                  Role role, String bio, String employeeId) {
+        if (role == null) {
+            throw new ValidationException("Role is required.");
+        }
+        String normalizedUsername = NamePolicy.validateUsername(username);
+        String normalizedFullName = NamePolicy.validateFullName(fullName);
+        PasswordPolicy.validate(password);
+
+        if (userRepository.existsByUsername(normalizedUsername)) {
+            throw new ValidationException("Username already exists.");
+        }
+
+        User user = new User(normalizedUsername, normalizedFullName,
+                PasswordHasher.hashPassword(password), role);
+        userRepository.save(user);
+
+        if (role == Role.AUTHOR) {
+            String normalizedBio = bio == null ? "" : bio.trim();
+            authorProfileRepository.save(new AuthorProfile2(normalizedUsername, normalizedBio));
+        } else if (role == Role.LIBRARIAN) {
+            String normalizedEmployeeId = employeeId == null ? "" : employeeId.trim();
+            if (normalizedEmployeeId.isEmpty()) {
+                throw new ValidationException("Employee ID cannot be empty.");
+            }
+            librarianProfileRepository.save(new LibrarianProfile3(normalizedUsername, normalizedEmployeeId));
+        }
+        return user;
+    }
+
     // Method to authenticate a librarian, verifying credentials and ensuring the user has the LIBRARIAN role before creating a session for the authenticated user, which allows librarians to access their functionalities within the system.
     public User loginLibrarian(String username, String password) {
         User user = userRepository.findByUsername(username)

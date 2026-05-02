@@ -816,3 +816,7 @@ pre {
         align-items: flex-start;
     }
 }
+
+.request-priority {
+    background-color: #fff4cc;
+}

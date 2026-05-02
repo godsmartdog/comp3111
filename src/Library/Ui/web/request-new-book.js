@@ -27,7 +27,8 @@ function requestRowToHtml(item) {
     const status = item.status || "PENDING";
     const statusLabel = status.toLowerCase();
     return `
-        <tr>
+        <tr${item.priority ? ' class="request-priority"' : ""}>
+            <td>${item.priority ? "★" : ""}</td>
             <td>${item.title || ""}</td>
             <td>${item.authorName || ""}</td>
             <td><div class="genre-badge-group">${genres}</div></td>

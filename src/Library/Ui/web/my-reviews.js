@@ -58,6 +58,7 @@ function renderMyReviews(items) {
             <div style="margin-bottom:10px;">
                 <strong style="font-size:1.1em;">${bookTitle}</strong>
                 <span class="muted" style="margin-left:10px;">Rating: ${rating}/5</span>
+                ${item.anonymous ? `<span class="muted" style="margin-left:10px;">(Anonymous)</span>` : ""}
             </div>
             <div style="margin-bottom:10px;white-space:pre-wrap;">
                 <strong>Your Review:</strong> ${reviewText}

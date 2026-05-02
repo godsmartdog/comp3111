@@ -64,12 +64,16 @@ function buildRequestRows(items) {
 
     items.forEach((item) => {
         const row = document.createElement("tr");
+        if (item.priority) {
+            row.classList.add("request-priority");
+        }
         const genres = Array.isArray(item.genres) && item.genres.length > 0
             ? item.genres.map((genre) => `<span class="genre-badge">${genre}</span>`).join("")
             : '<span class="genre-badge genre-badge-empty">None</span>';
         const status = item.status || "PENDING";
 
         row.innerHTML = `
+            <td>${item.priority ? "★" : ""}</td>
             <td>${item.title || ""}</td>
             <td>${item.requesterFullName || ""}</td>
             <td>${item.authorName || ""}</td>
@@ -108,6 +112,11 @@ function buildRequestRows(items) {
         rejectBtn.disabled = status.toLowerCase() !== "pending";
         rejectBtn.addEventListener("click", () => reviewRequest(requestId, "reject", item));
 
+        const priorityBtn = document.createElement("button");
+        priorityBtn.className = "secondary";
+        priorityBtn.textContent = item.priority ? "Unmark Priority" : "Mark Priority";
+        priorityBtn.addEventListener("click", () => togglePriority(requestId, !item.priority));
+
         actionCell.appendChild(selectBtn);
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(approveBtn);
@@ -115,12 +124,28 @@ function buildRequestRows(items) {
         actionCell.appendChild(uploadBtn);
         actionCell.appendChild(document.createTextNode(" "));
         actionCell.appendChild(rejectBtn);
+        actionCell.appendChild(document.createTextNode(" "));
+        actionCell.appendChild(priorityBtn);
 
         body.appendChild(row);
     });
 
     if (!items.length) {
-        body.innerHTML = '<tr><td colspan="10">No matching requests.</td></tr>';
+        body.innerHTML = '<tr><td colspan="11">No matching requests.</td></tr>';
+    }
+}
+
+async function togglePriority(requestId, priority) {
+    try {
+        await api("/api/librarian/book-request/priority", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ requestId, priority: priority ? "true" : "false" })
+        });
+        showToast(priority ? "Marked as priority." : "Priority cleared.", false);
+        await refreshRequests();
+    } catch (error) {
+        showToast(error.message, true);
     }
 }
 

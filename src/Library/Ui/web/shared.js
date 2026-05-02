@@ -166,7 +166,11 @@ function formatDateOnly(value) {
 }
 
 function formatReviewDisplayHtml(item) {
-    const reviewer = escapeHtml(item?.reviewerFullName || item?.username || "Unknown reviewer");
+    const isAnonymous = Boolean(item?.anonymous);
+    const reviewerName = isAnonymous
+        ? "Anonymous"
+        : (item?.reviewerFullName || item?.username || "Unknown reviewer");
+    const reviewer = escapeHtml(reviewerName);
     const rating = escapeHtml(`${Number(item?.rating || 0)}/5`);
     const reviewText = escapeHtml(item?.reviewText || "");
     const replyText = escapeHtml(item?.replyText || "");

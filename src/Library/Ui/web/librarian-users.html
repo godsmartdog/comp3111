@@ -45,6 +45,43 @@
             <button id="bulkDeactivateBtn" class="danger" type="button">Deactivate Selected</button>
             <button id="bulkActivateBtn" class="secondary" type="button">Activate Selected</button>
             <button id="refreshUsersBtn" class="secondary" type="button">Refresh Users</button>
+            <button id="showAddUserBtn" class="secondary" type="button">Add New User</button>
+        </div>
+
+        <div id="addUserSection" class="form-grid" style="display:none; margin-top:12px;">
+            <div class="form-field">
+                <label for="newUsername">Username</label>
+                <input id="newUsername" type="text" placeholder="username">
+            </div>
+            <div class="form-field">
+                <label for="newFullName">Full Name</label>
+                <input id="newFullName" type="text" placeholder="Full name">
+            </div>
+            <div class="form-field">
+                <label for="newPassword">Password</label>
+                <input id="newPassword" type="password" placeholder="Password">
+            </div>
+            <div class="form-field">
+                <label for="newRole">Role</label>
+                <select id="newRole">
+                    <option value="STUDENT" selected>Student</option>
+                    <option value="STAFF">Staff</option>
+                    <option value="AUTHOR">Author</option>
+                    <option value="LIBRARIAN">Librarian</option>
+                </select>
+            </div>
+            <div class="form-field" id="newBioField" style="display:none;">
+                <label for="newBio">Author Bio</label>
+                <textarea id="newBio" rows="2" placeholder="Optional bio"></textarea>
+            </div>
+            <div class="form-field" id="newEmployeeIdField" style="display:none;">
+                <label for="newEmployeeId">Employee ID</label>
+                <input id="newEmployeeId" type="text" placeholder="EMP-001">
+            </div>
+            <div class="form-field full toolbar">
+                <button id="createUserBtn" class="secondary" type="button">Create User</button>
+                <button id="cancelAddUserBtn" class="secondary" type="button">Cancel</button>
+            </div>
         </div>
 
         <p id="usersStatus" class="hint">Loading users...</p>

@@ -181,7 +181,15 @@ async function refreshBooks() {
         status.textContent = "Loading published books...";
     }
 
-    const items = await api("/api/librarian/approved-books");
+    const params = new URLSearchParams();
+    const genre = document.getElementById("filterGenre")?.value.trim() || "";
+    const author = document.getElementById("filterAuthor")?.value.trim() || "";
+    const statusFilter = document.getElementById("filterStatus")?.value.trim() || "";
+    if (genre) params.set("genre", genre);
+    if (author) params.set("author", author);
+    if (statusFilter) params.set("status", statusFilter);
+    const path = `/api/librarian/approved-books${params.toString() ? `?${params.toString()}` : ""}`;
+    const items = await api(path);
     publishedBooks = Array.isArray(items) ? items : [];
     const keyword = document.getElementById("bookKeyword")?.value.trim() || "";
     renderPublishedBooks(filterBooksByKeyword(publishedBooks, keyword));
@@ -329,6 +337,20 @@ document.getElementById("searchBooksBtn")?.addEventListener("click", () => {
 });
 
 document.getElementById("refreshBooksBtn")?.addEventListener("click", () => {
+    refreshBooks().catch((error) => showToast(error.message, true));
+});
+
+document.getElementById("applyFiltersBtn")?.addEventListener("click", () => {
+    refreshBooks().catch((error) => showToast(error.message, true));
+});
+
+document.getElementById("resetFiltersBtn")?.addEventListener("click", () => {
+    const g = document.getElementById("filterGenre");
+    const a = document.getElementById("filterAuthor");
+    const s = document.getElementById("filterStatus");
+    if (g) g.value = "";
+    if (a) a.value = "";
+    if (s) s.value = "";
     refreshBooks().catch((error) => showToast(error.message, true));
 });
 

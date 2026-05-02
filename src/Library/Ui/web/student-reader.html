@@ -65,11 +65,22 @@
                     <option value="4">4</option>
                     <option value="5" selected>5</option>
                 </select>
+                <label for="reviewAnonymous" style="margin-left:10px;">
+                    <input id="reviewAnonymous" type="checkbox"> Submit anonymously
+                </label>
             </div>
             <label for="reviewTextInput">Review</label>
             <textarea id="reviewTextInput" rows="3" placeholder="Share your reading feedback..."></textarea>
             <button id="saveReviewBtn" class="secondary" type="button">Save Review</button>
             <p id="readerRatingSummary" class="hint">Average rating: -</p>
+            <div class="inline-row" style="margin-top:6px;">
+                <label for="reviewSort">Sort reviews</label>
+                <select id="reviewSort">
+                    <option value="recent" selected>Most Recent</option>
+                    <option value="highest">Highest Rating</option>
+                    <option value="lowest">Lowest Rating</option>
+                </select>
+            </div>
             <div class="reader-scroll-block" style="max-height:220px;">
                 <ul id="readerReviewsList"></ul>
             </div>
