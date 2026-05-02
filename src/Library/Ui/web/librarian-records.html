@@ -42,7 +42,19 @@
 <main class="layout single-col" data-role="LIBRARIAN">
     <section class="panel glass-panel">
         <p id="borrowedRecordsStatus">Loading borrowed books records...</p>
-        <button id="refreshBorrowedRecordsBtn" class="secondary" type="button">Refresh Borrowed Records</button>
+        <div class="toolbar">
+            <input id="recordsKeyword" type="text" placeholder="Search by book title, borrower username, or borrow ID...">
+            <button id="applyRecordsFiltersBtn" class="secondary" type="button">Apply</button>
+            <button id="resetRecordsFiltersBtn" class="secondary" type="button">Reset</button>
+            <button id="exportRecordsCsvBtn" class="secondary" type="button">Export CSV</button>
+            <button id="refreshBorrowedRecordsBtn" class="secondary" type="button">Refresh Borrowed Records</button>
+        </div>
+        <div class="toolbar tab-strip">
+            <button class="tab-btn active" type="button" data-filter="all">All</button>
+            <button class="tab-btn" type="button" data-filter="active">Active</button>
+            <button class="tab-btn" type="button" data-filter="overdue">Overdue</button>
+            <button class="tab-btn" type="button" data-filter="returned">Returned</button>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
