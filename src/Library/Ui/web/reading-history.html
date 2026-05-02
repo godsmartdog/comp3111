@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E-Library | Reading History</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <canvas id="bgCanvas"></canvas>
@@ -43,6 +44,7 @@
             </select>
             <button id="applyHistoryFiltersBtn" type="button">Apply History Filters</button>
             <button id="resetHistoryFiltersBtn" class="secondary" type="button">Reset Filters</button>
+            <button id="exportHistoryCsvBtn" class="secondary" type="button">Export CSV</button>
         </div>
         <p id="historyStatus" class="hint">Loading reading history...</p>
         <div class="table-wrap">
@@ -61,6 +63,31 @@
                 <tbody id="historyBody"></tbody>
             </table>
         </div>
+    </section>
+
+    <section class="panel glass-panel">
+        <details open>
+            <summary><strong>Reading Insights</strong></summary>
+            <p id="insightsStatus" class="hint"></p>
+            <div class="insights-grid">
+                <div class="insights-card">
+                    <h3>Top Genres</h3>
+                    <canvas id="genrePieChart" width="300" height="300"></canvas>
+                </div>
+                <div class="insights-card">
+                    <h3>Reading Duration Over Time</h3>
+                    <canvas id="durationLineChart" width="600" height="300"></canvas>
+                </div>
+            </div>
+        </details>
+    </section>
+
+    <section class="panel glass-panel">
+        <details open>
+            <summary><strong>Achievements</strong></summary>
+            <p id="achievementsStatus" class="hint">Achievements are derived from your full reading history.</p>
+            <div id="badgesGrid" class="badges-grid"></div>
+        </details>
     </section>
 </main>
 
