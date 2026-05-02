@@ -265,7 +265,7 @@ document.getElementById("createUserBtn")?.addEventListener("click", async () => 
             return;
         }
 
-        const response = await api("/api/librarian/users/create", {
+        const response = await api("/api/librarian/users-create", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({ username, fullName, password, role, bio, employeeId })

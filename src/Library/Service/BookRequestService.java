@@ -45,7 +45,15 @@ public class BookRequestService {
                 normalizedGenres,
                 normalizedReason
         );
-        for (BookRequest2 existing : requestRepository.findByRequesterUsername(requesterUsername)) {
+        for (BookRequest2 existing : requestRepository.findAll()) {
+            // dup-check: compare username case-insensitively in case stored value
+            // differs from the raw input (trimmed/lowercased elsewhere)
+            String existingRequester = existing.getRequesterUsername() == null
+                    ? "" : existing.getRequesterUsername().trim();
+            String incomingRequester = requesterUsername == null ? "" : requesterUsername.trim();
+            if (!existingRequester.equalsIgnoreCase(incomingRequester)) {
+                continue;
+            }
             if (existing.getStatus() != BookRequestStatus.PENDING
                     && existing.getStatus() != BookRequestStatus.APPROVED) {
                 continue;
