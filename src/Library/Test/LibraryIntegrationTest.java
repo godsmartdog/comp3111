@@ -81,6 +81,7 @@ public final class LibraryIntegrationTest {
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
         runner.run("auto return emits high priority notification once", LibraryIntegrationTest::testAutoReturnEmitsHighPriorityNotificationOnce);
+        runner.run("auto-return notification filters under auto-return category not other", LibraryIntegrationTest::testAutoReturnNotificationFiltersUnderAutoReturnCategoryNotOther);
         runner.run("reader expiry does not prevent auto-return flow", LibraryIntegrationTest::testReaderExpiryDoesNotPreventAutoReturnFlow);
         runner.run("bulk return succeeds for multiple borrows", LibraryIntegrationTest::testBulkReturnSucceedsForMultipleBorrows);
         runner.run("bulk return partial failure when id invalid", LibraryIntegrationTest::testBulkReturnPartialFailureWhenIdInvalid);
@@ -839,6 +840,30 @@ public final class LibraryIntegrationTest {
                 .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
                 .count();
         assertEquals(1L, autoReturnSecond, "dedup should prevent repeat auto-return notifications");
+    }
+
+    private static void testAutoReturnNotificationFiltersUnderAutoReturnCategoryNotOther() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("auto-return-category-user", "Auto Return Category User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Auto Return Category Book", "Tester", "Slice 12 first-class category fixture.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord(
+                "auto-return-category-user",
+                book.getId(),
+                LocalDate.now().minusDays(10),
+                LocalDate.now().minusDays(1)
+        );
+        context.borrowRepository.save(overdue);
+
+        // Slice 9 emits the auto-return notification on the first list call.
+        context.borrowService.listActiveBorrowsByUser("auto-return-category-user");
+
+        long autoReturnByMetadataType = context.notificationService.listByUser("auto-return-category-user").stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .count();
+        assertEquals(1L, autoReturnByMetadataType,
+                "auto-return notification metadata.type literal must match the first-class category key");
     }
 
     private static void testReaderExpiryDoesNotPreventAutoReturnFlow() {
