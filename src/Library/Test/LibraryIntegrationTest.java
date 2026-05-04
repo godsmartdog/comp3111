@@ -54,6 +54,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public final class LibraryIntegrationTest {
     public static void main(String[] args) throws Exception {
@@ -79,6 +80,7 @@ public final class LibraryIntegrationTest {
         runner.run("librarian reject and bulk approve flow", LibraryIntegrationTest::testRejectAndBulkApproveFlow);
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
+        runner.run("auto return emits high priority notification once", LibraryIntegrationTest::testAutoReturnEmitsHighPriorityNotificationOnce);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
         runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
@@ -802,6 +804,38 @@ public final class LibraryIntegrationTest {
         assertTrue(overdue.isReturned(), "overdue record should be marked returned");
         assertTrue(overdue.isAutoReturned(), "overdue record should be flagged as auto-returned");
         assertTrue(book.isAvailable(), "book should become available after auto-return");
+    }
+
+    private static void testAutoReturnEmitsHighPriorityNotificationOnce() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("auto-return-user", "Auto Return User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Overdue Notification Book", "Tester", "Auto-return notification fixture.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord("auto-return-user", book.getId(), LocalDate.now().minusDays(10), LocalDate.now().minusDays(1));
+        context.borrowRepository.save(overdue);
+
+        context.borrowService.listActiveBorrowsByUser("auto-return-user");
+
+        List<NotificationItem> first = context.notificationService.listByUser("auto-return-user");
+        List<NotificationItem> autoReturnFirst = first.stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .collect(Collectors.toList());
+        assertEquals(1, autoReturnFirst.size(), "auto-return should emit exactly one notification for the record");
+        NotificationItem notification = autoReturnFirst.get(0);
+        assertEquals(NotificationPriority.HIGH, notification.getPriority(), "auto-return notification should have HIGH priority");
+        assertEquals(book.getId(), notification.getMetadata().getOrDefault("bookId", ""), "metadata should carry bookId");
+        assertEquals(overdue.getDueDate().toString(), notification.getMetadata().getOrDefault("dueDate", ""), "metadata should carry dueDate");
+
+        // Second call must not produce a duplicate even though autoReturnOverdueBooks runs again.
+        context.borrowService.listActiveBorrowsByUser("auto-return-user");
+        List<NotificationItem> second = context.notificationService.listByUser("auto-return-user");
+        long autoReturnSecond = second.stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .count();
+        assertEquals(1L, autoReturnSecond, "dedup should prevent repeat auto-return notifications");
     }
 
     private static void testReadingProgressPersistence() {
@@ -4264,7 +4298,8 @@ public final class LibraryIntegrationTest {
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
         private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
-        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
+        private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
+        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService, notificationService);
         private final BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
         private final LibrarianService3 librarianService = new LibrarianService3(
             userRepository,
@@ -4273,7 +4308,6 @@ public final class LibraryIntegrationTest {
             submissionRepository,
             bookRepository
         );
-        private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
         private final SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(new MemorySessionSnapshotRepository());
 
         private TestContext() {
