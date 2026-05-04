@@ -1,4 +1,5 @@
 const currentUser = requireRole("AUTHOR");
+const selectedPublishedBookIds = new Set();
 let serverPreviewObjectUrl = null;
 
 if (currentUser) {
@@ -165,6 +166,11 @@ async function refreshPublishedBooks() {
 
     status.textContent = `Found ${items.length} published book(s).`;
 
+    const visibleIds = new Set(items.map((item) => item.id));
+    Array.from(selectedPublishedBookIds).forEach((id) => {
+        if (!visibleIds.has(id)) selectedPublishedBookIds.delete(id);
+    });
+
     items.forEach((item) => {
         const row = document.createElement("tr");
         const actionCell = document.createElement("td");
@@ -177,6 +183,19 @@ async function refreshPublishedBooks() {
             <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
         `;
+
+        const selectCell = document.createElement("td");
+        const selectInput = document.createElement("input");
+        selectInput.type = "checkbox";
+        selectInput.dataset.bookId = item.id;
+        selectInput.checked = selectedPublishedBookIds.has(item.id);
+        selectInput.addEventListener("change", () => {
+            if (selectInput.checked) selectedPublishedBookIds.add(item.id);
+            else selectedPublishedBookIds.delete(item.id);
+            updateBulkDeletePublishedButton();
+        });
+        selectCell.appendChild(selectInput);
+        row.insertBefore(selectCell, row.firstChild);
 
         const editBtn = document.createElement("button");
         editBtn.className = "secondary";
@@ -275,7 +294,66 @@ async function refreshPublishedBooks() {
         row.appendChild(actionCell);
         body.appendChild(row);
     });
+    updateBulkDeletePublishedButton();
+    const selectAll = document.getElementById("publishedSelectAll");
+    if (selectAll) selectAll.checked = false;
 }
+
+function updateBulkDeletePublishedButton() {
+    const btn = document.getElementById("bulkDeletePublishedBtn");
+    if (!btn) return;
+    btn.textContent = `Delete Selected (${selectedPublishedBookIds.size})`;
+    btn.disabled = selectedPublishedBookIds.size === 0;
+}
+
+document.getElementById("publishedSelectAll")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document
+        .querySelectorAll("#publishedBooksBody input[type=checkbox][data-book-id]")
+        .forEach((cb) => {
+            cb.checked = checked;
+            const id = cb.dataset.bookId;
+            if (checked) selectedPublishedBookIds.add(id);
+            else selectedPublishedBookIds.delete(id);
+        });
+    updateBulkDeletePublishedButton();
+});
+
+document.getElementById("bulkDeletePublishedBtn")?.addEventListener("click", async () => {
+    if (selectedPublishedBookIds.size === 0) return;
+    const ids = Array.from(selectedPublishedBookIds);
+    const titles = ids.map((id) => {
+        const cb = document.querySelector(`#publishedBooksBody input[data-book-id="${id}"]`);
+        // Row order: [select][ID][Title][...]; title is index 2 of row.children.
+        const titleCell = cb?.parentElement?.parentElement?.children?.[2];
+        return titleCell ? titleCell.textContent : id;
+    });
+    const summary = titles.length > 6
+        ? titles.slice(0, 6).join(", ") + `, … (+${titles.length - 6} more)`
+        : titles.join(", ");
+    if (!confirm(`Delete ${ids.length} published book(s)?\n\n${summary}\n\nThis cannot be undone. Books with active borrows will be skipped with a reason.`)) {
+        return;
+    }
+    try {
+        const result = await api("/api/author/published-book/bulk-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ bookIds: ids.join(",") })
+        });
+        const deleted = Number(result?.deletedCount || 0);
+        const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+        let msg = `Deleted ${deleted} published book(s).`;
+        if (skipped.length > 0) {
+            msg += ` Skipped ${skipped.length}: ` + skipped.slice(0, 3).map((s) => `${s.id} (${s.reason})`).join("; ");
+            if (skipped.length > 3) msg += `; …`;
+        }
+        showToast(msg, skipped.length > 0);
+        selectedPublishedBookIds.clear();
+        await refreshPublishedBooks();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
     refreshPublishedBooks().catch((e) => {
