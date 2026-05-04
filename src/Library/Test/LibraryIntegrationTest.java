@@ -81,6 +81,7 @@ public final class LibraryIntegrationTest {
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
         runner.run("auto return emits high priority notification once", LibraryIntegrationTest::testAutoReturnEmitsHighPriorityNotificationOnce);
+        runner.run("reader expiry does not prevent auto-return flow", LibraryIntegrationTest::testReaderExpiryDoesNotPreventAutoReturnFlow);
         runner.run("bulk return succeeds for multiple borrows", LibraryIntegrationTest::testBulkReturnSucceedsForMultipleBorrows);
         runner.run("bulk return partial failure when id invalid", LibraryIntegrationTest::testBulkReturnPartialFailureWhenIdInvalid);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
@@ -838,6 +839,36 @@ public final class LibraryIntegrationTest {
                 .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
                 .count();
         assertEquals(1L, autoReturnSecond, "dedup should prevent repeat auto-return notifications");
+    }
+
+    private static void testReaderExpiryDoesNotPreventAutoReturnFlow() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("reader-expiry-user", "Reader Expiry User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Reader Expiry Book", "Tester", "Reader expiry watchdog backend invariant.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord(
+                "reader-expiry-user",
+                book.getId(),
+                LocalDate.now().minusDays(10),
+                LocalDate.now().minusDays(1)
+        );
+        context.borrowRepository.save(overdue);
+
+        // Slice 11 watchdog calls /api/borrows?status=active on expiry; that hits listActiveBorrowsByUser.
+        List<BorrowRecord> active = context.borrowService.listActiveBorrowsByUser("reader-expiry-user");
+
+        assertEquals(0, active.size(), "auto-returned record should be filtered from active list");
+        assertTrue(overdue.isReturned(), "overdue record should be marked returned");
+        assertTrue(overdue.isAutoReturned(), "overdue record should be flagged auto-returned");
+        assertTrue(book.isAvailable(), "book should become available after auto-return");
+
+        List<NotificationItem> autoReturnNotifications = context.notificationService.listByUser("reader-expiry-user").stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .collect(Collectors.toList());
+        assertEquals(1, autoReturnNotifications.size(), "Slice 9 auto-return notification must fire when watchdog pings list endpoint");
+        assertEquals(NotificationPriority.HIGH, autoReturnNotifications.get(0).getPriority(), "auto-return notification should be HIGH priority");
     }
 
     private static void testBulkReturnSucceedsForMultipleBorrows() {
