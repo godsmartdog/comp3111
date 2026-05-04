@@ -184,23 +184,32 @@ async function refreshPublishedBooks() {
         editBtn.textContent = "Edit";
         editBtn.addEventListener("click", async () => {
             try {
-                const newTitle = prompt("Update title:", item.title || "");
-                if (newTitle === null) {
+                const proceed = confirm(
+                    `Edit "${item.title}"?\n\n` +
+                    "You will be asked for each editable field one at a time:\n" +
+                    "  Step 1 of 3 — Title\n" +
+                    "  Step 2 of 3 — Genres (comma-separated)\n" +
+                    "  Step 3 of 3 — Description\n\n" +
+                    "Press Cancel on any step to abort the edit; nothing is saved until all 3 steps are completed."
+                );
+                if (!proceed) {
                     return;
                 }
+
+                const newTitle = prompt("Step 1 of 3 — Update title:", item.title || "");
+                if (newTitle === null) { return; }
 
                 const newGenres = prompt(
-                    "Update genres (comma separated):",
+                    "Step 2 of 3 — Update genres (comma separated):",
                     Array.isArray(item.genres) ? item.genres.join(", ") : ""
                 );
-                if (newGenres === null) {
-                    return;
-                }
+                if (newGenres === null) { return; }
 
-                const newDescription = prompt("Update description:", item.description || item.summary || "");
-                if (newDescription === null) {
-                    return;
-                }
+                const newDescription = prompt(
+                    "Step 3 of 3 — Update description:",
+                    item.description || item.summary || ""
+                );
+                if (newDescription === null) { return; }
 
                 const text = await api("/api/author/published-book/update", {
                     method: "POST",
