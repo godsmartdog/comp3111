@@ -8,7 +8,10 @@ public final class SecurityConfig {
     public static final int MAX_BORROW_DAYS = 14;
     public static final int DEFAULT_BORROW_DAYS = MAX_BORROW_DAYS;
     public static final int DEFAULT_RETURN_REMINDER_DUE_SOON_DAYS = 3;
-    public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 15L * 60L * 1000L;
+    // 2 hours — long enough for demo walkthroughs and for clock-aware
+    // manual testing of due-date / auto-return / reader-expiry features.
+    // Override via JVM property -Dlibrary.sessionIdleTimeoutMs.
+    public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 2L * 60L * 60L * 1000L;
     public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
     public static final long MAX_COVER_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md", ".jpg", ".jpeg", ".png");
