@@ -81,6 +81,8 @@ public final class LibraryIntegrationTest {
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
         runner.run("auto return emits high priority notification once", LibraryIntegrationTest::testAutoReturnEmitsHighPriorityNotificationOnce);
+        runner.run("bulk return succeeds for multiple borrows", LibraryIntegrationTest::testBulkReturnSucceedsForMultipleBorrows);
+        runner.run("bulk return partial failure when id invalid", LibraryIntegrationTest::testBulkReturnPartialFailureWhenIdInvalid);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
         runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
@@ -836,6 +838,85 @@ public final class LibraryIntegrationTest {
                 .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
                 .count();
         assertEquals(1L, autoReturnSecond, "dedup should prevent repeat auto-return notifications");
+    }
+
+    private static void testBulkReturnSucceedsForMultipleBorrows() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("bulk-return-user", "Bulk Return User", "Password1!", Role.STUDENT);
+        Book book1 = context.addApprovedBook("Bulk Return One", "Tester", "Bulk return fixture #1.");
+        Book book2 = context.addApprovedBook("Bulk Return Two", "Tester", "Bulk return fixture #2.");
+        Book book3 = context.addApprovedBook("Bulk Return Three", "Tester", "Bulk return fixture #3.");
+        context.borrowService.borrowBook("bulk-return-user", book1.getId(), 7);
+        context.borrowService.borrowBook("bulk-return-user", book2.getId(), 7);
+        context.borrowService.borrowBook("bulk-return-user", book3.getId(), 7);
+
+        // Mirror the handler's loop: try each id, count succeeded, capture failed.
+        List<String> idsToReturn = List.of(book1.getId(), book2.getId());
+        int succeeded = 0;
+        for (String bookId : idsToReturn) {
+            try {
+                BorrowRecord record = context.borrowService.returnBook("bulk-return-user", bookId);
+                String title = context.bookService.findBookById(bookId).map(Book::getTitle).orElse(bookId);
+                context.notificationService.addNotification(
+                        "bulk-return-user",
+                        "Book Returned",
+                        "You return this book (" + title + "). Due date was: " + record.getDueDate(),
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "borrow-reminder", "bookId", bookId)
+                );
+                succeeded++;
+            } catch (Exception ignored) {
+                // not expected in this test
+            }
+        }
+
+        assertEquals(2, succeeded, "two borrows should be returned");
+        List<BorrowRecord> active = context.borrowService.listActiveBorrowsByUser("bulk-return-user");
+        assertEquals(1, active.size(), "one borrow should remain active");
+        assertEquals(book3.getId(), active.get(0).getBookId(), "third book should still be borrowed");
+
+        long bookReturnedNotifications = context.notificationService.listByUser("bulk-return-user").stream()
+                .filter(n -> "Book Returned".equals(n.getTitle()))
+                .filter(n -> n.getPriority() == NotificationPriority.NORMAL)
+                .count();
+        assertEquals(2L, bookReturnedNotifications, "one Book Returned notification per successful return");
+
+        List<BorrowRecord> all = context.borrowRepository.findByUsername("bulk-return-user");
+        long manuallyReturned = all.stream()
+                .filter(BorrowRecord::isReturned)
+                .filter(r -> !r.isAutoReturned())
+                .count();
+        assertEquals(2L, manuallyReturned, "returned records should not be flagged as auto-returned");
+    }
+
+    private static void testBulkReturnPartialFailureWhenIdInvalid() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("bulk-fail-user", "Bulk Fail User", "Password1!", Role.STUDENT);
+        Book book1 = context.addApprovedBook("Bulk Fail One", "Tester", "Bulk-fail fixture #1.");
+        Book book2 = context.addApprovedBook("Bulk Fail Two", "Tester", "Bulk-fail fixture #2.");
+        context.borrowService.borrowBook("bulk-fail-user", book1.getId(), 7);
+        context.borrowService.borrowBook("bulk-fail-user", book2.getId(), 7);
+
+        List<String> ids = List.of(book1.getId(), "nonexistent-book-id", book2.getId());
+        int succeeded = 0;
+        List<String> failedReasons = new java.util.ArrayList<>();
+        for (String bookId : ids) {
+            try {
+                context.borrowService.returnBook("bulk-fail-user", bookId);
+                succeeded++;
+            } catch (Exception ex) {
+                failedReasons.add(ex.getMessage() == null ? "" : ex.getMessage());
+            }
+        }
+
+        assertEquals(2, succeeded, "two valid ids should succeed");
+        assertEquals(1, failedReasons.size(), "one id should fail");
+        String reason = failedReasons.get(0);
+        assertTrue(
+                reason.contains("not currently borrowed") || reason.contains("Book not found"),
+                "failure reason should mention not-borrowed or not-found, got: " + reason
+        );
     }
 
     private static void testReadingProgressPersistence() {

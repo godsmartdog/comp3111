@@ -1454,6 +1454,58 @@ public class LibraryApiHandlers {
             }
         });
 
+        // Slice 10: bulk / partial return (1.5 NTH "Partial Return Option").
+        // Form-encoded `bookIds` (CSV). Loops BorrowService.returnBook with
+        // try/catch per id; succeeded count + failed [{id, reason}] returned.
+        // Emits the same NORMAL "Book Returned" notification as /api/return
+        // for each successful return so notification UX matches single-return.
+        server.createContext("/api/return-bulk", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String csv = RequestFilters.getTrimmed(form, "bookIds", "");
+                if (csv.isEmpty()) {
+                    sendText(exchange, 400, "At least one book must be selected.");
+                    return;
+                }
+                int succeeded = 0;
+                List<String> failedItems = new ArrayList<>();
+                for (String raw : csv.split(",")) {
+                    String id = raw.trim();
+                    if (id.isEmpty()) continue;
+                    try {
+                        BorrowRecord record = borrowService.returnBook(user.getUsername(), id);
+                        String returnedBookTitle = bookService.findBookById(id)
+                            .map(Book::getTitle)
+                            .orElse(id);
+                        notificationService.addNotification(
+                                user.getUsername(),
+                                "Book Returned",
+                                "You return this book (" + returnedBookTitle + "). Due date was: " + record.getDueDate(),
+                                NotificationPriority.NORMAL,
+                                null,
+                                Map.of("type", "borrow-reminder", "bookId", id)
+                        );
+                        succeeded++;
+                    } catch (Exception ex) {
+                        failedItems.add("{\"id\":\"" + JsonUtil.escape(id)
+                                + "\",\"reason\":\"" + JsonUtil.escape(ex.getMessage() == null ? "Failed" : ex.getMessage()) + "\"}");
+                    }
+                }
+                String payload = "{\"succeeded\":" + succeeded
+                        + ",\"failed\":[" + String.join(",", failedItems) + "]}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/borrows", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
