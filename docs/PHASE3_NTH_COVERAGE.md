@@ -1,8 +1,8 @@
 # Phase 3 Nice-to-Have Coverage
 
 **Coverage status (post-correction):**
-- Implemented: 30 / 48 bullets (Phase 2 carryover: 10; Phase 3 slice work: 20)
-- Not yet implemented: 16
+- Implemented: 31 / 48 bullets (Phase 2 carryover: 11; Phase 3 slice work: 20)
+- Not yet implemented: 15
 - Over-claims (polish, not bullet coverage): 6 (relocated to dedicated section)
 
 All Phase 3 slice commits live on branch `phase-3-nice-to-have`. Phase 2
@@ -20,6 +20,7 @@ carryover rows reflect features that landed before this branch existed.
 | 3.4 | Manage Librarians Account: Allow librarians to manage other librarian accounts. | Phase 2 carryover | (existing) | `librarian-users.html` (`librarian` option in `userRoleFilter`), `librarian-user-edit.{html,js}` (LIBRARIAN role branch) |
 | 1.10 | Request Tracking: Allow users to track the status of their request (Pending, Approved, Rejected). | Phase 2 carryover | (existing) | `request-new-book.{html,js}` ("My Requests" panel rendering Status from `/api/book-requests`) |
 | 1.10 | Request History: Maintain a log of all requests submitted by the user. | Phase 2 carryover | (existing) | `request-new-book.{html,js}` (persistent "My Requests" listing per requester) |
+| 1.7 / 2.6 | Search and Filter Notifications: Enable filtering by category (due reminders, announcements, deletions, etc.). | Phase 2 carryover + Slice 12 polish | (existing) + Slice 12 | `mainStaff.html`, `mainAuthor.html`, `mainLibrarian.html`, `mainStudent.html`, `archived-notifications.html`, `staff.html`, `main-staff.js`, `main-author.js`, `main-librarian.js`, `student-main.js`, `archived-notifications.js`, `portal-books.js`, `LibraryApiHandlers.java` (`BASIC_NOTIFICATION_CATEGORIES`, `notificationCategoryLabel`, `auto-return` first-class) |
 | 1.9 | Anonymous review submission and display masking | 1 | `6e77839` | `BookReview.java`, `BookReviewService.java`, `LibraryApiHandlers.java`, `author-reviews.js`, `my-reviews.js`, `student-reader.{html,js}`, `staff-reader.{html,js}` |
 | 1.9 | Review sort: recent / highest / lowest | 1 | `6e77839` | `BookReviewService.java`, `LibraryApiHandlers.java`, `student-reader.{html,js}`, `staff-reader.{html,js}` |
 | 1.10 | Duplicate book-request detection (same title + pending/approved) | 1 / 1.5 | `6e77839`, `4dd9c65` | `BookRequestService.java`, `request-new-book.{html,js}` |
@@ -86,7 +87,6 @@ profile edits do not require re-authentication.
 | 1 | Auto-return Notifications: Send the notifications to the users once the book is auto-returned after the borrowing period expires. Send the notification even if the user is not login into the system. | 1.5 |
 | 2 | Partial Return Option: If multiple books are borrowed, allow users to return selected ones early. Users can select one book or multiple books to return them back. | 1.5 |
 | 3 | Closed Book Reading Screen: If the user is reading a book and borrowing period expires, the system must close the reading screen automatically before auto-return. | 1.5 |
-| 7 | Search and Filter Notifications: Enable filtering by category (due reminders, announcements, deletions, etc.). | 1.7 |
 | 8 | Modify/Edit Book Details: Allow authors to modify the book only if the book is under pending approval (not published) OR not borrowed by any students/staff (if published). | 2.4 |
 | 9 | Bulk Delete: Allow authors to manage multiple books at once with confirmation dialogs. | 2.4 |
 | 10 | Password Re-authentication: Ask users to re-enter the password if there are any changes to the profile. | 2.5 |

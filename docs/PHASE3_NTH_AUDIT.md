@@ -82,3 +82,5 @@ verified implemented (`invalidateSessionsByUsername` at
 outstanding list; bullet #10 (re-auth on any profile change) is not
 implemented and remains. Sixteen bullets remain outstanding. Plan:
 Slice 9+ to chip away at them.
+
+Slice 12 reclassifies 1.7 #7 (Search/Filter Notifications) as Phase 2 carryover; auto-return promoted to first-class category for Slice 9 alignment.

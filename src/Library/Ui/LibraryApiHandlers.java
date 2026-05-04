@@ -73,6 +73,7 @@ public class LibraryApiHandlers {
     private static final String[] BASIC_NOTIFICATION_CATEGORIES = {
             "submission",
             "account-update",
+            "auto-return",
             "borrow-reminder",
             "book-deleted",
             "announcement"
@@ -4344,6 +4345,7 @@ public class LibraryApiHandlers {
         return switch (normalizeNotificationCategoryFilter(categoryKey)) {
             case "submission" -> "Submission";
             case "account-update" -> "Account Update";
+            case "auto-return" -> "Auto Return";
             case "borrow-reminder" -> "Borrow Reminder";
             case "book-deleted" -> "Book Deleted";
             case "announcement" -> "Announcement";
