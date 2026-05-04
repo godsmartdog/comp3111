@@ -834,6 +834,7 @@ function renderCurrentNotificationPage() {
                 </div>
                 <div class="notification-actions">
                     <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                    ${item.archived ? "" : `<button class="secondary notification-archive-btn" type="button">Archive</button>`}
                     <button class="danger notification-delete-btn" type="button">Delete</button>
                 </div>
             `;
@@ -875,6 +876,27 @@ function renderCurrentNotificationPage() {
                     showToast(error.message, true);
                 }
             });
+
+            const archiveButton = li.querySelector(".notification-archive-btn");
+            if (archiveButton) {
+                archiveButton.addEventListener("click", async () => {
+                    try {
+                        const payload = await api("/api/notifications/archive", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                            body: formBody({ notificationId: item.id })
+                        });
+                        showToast(payload.message || "Notification archived.", false);
+                        allNotifications = allNotifications.filter((notification) => notification.id !== item.id);
+                        if (currentNotificationPage > getTotalNotificationPages()) {
+                            currentNotificationPage = getTotalNotificationPages();
+                        }
+                        renderCurrentNotificationPage();
+                    } catch (error) {
+                        showToast(error.message, true);
+                    }
+                });
+            }
 
             list.appendChild(li);
     });
