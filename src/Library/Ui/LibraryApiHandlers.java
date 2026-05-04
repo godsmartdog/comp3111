@@ -204,6 +204,9 @@ public class LibraryApiHandlers {
             ? new SessionSnapshotService(new MemorySessionSnapshotRepository())
             : sessionSnapshotService;
         this.latestSessionSnapshot = SessionSnapshotSchema.empty();
+        if (borrowService != null) {
+            borrowService.setNotificationService(this.notificationService);
+        }
     }
 
     public void register(HttpServer server) {
