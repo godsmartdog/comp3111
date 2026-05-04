@@ -96,6 +96,8 @@ public final class LibraryIntegrationTest {
         runner.run("author can view own published books", LibraryIntegrationTest::testAuthorPublishedBooksOwnOnly);
         runner.run("author published books enforce ownership boundary", LibraryIntegrationTest::testAuthorPublishedBooksOwnershipBoundary);
         runner.run("author owner can update published book metadata", LibraryIntegrationTest::testAuthorOwnerCanUpdatePublishedBookMetadata);
+        runner.run("author cannot update published book with active borrows", LibraryIntegrationTest::testAuthorCannotUpdatePublishedBookWithActiveBorrows);
+        runner.run("author can update published book after all borrows returned", LibraryIntegrationTest::testAuthorCanUpdatePublishedBookAfterAllBorrowsReturned);
         runner.run("author owner can delete published book without active borrows", LibraryIntegrationTest::testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows);
         runner.run("author non-owner cannot update or delete published book", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeletePublishedBook);
         runner.run("author delete published book blocked with active borrows", LibraryIntegrationTest::testAuthorDeletePublishedBookBlockedWhenActiveBorrowsExist);
@@ -1367,6 +1369,107 @@ public final class LibraryIntegrationTest {
             assertEquals("Published Updated", updated.getTitle(), "published title should update");
             assertEquals("Updated Description", updated.getSummary(), "published description should update");
             assertEquals(List.of("Science", "Technology"), updated.getGenres(), "published genres should update and normalize");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorCannotUpdatePublishedBookWithActiveBorrows() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-update-borrowed", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-upd-borrow", "Author Upd Borrow", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-upd-borrow",
+                "Borrowed Original",
+                List.of("Technology"),
+                "Borrowed Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-upd-borrow", "Lib Upd Borrow", "Password1!", "EMP-UB");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-upd-borrow").get(0);
+
+        context.authService.registerStudentOrStaff("stu-upd-borrow", "Student Upd Borrow", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("stu-upd-borrow", published.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-upd-borrow", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Should+Not+Change"
+                                    + "&genres=Technology"
+                                    + "&description=Should+Not+Change+Either"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, updateResponse.statusCode(), "update with active borrows should be rejected with HTTP 400");
+            assertTrue(updateResponse.body().toLowerCase().contains("active borrows"),
+                    "response body should mention active borrows: " + updateResponse.body());
+
+            Book unchanged = context.bookRepository.findById(published.getId())
+                    .orElseThrow(() -> new AssertionError("expected published book to exist"));
+            assertEquals("Borrowed Original", unchanged.getTitle(), "title must not be modified when active borrows exist");
+            assertEquals("Borrowed Description", unchanged.getSummary(), "description must not be modified when active borrows exist");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorCanUpdatePublishedBookAfterAllBorrowsReturned() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-update-returned", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-upd-ret", "Author Upd Ret", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-upd-ret",
+                "Returned Original",
+                List.of("Technology"),
+                "Returned Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-upd-ret", "Lib Upd Ret", "Password1!", "EMP-UR");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-upd-ret").get(0);
+
+        context.authService.registerStudentOrStaff("stu-upd-ret", "Student Upd Ret", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("stu-upd-ret", published.getId(), 7);
+        context.borrowService.returnBook("stu-upd-ret", published.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-upd-ret", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Returned+Updated"
+                                    + "&genres=Technology"
+                                    + "&description=Returned+Updated+Description"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "update after all returns should succeed with HTTP 200");
+
+            Book updated = context.bookRepository.findById(published.getId())
+                    .orElseThrow(() -> new AssertionError("expected published book to exist"));
+            assertEquals("Returned Updated", updated.getTitle(), "title should update after all borrows returned");
+            assertEquals("Returned Updated Description", updated.getSummary(), "description should update after all borrows returned");
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
