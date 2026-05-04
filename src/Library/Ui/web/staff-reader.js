@@ -64,7 +64,17 @@ function stopReaderExpiryWatchdog() {
 async function handleReaderExpiry() {
     stopReaderExpiryWatchdog();
     try {
-        await api("/api/borrows?status=active").catch(() => {});
+        // Hit /api/return so BorrowService.returnBook -> autoReturnOverdueBooks
+        // executes (this is the only workflow path Slice 9's notification hooks
+        // into; /api/borrows is read-only by design). The 400 BusinessException
+        // for "not currently borrowed" after auto-return is expected and ignored.
+        if (activeReaderBookId) {
+            await api("/api/return", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ bookId: activeReaderBookId })
+            }, false).catch(() => {});
+        }
     } finally {
         resetReaderUi("Borrowing period expired — book auto-returned.");
         showToast("Borrowing period expired. Reader closed; book auto-returned.", true);
