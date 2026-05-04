@@ -101,6 +101,8 @@ public final class LibraryIntegrationTest {
         runner.run("author owner can delete published book without active borrows", LibraryIntegrationTest::testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows);
         runner.run("author non-owner cannot update or delete published book", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeletePublishedBook);
         runner.run("author delete published book blocked with active borrows", LibraryIntegrationTest::testAuthorDeletePublishedBookBlockedWhenActiveBorrowsExist);
+        runner.run("author bulk delete pending submissions partial success", LibraryIntegrationTest::testAuthorBulkDeletePendingSubmissionsPartialSuccess);
+        runner.run("author bulk delete published books skips active borrows and fires notification", LibraryIntegrationTest::testAuthorBulkDeletePublishedBooksSkipsActiveBorrowsAndFiresNotification);
         runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
         runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
@@ -1609,6 +1611,146 @@ public final class LibraryIntegrationTest {
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorBulkDeletePendingSubmissionsPartialSuccess() throws Exception {
+        TestContext context = new TestContext();
+        Path mOne = createTempTextFile("bulk-pending-one", ".txt", List.of("v1"));
+        Path mTwo = createTempTextFile("bulk-pending-two", ".txt", List.of("v1"));
+        Path mThree = createTempTextFile("bulk-pending-three", ".txt", List.of("v1"));
+        Path mFour = createTempTextFile("bulk-pending-four", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-bulk-a", "Author Bulk A", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-bulk-b", "Author Bulk B", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-bulk", "Lib Bulk", "Password1!", "EMP-BULK");
+
+        BookSubmission2 pendingOne = context.authorService.publishBook(
+                "author-bulk-a", "Pending One", List.of("Technology"), "Desc1", mOne.toString());
+        BookSubmission2 pendingTwo = context.authorService.publishBook(
+                "author-bulk-a", "Pending Two", List.of("Technology"), "Desc2", mTwo.toString());
+        BookSubmission2 approvedThree = context.authorService.publishBook(
+                "author-bulk-a", "Approved Three", List.of("Technology"), "Desc3", mThree.toString());
+        BookSubmission2 foreignFour = context.authorService.publishBook(
+                "author-bulk-b", "Foreign Four", List.of("Technology"), "Desc4", mFour.toString());
+
+        context.librarianService.approveSubmission(approvedThree.getId(), "ok");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-bulk-a", "Password1!", "AUTHOR");
+
+            String csv = pendingOne.getId() + "," + pendingTwo.getId() + "," + approvedThree.getId()
+                    + "," + foreignFour.getId() + ",bogus-five";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/bulk-delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("submissionIds=" + csv))
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resp.statusCode(), "bulk-delete should return HTTP 200");
+            String body = resp.body();
+            assertTrue(body.contains("\"deletedCount\":2"), "deletedCount should be 2: " + body);
+            assertTrue(body.contains("\"skippedCount\":3"), "skippedCount should be 3: " + body);
+            assertTrue(body.contains(pendingOne.getId()), "deletedIds should contain pendingOne");
+            assertTrue(body.contains(pendingTwo.getId()), "deletedIds should contain pendingTwo");
+            assertTrue(body.toLowerCase().contains("pending"), "skip reason for approved should mention 'pending': " + body);
+            assertTrue(body.toLowerCase().contains("another author"),
+                    "skip reason for foreign should mention 'another author': " + body);
+            assertTrue(body.contains("bogus-five"), "skipped should include bogus-five");
+
+            assertTrue(context.submissionRepository.findById(pendingOne.getId()).isEmpty(), "pendingOne should be deleted");
+            assertTrue(context.submissionRepository.findById(pendingTwo.getId()).isEmpty(), "pendingTwo should be deleted");
+            assertTrue(context.submissionRepository.findById(approvedThree.getId()).isPresent(), "approvedThree should remain");
+            assertTrue(context.submissionRepository.findById(foreignFour.getId()).isPresent(), "foreignFour should remain");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(mOne);
+            Files.deleteIfExists(mTwo);
+            Files.deleteIfExists(mThree);
+            Files.deleteIfExists(mFour);
+        }
+    }
+
+    private static void testAuthorBulkDeletePublishedBooksSkipsActiveBorrowsAndFiresNotification() throws Exception {
+        TestContext context = new TestContext();
+        Path mFree = createTempTextFile("bulk-pub-free", ".txt", List.of("v1"));
+        Path mBorrowed = createTempTextFile("bulk-pub-borrowed", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-bulk-pub", "Author Bulk Pub", "Password1!", "Bio");
+        context.authService.registerStudentOrStaff("stu-bulk-1", "Stu Bulk 1", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("stu-bulk-2", "Stu Bulk 2", "Password1!", Role.STUDENT);
+        context.librarianService.registerLibrarian("lib-bulk-pub", "Lib Bulk Pub", "Password1!", "EMP-BPUB");
+
+        BookSubmission2 subFree = context.authorService.publishBook(
+                "author-bulk-pub", "Published Free", List.of("Technology"), "DescFree", mFree.toString());
+        BookSubmission2 subBorrowed = context.authorService.publishBook(
+                "author-bulk-pub", "Published Borrowed", List.of("Technology"), "DescBorrowed", mBorrowed.toString());
+        context.librarianService.approveSubmission(subFree.getId(), "ok");
+        context.librarianService.approveSubmission(subBorrowed.getId(), "ok");
+
+        List<Book> approved = context.bookService.listApprovedBooksByAuthorUsername("author-bulk-pub");
+        Book publishedFree = approved.stream().filter(b -> "Published Free".equals(b.getTitle())).findFirst().orElseThrow();
+        Book publishedBorrowed = approved.stream().filter(b -> "Published Borrowed".equals(b.getTitle())).findFirst().orElseThrow();
+
+        context.borrowService.borrowBook("stu-bulk-1", publishedBorrowed.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-bulk-pub", "Password1!", "AUTHOR");
+
+            String csv = publishedFree.getId() + "," + publishedBorrowed.getId();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/bulk-delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + csv))
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resp.statusCode(), "bulk-delete should return HTTP 200");
+            String body = resp.body();
+            assertTrue(body.contains("\"deletedCount\":1"), "deletedCount should be 1: " + body);
+            assertTrue(body.contains("\"skippedCount\":1"), "skippedCount should be 1: " + body);
+            assertTrue(body.contains(publishedFree.getId()), "deletedIds should contain publishedFree");
+            assertTrue(body.contains(publishedBorrowed.getId()), "skipped should include publishedBorrowed");
+            assertTrue(body.toLowerCase().contains("active borrows"),
+                    "skip reason should mention 'active borrows': " + body);
+
+            assertTrue(context.bookRepository.findById(publishedFree.getId()).isEmpty(),
+                    "publishedFree should be deleted");
+            assertTrue(context.bookRepository.findById(publishedBorrowed.getId()).isPresent(),
+                    "publishedBorrowed should remain (active borrow)");
+
+            // No 'book-deleted' notification should fire for stu-bulk-1 — the only deleted book
+            // (publishedFree) had no borrowers; the borrowed one was skipped.
+            long stuOneBookDeletedNotifs = context.notificationService.listByUser("stu-bulk-1").stream()
+                    .filter(n -> "book-deleted".equals(n.getMetadata().get("type")))
+                    .count();
+            assertEquals(0L, stuOneBookDeletedNotifs,
+                    "stu-bulk-1 should receive no book-deleted notification (skipped book has active borrow)");
+
+            // Specifically, no notification for the SKIPPED publishedBorrowed.
+            boolean skippedFiredForBorrowed = context.notificationService.listByUser("stu-bulk-1").stream()
+                    .anyMatch(n -> "book-deleted".equals(n.getMetadata().get("type"))
+                            && publishedBorrowed.getId().equals(n.getMetadata().get("bookId")));
+            assertTrue(!skippedFiredForBorrowed,
+                    "no book-deleted notification should fire for the skipped (active-borrow) book");
+
+            // stu-bulk-2 had no borrows of either book — also no book-deleted notifications.
+            long stuTwoBookDeletedNotifs = context.notificationService.listByUser("stu-bulk-2").stream()
+                    .filter(n -> "book-deleted".equals(n.getMetadata().get("type")))
+                    .count();
+            assertEquals(0L, stuTwoBookDeletedNotifs,
+                    "stu-bulk-2 should receive no book-deleted notification (no borrows)");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(mFree);
+            Files.deleteIfExists(mBorrowed);
         }
     }
 

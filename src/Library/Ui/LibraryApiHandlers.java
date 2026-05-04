@@ -2180,6 +2180,55 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/published-book/bulk-delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+
+                Map<String, String> bookIdToTitle = new java.util.LinkedHashMap<>();
+                Map<String, java.util.Set<String>> bookIdToAffectedUsers = new java.util.LinkedHashMap<>();
+                for (String bookId : bookIds == null ? java.util.List.<String>of() : bookIds) {
+                    if (bookId == null || bookId.isBlank()) continue;
+                    bookIdToTitle.put(bookId, bookService.findBookById(bookId).map(Book::getTitle).orElse(bookId));
+                    java.util.Set<String> affected = new java.util.LinkedHashSet<>();
+                    for (BorrowRecord record : borrowService.listAllBorrowRecords()) {
+                        if (bookId.equals(record.getBookId())) {
+                            affected.add(record.getUsername());
+                        }
+                    }
+                    bookIdToAffectedUsers.put(bookId, affected);
+                }
+
+                AuthorService2.BulkDeleteResult result =
+                        authorService.bulkDeleteOwnedPublishedBooks(user.getUsername(), bookIds);
+
+                for (String deletedId : result.deletedIds()) {
+                    String title = bookIdToTitle.getOrDefault(deletedId, deletedId);
+                    for (String username : bookIdToAffectedUsers.getOrDefault(deletedId, java.util.Set.of())) {
+                        notificationService.addNotification(
+                                username,
+                                "Book Deleted",
+                                "The book \"" + title + "\" you borrowed has been removed from the catalog.",
+                                NotificationPriority.HIGH,
+                                null,
+                                Map.of("type", "book-deleted", "bookId", deletedId)
+                        );
+                    }
+                }
+
+                sendJson(exchange, 200, bulkDeleteResultToJson(result));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/profile", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -2500,6 +2549,35 @@ public class LibraryApiHandlers {
                     Map.of("type", "submission")
                 );
                 sendText(exchange, 200, "Submission deleted successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/bulk-delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                List<String> submissionIds = RequestFilters.parseCsv(form, "submissionIds");
+                AuthorService2.BulkDeleteResult result =
+                        authorService.bulkDeletePendingSubmissions(user.getUsername(), submissionIds);
+                if (!result.deletedIds().isEmpty()) {
+                    notificationService.addNotification(
+                            user.getUsername(),
+                            "Submissions Deleted",
+                            "Your pending submissions were deleted. Count: " + result.deletedIds().size(),
+                            NotificationPriority.NORMAL,
+                            null,
+                            Map.of("type", "submission")
+                    );
+                }
+                sendJson(exchange, 200, bulkDeleteResultToJson(result));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -5814,6 +5892,26 @@ public class LibraryApiHandlers {
             throw new IOException("Request failed. Status: " + response.statusCode());
         }
         return response.body();
+    }
+
+    private static String bulkDeleteResultToJson(AuthorService2.BulkDeleteResult result) {
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"deletedIds\":[");
+        for (int i = 0; i < result.deletedIds().size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(JsonUtil.escape(result.deletedIds().get(i))).append("\"");
+        }
+        sb.append("],\"skipped\":[");
+        int idx = 0;
+        for (Map.Entry<String, String> entry : result.skippedIdToReason().entrySet()) {
+            if (idx++ > 0) sb.append(",");
+            sb.append("{\"id\":\"").append(JsonUtil.escape(entry.getKey())).append("\",")
+              .append("\"reason\":\"").append(JsonUtil.escape(entry.getValue())).append("\"}");
+        }
+        sb.append("],\"deletedCount\":").append(result.deletedIds().size());
+        sb.append(",\"skippedCount\":").append(result.skippedIdToReason().size());
+        sb.append("}");
+        return sb.toString();
     }
 
     private static String authorSubmissionsToJson(List<BookSubmission2> submissions) {

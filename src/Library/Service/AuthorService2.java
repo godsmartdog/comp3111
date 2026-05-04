@@ -22,6 +22,7 @@ import Library.Security.PasswordPolicy;
 import Library.Security.SessionManager;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -369,6 +370,46 @@ public class AuthorService2 {
         submissionRepository.deleteById(existing.getId());
     }
 
+    public BulkDeleteResult bulkDeletePendingSubmissions(String actingUsername, List<String> submissionIds) {
+        List<String> deleted = new ArrayList<>();
+        Map<String, String> skipped = new LinkedHashMap<>();
+        if (submissionIds == null) {
+            return new BulkDeleteResult(deleted, skipped);
+        }
+        for (String submissionId : submissionIds) {
+            if (submissionId == null || submissionId.isBlank()) {
+                continue;
+            }
+            try {
+                deletePendingSubmission(actingUsername, submissionId);
+                deleted.add(submissionId);
+            } catch (RuntimeException e) {
+                skipped.put(submissionId, e.getMessage() == null ? "unknown error" : e.getMessage());
+            }
+        }
+        return new BulkDeleteResult(deleted, skipped);
+    }
+
+    public BulkDeleteResult bulkDeleteOwnedPublishedBooks(String actingUsername, List<String> bookIds) {
+        List<String> deleted = new ArrayList<>();
+        Map<String, String> skipped = new LinkedHashMap<>();
+        if (bookIds == null) {
+            return new BulkDeleteResult(deleted, skipped);
+        }
+        for (String bookId : bookIds) {
+            if (bookId == null || bookId.isBlank()) {
+                continue;
+            }
+            try {
+                deleteOwnedPublishedBook(actingUsername, bookId);
+                deleted.add(bookId);
+            } catch (RuntimeException e) {
+                skipped.put(bookId, e.getMessage() == null ? "unknown error" : e.getMessage());
+            }
+        }
+        return new BulkDeleteResult(deleted, skipped);
+    }
+
     // Private helper method to validate that the provided genres are all supported, throwing a ValidationException if any unsupported genres are found.
     private List<String> normalizeGenres(List<String> genres, String emptyMessage) {
         if (genres == null) {
@@ -475,6 +516,10 @@ public class AuthorService2 {
     }
 
     public record AuthorProfileSnapshot(String username, String fullName, String bio) {
+    }
+
+    public record BulkDeleteResult(List<String> deletedIds,
+                                   Map<String, String> skippedIdToReason) {
     }
 
     public record FilePreview(String itemId,

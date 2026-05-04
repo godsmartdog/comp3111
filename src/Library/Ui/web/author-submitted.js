@@ -1,5 +1,6 @@
 const currentUser = requireRole("AUTHOR");
 let serverPreviewObjectUrl = null;
+const selectedSubmissionIds = new Set();
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -159,6 +160,11 @@ async function refreshSubmittedBooks() {
 
     status.textContent = `Found ${pendingItems.length} pending submitted book(s).`;
 
+    const visibleIds = new Set(pendingItems.map((item) => item.id));
+    Array.from(selectedSubmissionIds).forEach((id) => {
+        if (!visibleIds.has(id)) selectedSubmissionIds.delete(id);
+    });
+
     pendingItems.forEach((item) => {
         const row = document.createElement("tr");
         const actionCell = document.createElement("td");
@@ -169,6 +175,19 @@ async function refreshSubmittedBooks() {
             <td>${formatDateOnly(item.submittedDate || "")}</td>
             <td>${item.fileName || ""}</td>
         `;
+
+        const selectCell = document.createElement("td");
+        const selectInput = document.createElement("input");
+        selectInput.type = "checkbox";
+        selectInput.dataset.submissionId = item.id;
+        selectInput.checked = selectedSubmissionIds.has(item.id);
+        selectInput.addEventListener("change", () => {
+            if (selectInput.checked) selectedSubmissionIds.add(item.id);
+            else selectedSubmissionIds.delete(item.id);
+            updateBulkDeleteSubmittedButton();
+        });
+        selectCell.appendChild(selectInput);
+        row.insertBefore(selectCell, row.firstChild);
 
         const readBtn = document.createElement("button");
         readBtn.className = "secondary";
@@ -226,7 +245,66 @@ async function refreshSubmittedBooks() {
         row.appendChild(actionCell);
         body.appendChild(row);
     });
+    updateBulkDeleteSubmittedButton();
+    const selectAll = document.getElementById("submittedSelectAll");
+    if (selectAll) selectAll.checked = false;
 }
+
+function updateBulkDeleteSubmittedButton() {
+    const btn = document.getElementById("bulkDeleteSubmittedBtn");
+    if (!btn) return;
+    btn.textContent = `Delete Selected (${selectedSubmissionIds.size})`;
+    btn.disabled = selectedSubmissionIds.size === 0;
+}
+
+document.getElementById("submittedSelectAll")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document
+        .querySelectorAll("#submittedBooksBody input[type=checkbox][data-submission-id]")
+        .forEach((cb) => {
+            cb.checked = checked;
+            const id = cb.dataset.submissionId;
+            if (checked) selectedSubmissionIds.add(id);
+            else selectedSubmissionIds.delete(id);
+        });
+    updateBulkDeleteSubmittedButton();
+});
+
+document.getElementById("bulkDeleteSubmittedBtn")?.addEventListener("click", async () => {
+    if (selectedSubmissionIds.size === 0) return;
+    const ids = Array.from(selectedSubmissionIds);
+    const titles = ids.map((id) => {
+        const cb = document.querySelector(`#submittedBooksBody input[data-submission-id="${id}"]`);
+        // Row order: [select][ID][Title][...]; title is index 2 of row.children.
+        const titleCell = cb?.parentElement?.parentElement?.children?.[2];
+        return titleCell ? titleCell.textContent : id;
+    });
+    const summary = titles.length > 6
+        ? titles.slice(0, 6).join(", ") + `, … (+${titles.length - 6} more)`
+        : titles.join(", ");
+    if (!confirm(`Delete ${ids.length} pending submission(s)?\n\n${summary}\n\nThis cannot be undone. Approved submissions and foreign rows will be skipped with a reason.`)) {
+        return;
+    }
+    try {
+        const result = await api("/api/author/submission/bulk-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ submissionIds: ids.join(",") })
+        });
+        const deleted = Number(result?.deletedCount || 0);
+        const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+        let msg = `Deleted ${deleted} submission(s).`;
+        if (skipped.length > 0) {
+            msg += ` Skipped ${skipped.length}: ` + skipped.slice(0, 3).map((s) => `${s.id} (${s.reason})`).join("; ");
+            if (skipped.length > 3) msg += `; …`;
+        }
+        showToast(msg, skipped.length > 0);
+        selectedSubmissionIds.clear();
+        await refreshSubmittedBooks();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("loadSubmittedBtn")?.addEventListener("click", () => {
     refreshSubmittedBooks().catch((e) => {
