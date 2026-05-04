@@ -1,8 +1,8 @@
 # Phase 3 Nice-to-Have Coverage
 
 **Coverage status (post-correction):**
-- Implemented: 31 / 48 bullets (Phase 2 carryover: 11; Phase 3 slice work: 20)
-- Not yet implemented: 15
+- Implemented: 34 / 48 bullets (Phase 2 carryover: 11; Phase 3 slice work: 23)
+- Not yet implemented: 12
 - Over-claims (polish, not bullet coverage): 6 (relocated to dedicated section)
 
 All Phase 3 slice commits live on branch `phase-3-nice-to-have`. Phase 2
@@ -41,6 +41,9 @@ carryover rows reflect features that landed before this branch existed.
 | 2.9 | Feedback Analytics: sentiment doughnut + rating-distribution bar chart | 5 | `437936e` | `author-reviews.{html,js}`, `style.css` |
 | 3.8 | Bulk Operations: select-all + delete-selected with partial-success reporting | 6 | `49cb72c` | `LibraryApiHandlers.java`, `librarian-manage-published.{html,js}` |
 | 3.8 | Version History: in-memory edit ledger (last 50 per book) + history endpoint | 6 | `49cb72c` | `LibraryApiHandlers.java`, `librarian-manage-published.{html,js}` |
+| 2.5 | Password Re-authentication: Ask users to re-enter the password if there are any changes to the profile. | 14.1 (banked) | (pre-Slice 14.1) | `AuthService.java` (`validateCurrentPasswordForPasswordChange`), `LibraryApiHandlers.java` (profile update handlers), `profile-user.{html,js}`, `profile-author.{html,js}`, `profile-librarian.{html,js}`. Implemented (pre-Slice 14.1, banked retroactively): AuthService.validateCurrentPasswordForPasswordChange + Current Password field on all profile pages + JS promptForCurrentPassword() re-prompt. |
+| 2.5 | Auto logout from system: If the password is changed, the system must automatically logout the current user. | 14.1 (banked) | (pre-Slice 14.1) | `LibraryApiHandlers.java` (`invalidateSessionsByUsername` at lines 818, 2169, 3491), `profile-user.js`, `profile-author.js`, `profile-librarian.js`. Implemented (pre-Slice 14.1, banked retroactively): invalidateSessionsByUsername fires from all profile update handlers when passwordChanged; profile-*.js clears localStorage + redirects to login.html. |
+| 1.8 | Bookmark Integration: Link reading history with bookmarks to show where the user left off. | 14.1 (banked) | (pre-Slice 14.1) | `LibraryApiHandlers.java` (`/api/borrows/history` joins reading-progress), `reading-history.{html,js}` (`progressLabel`). Implemented (pre-Slice 14.1, banked retroactively): /api/borrows/history joins reading-progress; reading-history.js progressLabel renders 'Bookmark page N · M highlight(s) · updated YYYY-MM-DD'. Slice 14.1 also fixed a stray-space typo in that label. |
 
 ## Over-claims — implemented but not in spec word-for-word
 
@@ -72,15 +75,11 @@ All 11 slice commits maintain the pre-Phase-3 test baseline of
 introduced by Phase 3 NTH work. See
 [PHASE3_NTH_AUDIT.md](PHASE3_NTH_AUDIT.md) for the full failing-test list.
 
-## Not Yet Implemented (16 bullets)
+## Not Yet Implemented (12 bullets)
 
-Spec wording verbatim. #11 ("Auto logout from system: If the password is
-changed, the system must automatically logout the current user.") was
-verified implemented in `LibraryApiHandlers.java` (`invalidateSessionsByUsername`
-called on password change at lines 818, 2169, 3491) and has been removed
-from this list. #10 remains: `currentPassword` is only validated by the
-profile-update handlers when the password is being changed; non-password
-profile edits do not require re-authentication.
+Spec wording verbatim. Bullets #10, #11, #25 were verified pre-existing
+implementations and banked retroactively in Slice 14.1; see the Implemented
+table above for details.
 
 | # | Spec wording | Section |
 |---|---|---|
@@ -89,8 +88,6 @@ profile edits do not require re-authentication.
 | 3 | Closed Book Reading Screen: If the user is reading a book and borrowing period expires, the system must close the reading screen automatically before auto-return. | 1.5 |
 | 8 | Modify/Edit Book Details: Allow authors to modify the book only if the book is under pending approval (not published) OR not borrowed by any students/staff (if published). | 2.4 |
 | 9 | Bulk Delete: Allow authors to manage multiple books at once with confirmation dialogs. | 2.4 |
-| 10 | Password Re-authentication: Ask users to re-enter the password if there are any changes to the profile. | 2.5 |
-| 25 | Bookmark Integration: Link reading history with bookmarks to show where the user left off. | 1.8 |
 | 28 | Allow sorting reviews by most recent, or most helpful. (Slice 1 covered recent/highest/lowest; "most helpful" still missing.) | 1.9 |
 | 33 | Multiple Summary Styles: Provide options for short, medium, or detailed summaries. | 2.7 |
 | 40 | Bulk Edit/Delete (Slice 6 covered Delete only; Edit still missing). | 3.8 |

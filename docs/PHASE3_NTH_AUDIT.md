@@ -84,3 +84,5 @@ implemented and remains. Sixteen bullets remain outstanding. Plan:
 Slice 9+ to chip away at them.
 
 Slice 12 reclassifies 1.7 #7 (Search/Filter Notifications) as Phase 2 carryover; auto-return promoted to first-class category for Slice 9 alignment.
+
+Slice 14.1 banks bullets #10, #11, #25 — all pre-existing implementations missed by the original Slice 8b audit. Same pattern as bullet #7 banked in Slice 12.
