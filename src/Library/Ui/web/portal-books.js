@@ -24,6 +24,67 @@ const MAX_BORROW_LIMIT = 5;
 let selectedBookCoverObjectUrl = null;
 let selectedBookPreviewObjectUrl = null;
 
+// Slice 11: reader expiry watchdog (auto-close reader when borrow period expires).
+let activeReaderBookId = null;
+let activeReaderDueDate = null;
+let readerExpiryWatchdogId = null;
+
+async function fetchActiveDueDateForBook(bookId) {
+    try {
+        const items = await api("/api/borrows?status=active");
+        if (!Array.isArray(items)) return null;
+        const match = items.find((r) => r.bookId === bookId && !r.returned);
+        return match?.dueDate || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function isBorrowExpiredAgainstToday(dueDateStr) {
+    if (!dueDateStr) return false;
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    return todayStr > String(dueDateStr).slice(0, 10);
+}
+
+function startReaderExpiryWatchdog() {
+    stopReaderExpiryWatchdog();
+    readerExpiryWatchdogId = setInterval(() => {
+        if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+            handleReaderExpiry();
+        }
+    }, 30 * 1000);
+}
+
+function stopReaderExpiryWatchdog() {
+    if (readerExpiryWatchdogId !== null) {
+        clearInterval(readerExpiryWatchdogId);
+        readerExpiryWatchdogId = null;
+    }
+}
+
+async function handleReaderExpiry() {
+    stopReaderExpiryWatchdog();
+    try {
+        await api("/api/borrows?status=active").catch(() => {});
+    } finally {
+        resetReaderUi("Borrowing period expired — book auto-returned.");
+        showToast("Borrowing period expired. Reader closed; book auto-returned.", true);
+        activeReaderBookId = null;
+        activeReaderDueDate = null;
+        if (window.location.pathname.endsWith("student-reader.html")) {
+            setTimeout(() => { window.location.href = "student-borrows.html"; }, 2000);
+        } else if (window.location.pathname.endsWith("staff-reader.html")) {
+            setTimeout(() => { window.location.href = "staff-borrows.html"; }, 2000);
+        } else {
+            if (typeof refreshBorrows === "function") refreshBorrows().catch(() => {});
+            if (typeof refreshBooks === "function") refreshBooks().catch(() => {});
+        }
+    }
+}
+
+window.addEventListener("beforeunload", stopReaderExpiryWatchdog);
+
 function clearSelectedBookObjectUrls() {
     if (selectedBookCoverObjectUrl) {
         URL.revokeObjectURL(selectedBookCoverObjectUrl);
@@ -640,6 +701,10 @@ document.getElementById("returnSelectedBtnInline")?.addEventListener("click", as
         if (ids.includes(selectedBorrowedBookId)) {
             resetReaderUi("Book returned.");
         }
+        // Slice 11: also defensively clear if the displayed reader book was bulk-returned.
+        if (activeReaderBookId && ids.includes(activeReaderBookId)) {
+            resetReaderUi("Book returned.");
+        }
         await refreshBooks();
         await refreshBorrows();
     } catch (error) {
@@ -823,6 +888,9 @@ function applyNotificationSnapshotState(state) {
 }
 
 function resetReaderUi(statusText) {
+    stopReaderExpiryWatchdog();
+    activeReaderBookId = null;
+    activeReaderDueDate = null;
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
@@ -838,6 +906,13 @@ function resetReaderUi(statusText) {
 }
 
 async function loadBorrowedContent(bookId) {
+    activeReaderBookId = bookId;
+    activeReaderDueDate = await fetchActiveDueDateForBook(bookId);
+    if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+        await handleReaderExpiry();
+        return;
+    }
+    startReaderExpiryWatchdog();
     const payload = await api(`/api/borrow/content?bookId=${encodeURIComponent(bookId)}`);
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
