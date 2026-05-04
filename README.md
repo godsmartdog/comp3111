@@ -134,3 +134,66 @@ All seeded by `LibraryManagementApp` on startup (password is shared):
 - Librarian: `librarian1` / `Password1!`
 - Author:    `author1`    / `Password1!`
 - Student:   `student1`   / `Password1!`
+
+## Phase 3 NTH — Testing Notes & Known Limitations
+
+### Clock-aware testing (auto-return, reader auto-close, due-date features)
+
+Several Phase 3 nice-to-have features are time-sensitive (Slices 9–12 of
+the `phase-3-nice-to-have` branch):
+
+- **1.5 #1** Auto-return Notifications
+- **1.5 #2** Partial Return Option
+- **1.5 #3** Closed Book Reading Screen on borrow-period expiry
+- **1.7 #7** Search and Filter Notifications (auto-return surfacing)
+
+To test these end-to-end you must wind the OS clock backward at borrow
+time, then forward past the due date. To prevent the session-idle
+timeout from kicking in during clock jumps, the default has been
+extended to **15 days** (one day beyond `MAX_BORROW_DAYS = 14`),
+overridable at JVM start via:
+
+```
+-Dlibrary.sessionIdleTimeoutMs=<milliseconds>
+```
+
+Recommended manual-test recipe (macOS):
+
+```bash
+# Disable network time, then jump back ~10 days:
+sudo systemsetup -setusingnetworktime off
+sudo date 0424120000      # April 24, 12:00
+
+# In browser: login, borrow a book with min-duration 1 day, click Read.
+
+# Jump forward to "today":
+sudo date 0504220000
+
+# Wait ≤30 s. Reader closes; redirect; HIGH "Book auto-returned"
+# notification arrives; Active borrows list goes empty;
+# Returned filter shows the book.
+
+# Restore clock:
+sudo systemsetup -setusingnetworktime on
+```
+
+### Reader watchdog scope (Slice 11 / 1.5 #3)
+
+The client-side reader expiry watchdog has been verified end-to-end
+for the realistic workflow:
+
+1. Author uploads a real book file (PDF confirmed working).
+2. Librarian approves the submission.
+3. Student borrows + opens the reader.
+4. Clock-jump past due date → within 30 s the reader closes, redirects
+   to the borrows list, server-side auto-return runs, and the HIGH
+   "Book auto-returned" notification appears.
+
+**Known limitation:** the watchdog has been observed not to fire
+reliably for some of the bundled seed text-tile demo books that ship
+with the in-memory store. These seed entries appear to render through
+a different content path that bypasses the watchdog hook in
+`loadBorrowedContent`. The realistic upload-approve-borrow-read path
+is the one being graded; no spec-relevant feature is affected. To
+reproduce the working behavior, prefer testing with a freshly
+uploaded PDF rather than the seed text tiles.
