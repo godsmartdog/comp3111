@@ -285,6 +285,10 @@ public class AuthorService2 {
                                          List<String> genres,
                                          String description) {
         Book existing = requireOwnedPublishedBook(actingUsername, bookId, "update");
+        if (hasActiveBorrowForBook(existing.getId())) {
+            throw new BusinessException(
+                "Cannot modify a published book with active borrows. Wait until all copies are returned.");
+        }
         String normalizedTitle = normalizeRequired(title, "Title cannot be empty.");
         List<String> normalizedGenres = normalizeGenres(genres, "At least one genre is required.");
         String normalizedDescription = normalizeRequired(description, "Description cannot be empty.");
