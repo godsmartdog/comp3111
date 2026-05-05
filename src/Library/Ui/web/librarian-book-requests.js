@@ -45,6 +45,7 @@ const generatedDescriptionInput = document.getElementById("generatedDescription"
 const selectedPdfUrlInput = document.getElementById("selectedPdfUrl");
 const pdfResultsBody = document.getElementById("pdfResultsBody");
 const pdfSearchModeInput = document.getElementById("pdfSearchMode");
+const pdfLoadingIndicator = document.getElementById("pdfLoadingIndicator");
 const prevPdfPageBtn = document.getElementById("prevPdfPageBtn");
 const nextPdfPageBtn = document.getElementById("nextPdfPageBtn");
 const pdfPageInfo = document.getElementById("pdfPageInfo");
@@ -393,7 +394,7 @@ function buildPdfResults(items) {
     pdfResultsBody.innerHTML = "";
 
     if (!items.length) {
-        pdfResultsBody.innerHTML = '<tr><td colspan="4">No PDF results found.</td></tr>';
+        pdfResultsBody.innerHTML = '<tr><td colspan="4">No result</td></tr>';
         return;
     }
 
@@ -490,6 +491,11 @@ async function searchPdfSources(page = 1) {
         query.set("limit", "5");
         query.set("searchMode", searchMode);
 
+        // Show loading indicator
+        if (pdfLoadingIndicator) {
+            pdfLoadingIndicator.style.display = "block";
+        }
+
         const response = await api(`/api/librarian/book-request/search-pdf?${query.toString()}`);
         const results = Array.isArray(response)
             ? response
@@ -503,6 +509,11 @@ async function searchPdfSources(page = 1) {
         );
     } catch (error) {
         showToast(error.message, true);
+    } finally {
+        // Hide loading indicator
+        if (pdfLoadingIndicator) {
+            pdfLoadingIndicator.style.display = "none";
+        }
     }
 }
 

@@ -1204,7 +1204,7 @@ public class LibraryApiHandlers {
                 String authorName = RequestFilters.getTrimmed(query, "authorName", "");
                 int limit = RequestFilters.parseIntInRange(query, "limit", PDF_SEARCH_LIMIT, 1, 10);
                 int page = RequestFilters.parseIntInRange(query, "page", 1, 1, 1000);
-                String searchMode = normalizePdfSearchMode(RequestFilters.getTrimmed(query, "searchMode", "partial"));
+                String searchMode = normalizePdfSearchMode(RequestFilters.getTrimmed(query, "searchMode", "exact"));
                 boolean debug = "1".equals(RequestFilters.getTrimmed(query, "debug", ""));
 
                 PdfSearchStats stats = new PdfSearchStats();
@@ -5090,16 +5090,20 @@ public class LibraryApiHandlers {
     }
 
     private boolean matchesStrictPdfQuery(PdfSearchResult candidate, String title, String authorName) {
-        if (!matchesStrictSearchText(candidate.title(), title)) {
-            return false;
-        }
-
-        if (authorName == null || authorName.isBlank()) {
+        // OR logic: match if title matches OR author matches (or both)
+        boolean titleMatches = matchesStrictSearchText(candidate.title(), title);
+        if (titleMatches) {
             return true;
         }
 
-        String authorText = String.join(" ", candidate.authors());
-        return matchesStrictSearchText(authorText, authorName);
+        if (authorName != null && !authorName.isBlank()) {
+            String authorText = String.join(" ", candidate.authors());
+            if (matchesStrictSearchText(authorText, authorName)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean matchesStrictSearchText(String candidateText, String queryText) {
@@ -5250,18 +5254,13 @@ public class LibraryApiHandlers {
             throws IOException, InterruptedException {
         String query = buildArchiveSearchQuery(title, authorName, searchMode);
         List<PdfSearchResult> results = searchArchiveByQuery(query, limit, page, stats);
-        if (!results.isEmpty()) {
-            return results;
+        
+        // Fallback to relaxed search if exact/main search returns no results
+        if (results.isEmpty() && isExactPdfSearchMode(searchMode)) {
+            String relaxedQuery = buildArchiveSearchQueryRelaxed(title, authorName);
+            results = searchArchiveByQuery(relaxedQuery, limit, page, stats);
         }
-
-        if (isExactPdfSearchMode(searchMode)) {
-            return results;
-        }
-
-        String relaxedQuery = buildArchiveSearchQueryRelaxed(title, authorName);
-        if (!relaxedQuery.isBlank()) {
-            return searchArchiveByQuery(relaxedQuery, limit, page, stats);
-        }
+        
         return results;
     }
 
@@ -5302,19 +5301,8 @@ public class LibraryApiHandlers {
         }
 
         List<PdfSearchResult> results = searchGoogleBooksByQuery(query, apiKey, limit, title, authorName, page, stats);
-        if (!results.isEmpty()) {
-            return results;
-        }
-
-        if (isExactPdfSearchMode(searchMode)) {
-            return results;
-        }
-
-        String relaxedQuery = buildGoogleBooksQueryRelaxed(title, authorName);
-        if (relaxedQuery.isBlank()) {
-            return results;
-        }
-        return searchGoogleBooksByQuery(relaxedQuery, apiKey, limit, title, authorName, page, stats);
+        // No auto-fallback to partial: if no results in exact mode, return empty
+        return results;
     }
 
     private List<PdfSearchResult> searchGoogleBooksByQuery(String query, String apiKey, int limit, String title, String authorName, int page, PdfSearchStats stats)
@@ -5370,32 +5358,61 @@ public class LibraryApiHandlers {
     }
 
     private String buildArchiveSearchQuery(String title, String authorName, String searchMode) {
-        StringBuilder sb = new StringBuilder("collection:publicdomain AND format:\"Text PDF\"");
-        String titleQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(title) + "\"" : buildOrQuery(title);
-        String authorQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(authorName) + "\"" : buildOrQuery(authorName);
-        if (!titleQuery.isBlank()) {
-            sb.append(" AND title:(").append(titleQuery).append(")");
+        List<String> keywords = new ArrayList<>();
+        if (title != null && !title.isBlank()) {
+            keywords.add(title.trim());
         }
-        if (!authorQuery.isBlank()) {
-            sb.append(" AND creator:(").append(authorQuery).append(")");
+        if (authorName != null && !authorName.isBlank()) {
+            keywords.add(authorName.trim());
+        }
+
+        if (keywords.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (isExactPdfSearchMode(searchMode) || keywords.size() == 1) {
+            for (int i = 0; i < keywords.size(); i++) {
+                if (i > 0) {
+                    sb.append(" AND ");
+                }
+                sb.append('"').append(keywords.get(i)).append('"');
+            }
+        } else {
+            sb.append("(");
+            for (int i = 0; i < keywords.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append('"').append(keywords.get(i)).append('"');
+            }
+            sb.append(")");
         }
         return sb.toString();
     }
 
     private String buildArchiveSearchQueryRelaxed(String title, String authorName) {
-        String titleQuery = buildOrQuery(title);
-        String authorQuery = buildOrQuery(authorName);
-        StringBuilder sb = new StringBuilder("format:\"Text PDF\"");
-        if (!titleQuery.isBlank() && !authorQuery.isBlank()) {
-            sb.append(" AND (")
-                .append("title:(").append(titleQuery).append(")")
-                .append(" OR creator:(").append(authorQuery).append(")")
-                .append(")");
-        } else if (!titleQuery.isBlank()) {
-            sb.append(" AND title:(").append(titleQuery).append(")");
-        } else if (!authorQuery.isBlank()) {
-            sb.append(" AND creator:(").append(authorQuery).append(")");
+        List<String> keywords = new ArrayList<>();
+        if (title != null && !title.isBlank()) {
+            keywords.add(title.trim());
         }
+        if (authorName != null && !authorName.isBlank()) {
+            keywords.add(authorName.trim());
+        }
+
+        if (keywords.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        for (int i = 0; i < keywords.size(); i++) {
+            if (i > 0) {
+                sb.append(" OR ");
+            }
+            sb.append('"').append(keywords.get(i)).append('"');
+        }
+        sb.append(")");
         return sb.toString();
     }
 
@@ -5664,13 +5681,17 @@ public class LibraryApiHandlers {
         if (metadataJson.isBlank()) {
             return "";
         }
-        Pattern filePattern = Pattern.compile("\\{[^\\{\\}]*?\\\"name\\\":\\\"([^\\\"]+?\\.pdf)\\\"[^\\{\\}]*?\\\"format\\\":\\\"([^\\\"]*)\\\"[^\\{\\}]*?\\}");
+        
+        // Look for PDF files in the files array - simpler pattern
+        // Pattern to extract PDF file names from JSON
+        Pattern filePattern = Pattern.compile("\\\"name\\\":\\\"([^\\\"]+?\\.pdf)\\\"");
         Matcher matcher = filePattern.matcher(metadataJson);
+        
         while (matcher.find()) {
             String fileName = unescapeJsonString(matcher.group(1));
-            String format = unescapeJsonString(matcher.group(2));
-            if (format.toLowerCase(Locale.ROOT).contains("pdf")) {
-                return "https://archive.org/download/" + identifier + "/" + fileName;
+            if (!fileName.isBlank()) {
+                // Return first valid PDF found
+                return "https://archive.org/download/" + URLEncoder.encode(identifier, StandardCharsets.UTF_8) + "/" + URLEncoder.encode(fileName, StandardCharsets.UTF_8);
             }
         }
         return "";
@@ -5775,12 +5796,10 @@ public class LibraryApiHandlers {
 
     private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason, String content) {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
-        String baseUrl = nullToEmpty(System.getenv("INFERENCE_BASE_URL")).trim();
-        String apiKey = nullToEmpty(System.getenv("INFERENCE_API_KEY")).trim();
-        String model = nullToEmpty(System.getenv("INFERENCE_MODEL")).trim();
-        if (baseUrl.isBlank() || model.isBlank()) {
-            return fallback;
-        }
+        // Local model: meta-llama-3.1-8b-instruct at http://127.0.0.1:1234
+        String baseUrl = "http://127.0.0.1:1234";
+        String apiKey = "";
+        String model = "meta-llama-3.1-8b-instruct";
 
         try {
             String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason, content);
