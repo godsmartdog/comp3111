@@ -39,6 +39,9 @@ if ! $MODE_TESTS && ! $MODE_WEB && ! $MODE_SMOKE; then
     MODE_WEB=true
 fi
 
+# Resolve script directory for default model path
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # ---------------------------------------------------------------------------
 # Runtime environment — mirrors Run-Library.ps1 (Windows) so Phase 3 features
 # 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS.
@@ -46,18 +49,17 @@ fi
 # any of these by exporting them before invoking this script.
 # ---------------------------------------------------------------------------
 : "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
-: "${INFERENCE_BASE_URL:=http://127.0.0.1:1234/v1}"
-: "${INFERENCE_API_KEY:=}"
-: "${INFERENCE_MODEL:=local-model}"
-export GOOGLE_BOOKS_API_KEY INFERENCE_BASE_URL INFERENCE_API_KEY INFERENCE_MODEL
+: "${GGUF_MODEL_PATH:=$SCRIPT_DIR/SmolLM2-135M-Instruct-Q3_K_XL.gguf}"
+: "${GGUF_RUNNER_PATH:=}"
+export GOOGLE_BOOKS_API_KEY GGUF_MODEL_PATH GGUF_RUNNER_PATH
 
 if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
     echo "Google Books API key: set"
 else
     echo "Google Books API key: (empty)"
 fi
-echo "Inference base URL:   $INFERENCE_BASE_URL"
-echo "Inference model:      $INFERENCE_MODEL"
+echo "GGUF model path:      $GGUF_MODEL_PATH"
+echo "GGUF runner path:     ${GGUF_RUNNER_PATH:-[PATH]}"
 
 # ---------------------------------------------------------------------------
 # Resolve java / javac
@@ -88,7 +90,6 @@ echo "Using javac: $JAVAC"
 # ---------------------------------------------------------------------------
 # Change to src/ (parent of Library/) as the working directory
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SOURCE_ROOT"
 echo "Working directory: $SOURCE_ROOT"
