@@ -67,6 +67,12 @@ import java.util.Map;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1254,7 +1260,7 @@ public class LibraryApiHandlers {
                 String reason = RequestFilters.getTrimmed(form, "reason", "");
                 String content = RequestFilters.getTrimmed(form, "content", "");
 
-                String description = generateBookRequestSummary(title, authorName, genres, reason, content);
+                String description = generateBookRequestSummary(title, authorName, genres, reason, content, 50);
                 sendJson(exchange, 200, "{" +
                         "\"description\":\"" + JsonUtil.escape(description) + "\"" +
                         "}");
@@ -1285,7 +1291,7 @@ public class LibraryApiHandlers {
                 fileService.validateSubmissionFile(downloadedPdf.filePath());
 
                 String resolvedDescription = description.isBlank()
-                    ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason(), content)
+                    ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason(), content, 50)
                     : description;
 
                 BookRequest2 uploaded = bookRequestService.uploadRequest(
@@ -2388,8 +2394,11 @@ public class LibraryApiHandlers {
                 String title = required(form, "title");
                 List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String note = RequestFilters.getTrimmed(form, "note", "");
+                String content = RequestFilters.getTrimmed(form, "content", "");
+                String summaryLevel = RequestFilters.getTrimmed(form, "summaryLevel", "medium");
+                int summaryWordLimit = parseSummaryWordLimit(summaryLevel);
 
-                String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note);
+                String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note, content, summaryWordLimit);
                 sendJson(exchange, 200, "{" +
                         "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
                         "\"message\":\"Summary generated! You can edit it or click Submit to proceed.\"" +
@@ -5799,19 +5808,29 @@ public class LibraryApiHandlers {
         return normalized;
     }
 
-    private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason, String content) {
+    private String generateBookRequestSummary(String title,
+                                              String authorName,
+                                              List<String> genres,
+                                              String reason,
+                                              String content,
+                                              int summaryWordLimit) {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
 
         try {
-            String summary = callInferenceSummary(title, authorName, genres, reason, content);
+            String summary = callInferenceSummary(title, authorName, genres, reason, content, summaryWordLimit);
             return summary.isBlank() ? fallback : summary;
         } catch (Exception e) {
             return fallback;
         }
     }
 
-    private String generateAuthorSubmissionSummary(String authorName, String title, List<String> genres, String note) {
-        String summary = generateBookRequestSummary(title, authorName, genres, note, "");
+    private String generateAuthorSubmissionSummary(String authorName,
+                                                   String title,
+                                                   List<String> genres,
+                                                   String note,
+                                                   String content,
+                                                   int summaryWordLimit) {
+        String summary = generateBookRequestSummary(title, authorName, genres, note, content, summaryWordLimit);
         return summary == null ? "" : summary.trim();
     }
 
@@ -5819,22 +5838,64 @@ public class LibraryApiHandlers {
                                         String authorName,
                                         List<String> genres,
                                         String reason,
-                                        String content) throws IOException, InterruptedException {
+                                        String content,
+                                        int summaryWordLimit) throws IOException, InterruptedException {
+        int cappedLimit = parseSummaryWordLimit(String.valueOf(summaryWordLimit));
         String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
-        String extractedContent = nullToEmpty(content).trim();
-        String prompt = "Write a concise 2-3 sentence summary for a library catalog. "
-            + "Use neutral tone and avoid spoilers. "
-            + "Title: " + title + ". "
-            + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
-            + (extractedContent.isBlank() ? "" : "Extracted text (first two pages): " + extractedContent + ".");
+        String extractedContent = sanitizeText(nullToEmpty(content).trim());
+        String contentForPrompt = extractedContent.isBlank() ? "" : limitWords(extractedContent, cappedLimit);
+        if (!extractedContent.isBlank()) {
+            String preview = limitWords(extractedContent, cappedLimit);
+            System.out.println("[AI] Extracted text preview (first 2 pages, " + cappedLimit + " words max): " + preview);
+        }
+        int sentenceCount = summaryWordLimitToSentenceCount(cappedLimit);
+        int topicCount = summaryWordLimitToTopicCount(cappedLimit);
+        String topics = extractKeyPhrases(contentForPrompt, topicCount);
+        String draftSummary = buildRuleBasedSummary(title, genreText, topics, sentenceCount);
+        String prompt = "<|im_start|>system\n"
+            + "You are a helpful library catalog assistant.<|im_end|>\n"
+            + "<|im_start|>user\n"
+            + "Write " + sentenceCount + " sentence" + (sentenceCount == 1 ? "" : "s")
+            + " and keep it under " + cappedLimit + " words. "
+            + "Return only the summary.\n\n"
+            + "Draft summary: " + draftSummary + "\n"
+            + "Title: " + title + "\n"
+            + (genreText.isBlank() ? "" : "Genres: " + genreText + "\n")
+            + (topics.isBlank() ? "" : "Topics: " + topics + "\n")
+            + "<|im_end|>\n"
+            + "<|im_start|>assistant\n";
+        System.out.println("[AI] Prompt debug: " + prompt);
         String modelPath = resolveGgufModelPath();
         ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        float temperature = summaryWordLimitToTemperature(cappedLimit);
         InferenceParameters inferParams = new InferenceParameters(prompt)
-                .setTemperature(0.7f)
-                .setPenalizeNl(true);
-        try (LlamaModel model = new LlamaModel(modelParameters)) {
-            String summary = model.complete(inferParams);
-            return summary == null ? "" : summary.trim();
+            .setTemperature(temperature)
+            .setTopP(0.9f)
+            .setTopK(20)
+            .setRepeatPenalty(1.1f)
+            .setStopStrings("<|im_end|>", "User:", "Assistant:")
+            .setPenalizeNl(true);
+        int timeoutMs = summaryWordLimitToTimeoutMs(cappedLimit);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try (LlamaModel model = new LlamaModel(modelParameters)) {
+                return model.complete(inferParams);
+            }
+        });
+
+        try {
+            String summary = future.get(timeoutMs, TimeUnit.MILLISECONDS);
+            if (summary == null) {
+                return limitWordsToSentence(draftSummary, cappedLimit);
+            }
+            return limitWordsToSentence(summary.trim(), cappedLimit);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            return limitWordsToSentence(draftSummary, cappedLimit);
+        } catch (ExecutionException e) {
+            return limitWordsToSentence(draftSummary, cappedLimit);
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -5850,6 +5911,229 @@ public class LibraryApiHandlers {
         }
 
         throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
+    }
+
+    private static String limitWords(String text, int maxWords) {
+        if (text == null || text.isBlank() || maxWords <= 0) {
+            return "";
+        }
+        String[] parts = text.trim().split("\\s+");
+        if (parts.length <= maxWords) {
+            return text.trim();
+        }
+        StringJoiner joiner = new StringJoiner(" ");
+        for (int i = 0; i < maxWords; i += 1) {
+            joiner.add(parts[i]);
+        }
+        return joiner + "...";
+    }
+
+    private static int parseSummaryWordLimit(String raw) {
+        String level = nullToEmpty(raw).trim().toLowerCase(Locale.ROOT);
+        if (level.matches("\\d+")) {
+            try {
+                return Integer.parseInt(level);
+            } catch (NumberFormatException e) {
+                return 100;
+            }
+        }
+        return switch (level) {
+            case "short" -> 50;
+            case "medium" -> 100;
+            case "detail", "detailed" -> 150;
+            default -> 100;
+        };
+    }
+
+    private static int summaryWordLimitToTimeoutMs(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 5000;
+        }
+        if (wordLimit >= 150) {
+            return 12000;
+        }
+        return 8000;
+    }
+
+    private static float summaryWordLimitToTemperature(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 0.9f;
+        }
+        if (wordLimit >= 150) {
+            return 0.5f;
+        }
+        return 0.7f;
+    }
+
+    private static int summaryWordLimitToSentenceCount(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 1;
+        }
+        if (wordLimit >= 150) {
+            return 3;
+        }
+        return 2;
+    }
+
+    private static int summaryWordLimitToTopicCount(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 6;
+        }
+        if (wordLimit >= 150) {
+            return 18;
+        }
+        return 10;
+    }
+
+    private static int summaryWordLimitToMaxTokens(int wordLimit) {
+        if (wordLimit <= 20) {
+            return 80;
+        }
+        if (wordLimit >= 70) {
+            return 100;
+        }
+        return 90;
+    }
+
+    private static String limitWordsToSentence(String text, int maxWords) {
+        if (text == null || text.isBlank() || maxWords <= 0) {
+            return "";
+        }
+        String trimmed = text.trim();
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length <= maxWords) {
+            return trimmed;
+        }
+
+        int wordCount = 0;
+        int scanIndex = 0;
+        for (String part : parts) {
+            int nextIndex = trimmed.indexOf(part, scanIndex);
+            if (nextIndex < 0) {
+                break;
+            }
+            scanIndex = nextIndex + part.length();
+            wordCount += 1;
+            if (wordCount >= maxWords) {
+                int periodIndex = trimmed.indexOf('.', scanIndex);
+                if (periodIndex >= 0) {
+                    return trimmed.substring(0, periodIndex + 1).trim();
+                }
+                return String.join(" ", java.util.Arrays.copyOfRange(parts, 0, maxWords)).trim();
+            }
+        }
+
+        return String.join(" ", java.util.Arrays.copyOfRange(parts, 0, maxWords)).trim();
+    }
+
+    private static String buildRuleBasedSummary(String title, String genreText, String content, int sentenceCount) {
+        String safeTitle = nullToEmpty(title).trim();
+        String safeGenres = nullToEmpty(genreText).trim();
+        List<String> topics = extractTopics(content, 6);
+
+        String genreLabel = safeGenres.isBlank() ? "library" : safeGenres;
+        if (topics.isEmpty()) {
+            if (safeTitle.isBlank()) {
+                return sentenceCount <= 1
+                    ? "This " + genreLabel + " resource highlights key themes in the subject."
+                    : "This " + genreLabel + " resource highlights key themes in the subject. It offers a concise overview.";
+            }
+            return sentenceCount <= 1
+                ? "This " + genreLabel + " resource covers " + safeTitle + "."
+                : "This " + genreLabel + " resource covers " + safeTitle + ". It frames the topic for quick understanding.";
+        }
+
+        String topicPhrase = buildTopicPhrase(topics);
+        if (sentenceCount <= 1) {
+            return "Covers " + topicPhrase + " in the context of " + genreLabel + ".";
+        }
+        if (sentenceCount == 2) {
+            String titleClause = safeTitle.isBlank() ? "" : " It connects to " + safeTitle + ".";
+            return "Covers " + topicPhrase + " in the context of " + genreLabel + "." + titleClause;
+        }
+        String titleClause = safeTitle.isBlank() ? "" : " It connects to " + safeTitle + ".";
+        return "Covers " + topicPhrase + " in the context of " + genreLabel + "."
+            + titleClause + " It highlights practical and conceptual takeaways.";
+    }
+
+    private static List<String> extractTopics(String content, int maxTopics) {
+        List<String> topics = new ArrayList<>();
+        if (content == null || content.isBlank()) {
+            return topics;
+        }
+
+        String normalized = content.replace(";", ",").replace(" and ", ",");
+        String[] parts = normalized.split(",");
+        for (String part : parts) {
+            String topic = part.trim();
+            if (topic.isEmpty()) {
+                continue;
+            }
+            if (!topics.contains(topic)) {
+                topics.add(topic);
+            }
+            if (topics.size() >= maxTopics) {
+                break;
+            }
+        }
+        return topics;
+    }
+
+    private static String extractKeyPhrases(String text, int maxTerms) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String cleaned = sanitizeText(text)
+            .replaceAll("[^A-Za-z\\s-]", " ")
+            .replaceAll("\\b\\d+\\b", " ")
+            .replaceAll("(?i)\\b(the|this|are|for|of|in|on|is|a|an|to|be|can|that|most|which|them|two|with|from|into|by|as|at|it|its|their|they|we|you|your|our|ours)\\b", " ")
+            .replaceAll("\\s+", " ")
+            .trim();
+        if (cleaned.isBlank()) {
+            return "";
+        }
+
+        String[] tokens = cleaned.split(" ");
+        List<String> unique = new ArrayList<>();
+        for (String token : tokens) {
+            String term = token.trim();
+            if (term.isEmpty()) {
+                continue;
+            }
+            String lower = term.toLowerCase(Locale.ROOT);
+            if (unique.stream().noneMatch((existing) -> existing.equalsIgnoreCase(lower))) {
+                unique.add(term);
+            }
+            if (unique.size() >= maxTerms) {
+                break;
+            }
+        }
+
+        return String.join(", ", unique);
+    }
+
+    private static String sanitizeText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        return text.replaceAll("[^\\x20-\\x7E]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private static String buildTopicPhrase(List<String> topics) {
+        if (topics == null || topics.isEmpty()) {
+            return "core topics";
+        }
+        if (topics.size() == 1) {
+            return topics.get(0);
+        }
+        if (topics.size() == 2) {
+            return topics.get(0) + " and " + topics.get(1);
+        }
+        StringJoiner joiner = new StringJoiner(", ");
+        for (int i = 0; i < topics.size() - 1; i += 1) {
+            joiner.add(topics.get(i));
+        }
+        return joiner + ", and " + topics.get(topics.size() - 1);
     }
 
     private String extractJsonField(String json, String fieldName) {

@@ -50,8 +50,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # ---------------------------------------------------------------------------
 : "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
 : "${GGUF_MODEL_PATH:=$SCRIPT_DIR/SmolLM2-135M-Instruct-Q3_K_XL.gguf}"
-: "${GGUF_RUNNER_PATH:=}"
-export GOOGLE_BOOKS_API_KEY GGUF_MODEL_PATH GGUF_RUNNER_PATH
+: "${LLAMA_JAR:=$SCRIPT_DIR/third-party/llama/llama-4.1.0.jar}"
+export GOOGLE_BOOKS_API_KEY GGUF_MODEL_PATH LLAMA_JAR
 
 if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
     echo "Google Books API key: set"
@@ -59,7 +59,7 @@ else
     echo "Google Books API key: (empty)"
 fi
 echo "GGUF model path:      $GGUF_MODEL_PATH"
-echo "GGUF runner path:     ${GGUF_RUNNER_PATH:-[PATH]}"
+echo "Llama jar:            $LLAMA_JAR"
 
 # ---------------------------------------------------------------------------
 # Resolve java / javac
@@ -131,11 +131,11 @@ if $MODE_TESTS; then
     mkdir -p "$TEST_OUTPUT"
 
     echo "Compiling integration tests..."
-    "$JAVAC" -encoding UTF-8 -d "$TEST_OUTPUT" @"$TEST_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$TEST_OUTPUT" @"$TEST_SOURCES"
 
     if ! $COMPILE_ONLY; then
         echo "Running integration tests..."
-        "$JAVA" -cp "$TEST_OUTPUT" Library.Test.LibraryIntegrationTest
+        "$JAVA" -cp "$TEST_OUTPUT:$LLAMA_JAR" Library.Test.LibraryIntegrationTest
     fi
 fi
 
@@ -151,15 +151,15 @@ if $MODE_WEB || $MODE_SMOKE; then
     mkdir -p "$FX_OUTPUT"
 
     echo "Compiling application (web UI + services)..."
-    "$JAVAC" -encoding UTF-8 -d "$FX_OUTPUT" @"$FX_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$FX_OUTPUT" @"$FX_SOURCES"
 
     if ! $COMPILE_ONLY; then
         if $MODE_SMOKE; then
             echo "Running web UI smoke test..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp --smoke-test
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp --smoke-test
         else
             echo "Starting web UI on http://localhost:8080 ..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp
         fi
     fi
 fi
