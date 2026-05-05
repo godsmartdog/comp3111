@@ -58,13 +58,16 @@
         <div class="toolbar">
             <button id="searchPdfBtn" class="secondary" type="button">Search PDFs</button>
             <select id="pdfSearchMode">
-                <option value="partial" selected>Partial match</option>
-                <option value="exact">Exact match</option>
+                <option value="exact" selected>Exact match</option>
+                <option value="partial">Partial match</option>
             </select>
             <button id="generateSummaryBtn" class="secondary" type="button">Generate Summary</button>
             <button id="downloadAndUploadBtn" class="secondary" type="button">Download + Upload</button>
         </div>
         <div class="table-wrap" style="margin-top:12px;">
+            <div id="pdfLoadingIndicator" style="display:none; text-align:center; padding:20px;">
+                <span style="font-size:20px;">⏳ Searching...</span>
+            </div>
             <table>
                 <thead>
                 <tr>
