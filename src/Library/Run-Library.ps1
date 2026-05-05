@@ -8,9 +8,8 @@ param(
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
-$env:INFERENCE_BASE_URL = "http://127.0.0.1:1234/v1"
-$env:INFERENCE_API_KEY = ""
-$env:INFERENCE_MODEL = "local-model"
+$env:GGUF_MODEL_PATH = (Join-Path $PSScriptRoot "SmolLM2-135M-Instruct-Q3_K_XL.gguf")
+$env:GGUF_RUNNER_PATH = ""
 
 # Define JavaFX path
 $javafxLib = "C:\Program Files\Java\javafx-sdk-21.0.10\lib"
@@ -18,8 +17,9 @@ $javafxModules = "javafx.controls,javafx.fxml"
 
 Write-Host "JAVA_HOME set to: $env:JAVA_HOME" -ForegroundColor Green
 Write-Host "Google Books API key set." -ForegroundColor Green
-Write-Host "Inference base URL: $env:INFERENCE_BASE_URL" -ForegroundColor Green
-Write-Host "Inference model: $env:INFERENCE_MODEL" -ForegroundColor Green
+$runnerLabel = if ($env:GGUF_RUNNER_PATH -and $env:GGUF_RUNNER_PATH.Trim()) { $env:GGUF_RUNNER_PATH } else { "[PATH]" }
+Write-Host "GGUF model path: $env:GGUF_MODEL_PATH" -ForegroundColor Green
+Write-Host "GGUF runner path: $runnerLabel" -ForegroundColor Green
 Write-Host "JavaFX path: $javafxLib" -ForegroundColor Green
 function Resolve-ToolPath {
     param(

@@ -33,6 +33,10 @@ import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 import Library.Service.SessionSnapshotService;
 
+import de.kherud.llama.InferenceParameters;
+import de.kherud.llama.LlamaModel;
+import de.kherud.llama.ModelParameters;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -91,6 +95,7 @@ public class LibraryApiHandlers {
     private static final String PDF_RERANKER_PROVIDER_ENV = "PDF_RERANKER_PROVIDER";
     private static final String PDF_RERANKER_URL_ENV = "PDF_RERANKER_URL";
     private static final String PDF_RERANKER_MODEL_ENV = "PDF_RERANKER_MODEL";
+    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
 
     private final AuthService authService;
     private final BookService bookService;
@@ -5796,13 +5801,9 @@ public class LibraryApiHandlers {
 
     private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason, String content) {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
-        // Local model: meta-llama-3.1-8b-instruct at http://127.0.0.1:1234
-        String baseUrl = "http://127.0.0.1:1234";
-        String apiKey = "";
-        String model = "meta-llama-3.1-8b-instruct";
 
         try {
-            String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason, content);
+            String summary = callInferenceSummary(title, authorName, genres, reason, content);
             return summary.isBlank() ? fallback : summary;
         } catch (Exception e) {
             return fallback;
@@ -5814,53 +5815,41 @@ public class LibraryApiHandlers {
         return summary == null ? "" : summary.trim();
     }
 
-    private String callInferenceSummary(String baseUrl,
-                                        String apiKey,
-                                        String model,
-                                        String title,
+    private String callInferenceSummary(String title,
                                         String authorName,
                                         List<String> genres,
                                         String reason,
                                         String content) throws IOException, InterruptedException {
-        String endpoint = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        endpoint = endpoint + "/chat/completions";
-
         String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
-                        String extractedContent = nullToEmpty(content).trim();
+        String extractedContent = nullToEmpty(content).trim();
         String prompt = "Write a concise 2-3 sentence summary for a library catalog. "
-                + "Use neutral tone and avoid spoilers. "
-                            + (extractedContent.isBlank() ? "" : "Base the summary primarily on the following extracted text from the first two pages. ")
-                + "Title: " + title + ". Author: " + authorName + ". "
-                + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
-                            + (reason == null || reason.isBlank() ? "" : "Requester note: " + reason + ". ")
-                            + (extractedContent.isBlank() ? "" : "Extracted text: " + extractedContent + ".");
-
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"messages\":[" +
-                "{\"role\":\"system\",\"content\":\"You are a helpful library assistant.\"}," +
-                "{\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
-                "]," +
-                            "\"max_tokens\":200," +
-                            "\"temperature\":0.7" +
-                "}";
-
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(endpoint))
-            .header("Content-Type", "application/json");
-        if (!apiKey.isBlank()) {
-            requestBuilder.header("Authorization", "Bearer " + apiKey);
+            + "Use neutral tone and avoid spoilers. "
+            + "Title: " + title + ". "
+            + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
+            + (extractedContent.isBlank() ? "" : "Extracted text (first two pages): " + extractedContent + ".");
+        String modelPath = resolveGgufModelPath();
+        ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        InferenceParameters inferParams = new InferenceParameters(prompt)
+                .setTemperature(0.7f)
+                .setPenalizeNl(true);
+        try (LlamaModel model = new LlamaModel(modelParameters)) {
+            String summary = model.complete(inferParams);
+            return summary == null ? "" : summary.trim();
         }
-        HttpRequest request = requestBuilder
-            .POST(HttpRequest.BodyPublishers.ofString(payload))
-            .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Inference API error. Status: " + response.statusCode());
+    }
+
+    private String resolveGgufModelPath() throws IOException {
+        String configured = nullToEmpty(System.getenv(GGUF_MODEL_PATH_ENV)).trim();
+        if (!configured.isBlank()) {
+            return configured;
         }
 
-        String responseContent = extractJsonField(response.body(), "content");
-        return unescapeJsonString(responseContent).trim();
+        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "SmolLM2-135M-Instruct-Q3_K_XL.gguf");
+        if (Files.exists(defaultPath)) {
+            return defaultPath.toString();
+        }
+
+        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
     }
 
     private String extractJsonField(String json, String fieldName) {
