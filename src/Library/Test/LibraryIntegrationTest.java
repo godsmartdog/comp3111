@@ -174,6 +174,8 @@ public final class LibraryIntegrationTest {
         runner.run("session snapshot no state returns safe empty response", LibraryIntegrationTest::testSessionSnapshotNoSnapshotReturnsSafeEmptyResponse);
         runner.run("session snapshot ownership is session scoped", LibraryIntegrationTest::testSessionSnapshotOwnershipIsSessionScoped);
         runner.run("logout clears session snapshot", LibraryIntegrationTest::testLogoutClearsSessionSnapshot);
+        runner.run("session restore endpoint rehydrates session", LibraryIntegrationTest::testSessionRestoreEndpointRehydratesSession);
+        runner.run("crash restore rejects role mismatch", LibraryIntegrationTest::testCrashRestoreRejectsRoleMismatch);
         runner.run("dev crash hook for snapshots is guarded", LibraryIntegrationTest::testDevCrashHookForSnapshotIsGuarded);
         runner.run("dev crash hook can save session snapshot", LibraryIntegrationTest::testDevCrashHookCanSaveSessionSnapshot);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
@@ -226,6 +228,74 @@ public final class LibraryIntegrationTest {
             .orElseThrow(() -> new AssertionError("loaded database should contain saved request"))
             .getId(), "loaded request id should match");
         assertEquals(1, loaded.notificationRepository.findByUsername("persist-user").size(), "loaded notification should be queryable by user");
+    }
+
+    private static void testSessionRestoreEndpointRehydratesSession() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("restore-user", "Restore User", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Restore Book", "Recovery Team", "Book visible after session restore.");
+
+        HttpClient client = HttpClient.newHttpClient();
+        String sessionId;
+        HttpServer firstServer = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + firstServer.getAddress().getPort();
+            sessionId = loginAndGetSessionId(client, baseUrl, "restore-user", "Password1!", "STUDENT");
+            HttpRequest snapshotRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=student-books.html&lastViewKey=default&lastAction=test&statePayload=%7B%7D"))
+                    .build();
+            HttpResponse<String> snapshotResponse = client.send(snapshotRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, snapshotResponse.statusCode(), "snapshot save should succeed before restore test");
+        } finally {
+            firstServer.stop(0);
+        }
+
+        HttpServer restartedServer = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + restartedServer.getAddress().getPort();
+            HttpRequest restoreRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session/restore"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("sessionId=" + sessionId + "&username=restore-user&role=STUDENT"))
+                    .build();
+            HttpResponse<String> restoreResponse = client.send(restoreRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, restoreResponse.statusCode(), "session restore should return HTTP 200");
+            assertTrue(restoreResponse.body().contains("\"restored\":true"), "restore response should confirm success");
+
+            HttpRequest booksRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> booksResponse = client.send(booksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, booksResponse.statusCode(), "authenticated endpoint should work with restored session id");
+            assertTrue(booksResponse.body().contains("Restore Book"), "restored session should see approved books");
+        } finally {
+            restartedServer.stop(0);
+        }
+    }
+
+    private static void testCrashRestoreRejectsRoleMismatch() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("restore-mismatch", "Restore Mismatch", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpRequest restoreRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session/restore"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("sessionId=mismatch-session&username=restore-mismatch&role=AUTHOR"))
+                    .build();
+            HttpResponse<String> restoreResponse = HttpClient.newHttpClient().send(restoreRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, restoreResponse.statusCode(), "role mismatch restore should be rejected");
+            assertTrue(restoreResponse.body().contains("role mismatch"), "restore rejection should explain role mismatch");
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static void testStudentBorrowAndReturnFlow() {
