@@ -10,14 +10,21 @@ $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
 
-# Ensure absolute path to Meta-Llama model - NEVER use SmolLM2
-$metaLlamaModel = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"))
-$env:GGUF_MODEL_PATH = $metaLlamaModel
+# Prefer the 8B model when available, otherwise fall back to the tracked 1B model.
+$metaLlama8bModel = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"))
+$llama1bModel = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "llama-3.2-1b-instruct-q8_0.gguf"))
+$selectedModel = $null
+if (Test-Path $metaLlama8bModel) {
+    $selectedModel = $metaLlama8bModel
+} elseif (Test-Path $llama1bModel) {
+    $selectedModel = $llama1bModel
+} elseif (!$CompileOnly) {
+    Write-Host "ERROR: No GGUF model found at either:`n  $metaLlama8bModel`n  $llama1bModel" -ForegroundColor Red
+    throw "GGUF model file is missing!"
+}
 
-# Verify Meta-Llama model exists
-if (!(Test-Path $metaLlamaModel)) {
-    Write-Host "ERROR: Meta-Llama model not found at: $metaLlamaModel" -ForegroundColor Red
-    throw "Meta-Llama model file is missing!"
+if ($selectedModel) {
+    $env:GGUF_MODEL_PATH = $selectedModel
 }
 
 # Define JavaFX path
