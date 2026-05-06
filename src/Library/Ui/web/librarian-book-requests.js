@@ -51,6 +51,11 @@ const prevPdfPageBtn = document.getElementById("prevPdfPageBtn");
 const nextPdfPageBtn = document.getElementById("nextPdfPageBtn");
 const pdfPageInfo = document.getElementById("pdfPageInfo");
 const uploadPdfFileInput = document.getElementById("uploadPdfFileInput");
+const downloadAndUploadBtn = document.getElementById("downloadAndUploadBtn");
+const downloadProgressBox = document.getElementById("downloadProgressBox");
+const downloadProgressBar = document.getElementById("downloadProgressBar");
+const downloadProgressText = document.getElementById("downloadProgressText");
+let downloadProgressTimer = null;
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -62,6 +67,68 @@ if (currentUser) {
 
 function normalizeText(value) {
     return String(value || "").trim().toLowerCase();
+}
+
+function setDownloadProgress(value, text) {
+    if (downloadProgressBox) {
+        downloadProgressBox.style.display = "block";
+    }
+    if (downloadProgressBar) {
+        downloadProgressBar.value = Math.max(0, Math.min(100, Number(value || 0)));
+    }
+    if (downloadProgressText) {
+        downloadProgressText.textContent = text || "";
+    }
+}
+
+function clearDownloadProgressTimer() {
+    if (downloadProgressTimer) {
+        clearInterval(downloadProgressTimer);
+        downloadProgressTimer = null;
+    }
+}
+
+function startDownloadProgress() {
+    clearDownloadProgressTimer();
+    setDownloadProgress(5, "Preparing download...");
+    let value = 5;
+    downloadProgressTimer = setInterval(() => {
+        value = Math.min(90, value + 5);
+        const text = value < 35
+            ? "Preparing request..."
+            : value < 65
+                ? "Downloading requested book..."
+                : "Validating and uploading to library...";
+        setDownloadProgress(value, text);
+        if (value >= 90) {
+            clearDownloadProgressTimer();
+        }
+    }, 600);
+}
+
+function finishDownloadProgress(success, message) {
+    clearDownloadProgressTimer();
+    if (success) {
+        setDownloadProgress(100, message || "Download and upload complete.");
+        setTimeout(() => {
+            if (downloadProgressBox) {
+                downloadProgressBox.style.display = "none";
+            }
+            if (downloadProgressBar) {
+                downloadProgressBar.value = 0;
+            }
+        }, 1800);
+    } else {
+        setDownloadProgress(0, message || "Download failed.");
+        setTimeout(() => {
+            if (downloadProgressBox) {
+                downloadProgressBox.style.display = "none";
+            }
+            if (downloadProgressBar) {
+                downloadProgressBar.value = 0;
+            }
+        }, 3000);
+    }
 }
 
 function requestMatchesFilters(item) {
@@ -580,6 +647,57 @@ function downloadPdf() {
     showToast("Starting PDF download...", false);
 }
 
+async function downloadAndUpload() {
+    if (!selectedRequest?.id) {
+        showToast("Select a request first.", true);
+        return;
+    }
+    if (String(selectedRequest.status || "").toLowerCase() !== "approved") {
+        showToast("Request must be approved before download and upload.", true);
+        return;
+    }
+
+    const pdfUrl = selectedPdfUrlInput?.value.trim() || "";
+    if (!pdfUrl) {
+        showToast("Provide a PDF download URL.", true);
+        return;
+    }
+
+    const title = selectedTitleInput?.value.trim() || selectedRequest.title || selectedRequest.id;
+    if (!confirm(`Download and upload this requested book?\n\nTitle: ${title}\nPDF URL: ${pdfUrl}`)) {
+        return;
+    }
+
+    if (downloadAndUploadBtn) {
+        downloadAndUploadBtn.disabled = true;
+    }
+    startDownloadProgress();
+
+    try {
+        const response = await api("/api/librarian/book-request/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({
+                requestId: selectedRequest.id,
+                pdfUrl,
+                comment: "",
+                description: generatedDescriptionInput?.value.trim() || "",
+                content: ""
+            })
+        });
+        finishDownloadProgress(true, response?.message || "Downloaded and uploaded.");
+        showToast(response?.message || "Downloaded and uploaded.", false);
+        await refreshRequests();
+    } catch (error) {
+        finishDownloadProgress(false, error.message);
+        showToast(error.message, true);
+    } finally {
+        if (downloadAndUploadBtn) {
+            downloadAndUploadBtn.disabled = false;
+        }
+    }
+}
+
 function openAddPublishedBookPageFromRequest() {
     if (!selectedRequest?.id) {
         showToast("Select a request first.", true);
@@ -651,6 +769,10 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", () => {
 
 document.getElementById("downloadPdfBtn")?.addEventListener("click", () => {
     downloadPdf();
+});
+
+downloadAndUploadBtn?.addEventListener("click", () => {
+    downloadAndUpload();
 });
 
 document.getElementById("uploadPdfBtn")?.addEventListener("click", () => {
