@@ -24,7 +24,7 @@
 <main class="layout single-col" data-role="LIBRARIAN">
     <section class="panel glass-panel">
         <h2>Download Requested Books (PDF)</h2>
-        <p class="muted">Search public-domain PDFs, download them, and attach them to an approved request.</p>
+        <p class="muted">Search public-domain PDFs, download them locally, and upload them after approval.</p>
         <div class="form-grid">
             <div class="form-field">
                 <label for="selectedRequestId">Selected Request ID</label>
@@ -62,8 +62,10 @@
                 <option value="partial">Partial match</option>
             </select>
             <button id="generateSummaryBtn" class="secondary" type="button">Generate Summary</button>
-            <button id="downloadAndUploadBtn" class="secondary" type="button">Download + Upload</button>
+            <button id="downloadPdfBtn" class="secondary" type="button">Download</button>
+            <button id="uploadPdfBtn" class="secondary" type="button">Upload</button>
         </div>
+        <input id="uploadPdfFileInput" type="file" accept=".pdf,.doc,.docx,.txt,.md" style="display:none;">
         <div class="table-wrap" style="margin-top:12px;">
             <div id="pdfLoadingIndicator" style="display:none; text-align:center; padding:20px;">
                 <span style="font-size:20px;">⏳ Searching...</span>

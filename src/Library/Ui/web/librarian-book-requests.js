@@ -49,6 +49,7 @@ const pdfLoadingIndicator = document.getElementById("pdfLoadingIndicator");
 const prevPdfPageBtn = document.getElementById("prevPdfPageBtn");
 const nextPdfPageBtn = document.getElementById("nextPdfPageBtn");
 const pdfPageInfo = document.getElementById("pdfPageInfo");
+const uploadPdfFileInput = document.getElementById("uploadPdfFileInput");
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -557,42 +558,56 @@ async function generateSummary() {
     }
 }
 
-async function downloadAndUpload() {
+function downloadPdf() {
+    const pdfUrl = selectedPdfUrlInput?.value.trim() || "";
+    if (!pdfUrl) {
+        showToast("Provide a PDF download URL.", true);
+        return;
+    }
+    const title = selectedTitleInput?.value.trim() || "download";
+    const safeName = title.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+    const anchor = document.createElement("a");
+    anchor.href = pdfUrl;
+    anchor.download = `${safeName || "download"}.pdf`;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+}
+
+async function uploadSelectedFile(file) {
     try {
         if (!selectedRequest?.id) {
             showToast("Select a request first.", true);
             return;
         }
         if (String(selectedRequest.status || "").toLowerCase() !== "approved") {
-            showToast("Request must be approved before download.", true);
+            showToast("Request must be approved before upload.", true);
             return;
         }
-        const pdfUrl = selectedPdfUrlInput?.value.trim() || "";
-        if (!pdfUrl) {
-            showToast("Provide a PDF download URL.", true);
-            return;
-        }
-        if (!confirm("Download this PDF and upload it to the library?")) {
+        if (!file) {
             return;
         }
         const comment = (prompt("Upload comment (optional)") || "").trim();
         const description = generatedDescriptionInput?.value.trim() || "";
-        const content = description ? "" : await extractFirstTwoPagesTextFromPdfUrl(pdfUrl);
-        const response = await api("/api/librarian/book-request/download", {
+        const formData = new FormData();
+        formData.append("requestId", selectedRequest.id);
+        formData.append("comment", comment);
+        formData.append("description", description);
+        formData.append("file", file);
+
+        const response = await api("/api/librarian/book-request/upload", {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody({
-                requestId: selectedRequest.id,
-                pdfUrl,
-                comment,
-                description,
-                content
-            })
+            body: formData
         });
-        showToast(response?.message || "Downloaded and uploaded.", false);
+        showToast(response?.message || "Uploaded.", false);
         await refreshRequests();
     } catch (error) {
         showToast(error.message, true);
+    } finally {
+        if (uploadPdfFileInput) {
+            uploadPdfFileInput.value = "";
+        }
     }
 }
 
@@ -637,8 +652,19 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", () => {
     generateSummary();
 });
 
-document.getElementById("downloadAndUploadBtn")?.addEventListener("click", () => {
-    downloadAndUpload();
+document.getElementById("downloadPdfBtn")?.addEventListener("click", () => {
+    downloadPdf();
+});
+
+document.getElementById("uploadPdfBtn")?.addEventListener("click", () => {
+    if (uploadPdfFileInput) {
+        uploadPdfFileInput.click();
+    }
+});
+
+uploadPdfFileInput?.addEventListener("change", (event) => {
+    const file = event.target?.files?.[0] || null;
+    uploadSelectedFile(file);
 });
 
 if (currentUser) {

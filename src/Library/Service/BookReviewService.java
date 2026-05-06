@@ -2,6 +2,7 @@ package Library.Service;
 
 import Library.Exception.BusinessException;
 import Library.Exception.NotFoundException;
+import Library.Model.NotificationPriority;
 import Library.Service.NotificationService;
 import Library.Model.Book;
 import Library.Model.BookReview;
@@ -119,9 +120,9 @@ public class BookReviewService {
                     review.getUsername(),
                     "Reply to your review",
                     "Author replied to your review for \"" + book.getTitle() + "\": " + normalizedReply,
-                    null,
+                NotificationPriority.NORMAL,
                     Map.of(
-                            "type", "review-reply",
+                    "type", "review",
                             "bookId", book.getId(),
                             "reviewId", review.getId(),
                             "authorUsername", normalize(authorUsername)

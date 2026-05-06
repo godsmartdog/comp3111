@@ -82,6 +82,7 @@ public class LibraryApiHandlers {
     private static final String CRASH_TEST_HEADER = "X-Crash-Test-Hook";
     private static final String[] BASIC_NOTIFICATION_CATEGORIES = {
             "submission",
+            "review",
             "account-update",
             "auto-return",
             "borrow-reminder",
@@ -1043,6 +1044,7 @@ public class LibraryApiHandlers {
                             required(form, "genres"),
                             required(form, "reason")
                     );
+                    notifyLibrariansForBookRequest(request, user);
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request submitted successfully.\"," +
                             "\"request\":" + bookRequestToJson(request) +
@@ -1130,9 +1132,9 @@ public class LibraryApiHandlers {
                             approved.getRequesterUsername(),
                             "Book Request Approved",
                         "Your request for \"" + approved.getTitle() + "\" was approved by a librarian." + approvalComment,
-                        NotificationPriority.HIGH,
+                        NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", approved.getId(), "status", approved.getStatus().name())
+                            Map.of("type", "submission", "requestId", approved.getId(), "status", approved.getStatus().name())
                     );
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request approved.\"," +
@@ -1146,9 +1148,9 @@ public class LibraryApiHandlers {
                             rejected.getRequesterUsername(),
                             "Book Request Rejected",
                         "Your request for \"" + rejected.getTitle() + "\" was rejected by a librarian." + rejectionReason + rejectionComment,
-                        NotificationPriority.HIGH,
+                        NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", rejected.getId(), "status", rejected.getStatus().name())
+                            Map.of("type", "submission", "requestId", rejected.getId(), "status", rejected.getStatus().name())
                     );
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request rejected.\"," +
@@ -1161,9 +1163,9 @@ public class LibraryApiHandlers {
                             uploaded.getRequesterUsername(),
                             "Requested Book Uploaded",
                         "Your requested book \"" + uploaded.getTitle() + "\" is now available in the library." + uploadComment,
-                            NotificationPriority.HIGH,
+                            NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                            Map.of("type", "submission", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                     );
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Requested book uploaded to the library.\"," +
@@ -1314,6 +1316,62 @@ public class LibraryApiHandlers {
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book downloaded and uploaded.\"," +
+                        "\"request\":" + bookRequestToJson(uploaded) +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/upload", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                if (!contentType.startsWith("multipart/form-data")) {
+                    sendText(exchange, 400, "Multipart upload is required.");
+                    return;
+                }
+
+                MultipartData multipartData = readMultipartForm(exchange);
+                Map<String, String> form = multipartData.fields();
+                UploadedFile uploadedFile = multipartData.uploadedFile("file");
+                if (uploadedFile == null) {
+                    sendText(exchange, 400, "Book file is required.");
+                    return;
+                }
+
+                String requestId = required(form, "requestId");
+                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
+                String description = nullToEmpty(form.getOrDefault("description", "")).trim();
+
+                fileService.validateSubmissionFile(uploadedFile.path().toString());
+                BookRequest2 uploaded = bookRequestService.uploadRequest(
+                        requestId,
+                        comment,
+                        description,
+                        uploadedFile.path().toString(),
+                        detectContentType(uploadedFile.originalFileName())
+                );
+
+                String uploadComment = uploaded.getLibrarianComment().isBlank() ? "" : " Comment: " + uploaded.getLibrarianComment();
+                notificationService.addNotification(
+                        uploaded.getRequesterUsername(),
+                        "Requested Book Uploaded",
+                        "Your requested book \"" + uploaded.getTitle() + "\" was uploaded to the library." + uploadComment,
+                        NotificationPriority.HIGH,
+                        null,
+                        Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                );
+
+                sendJson(exchange, 200, "{" +
+                        "\"message\":\"Requested book uploaded to the library.\"," +
                         "\"request\":" + bookRequestToJson(uploaded) +
                         "}");
             } catch (ApiAuthException e) {
@@ -4436,6 +4494,7 @@ public class LibraryApiHandlers {
     private static String notificationCategoryLabel(String categoryKey) {
         return switch (normalizeNotificationCategoryFilter(categoryKey)) {
             case "submission" -> "Submission";
+            case "review" -> "Review";
             case "account-update" -> "Account Update";
             case "auto-return" -> "Auto Return";
             case "borrow-reminder" -> "Borrow Reminder";
@@ -6134,6 +6193,26 @@ public class LibraryApiHandlers {
             joiner.add(topics.get(i));
         }
         return joiner + ", and " + topics.get(topics.size() - 1);
+    }
+
+    private void notifyLibrariansForBookRequest(BookRequest2 request, User requester) {
+        String requesterLabel = requester == null
+            ? "A user"
+            : requester.getFullName() + " (" + requester.getUsername() + ")";
+        String message = requesterLabel + " submitted a new book request for \"" + request.getTitle() + "\".";
+        for (User librarian : librarianService.listUsersForManagement("", "librarian", "active")) {
+            if (librarian.getRole() != Role.LIBRARIAN) {
+                continue;
+            }
+            notificationService.addNotification(
+                    librarian.getUsername(),
+                    "New Book Request",
+                    message,
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission", "requestId", request.getId())
+            );
+        }
     }
 
     private String extractJsonField(String json, String fieldName) {
