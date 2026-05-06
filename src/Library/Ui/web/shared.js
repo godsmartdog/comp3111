@@ -606,8 +606,9 @@ function installDevCrashTools() {
     const box = document.createElement("div");
     box.id = "devCrashTools";
     box.style.position = "fixed";
-    box.style.right = "12px";
+    box.style.left = "12px";
     box.style.bottom = "12px";
+    box.style.right = "";
     box.style.zIndex = "90";
     box.style.background = "transparent";
     box.style.padding = "0";
