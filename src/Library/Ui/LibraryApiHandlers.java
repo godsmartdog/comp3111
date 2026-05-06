@@ -4810,6 +4810,7 @@ public class LibraryApiHandlers {
             "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
             "\"flagged\":" + review.isFlagged() + "," +
             "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
+                "\"sentiment\":\"" + JsonUtil.escape(review.getSentiment()) + "\"," +
                 "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
             "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
             "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
