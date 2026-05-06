@@ -438,6 +438,16 @@ function appendReviewHelpfulButton(container, item, onMarked) {
         return;
     }
 
+    const reviewId = String(item?.reviewId || "").trim();
+    if (!reviewId) {
+        const note = document.createElement("div");
+        note.className = "muted";
+        note.style.marginTop = "8px";
+        note.textContent = "Helpful voting is unavailable for this legacy demo review.";
+        container.appendChild(note);
+        return;
+    }
+
     const viewer = getCurrentUser();
     const count = Number(item.helpfulCount || 0);
     const button = document.createElement("button");
@@ -447,15 +457,11 @@ function appendReviewHelpfulButton(container, item, onMarked) {
     button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
     button.addEventListener("click", async () => {
         try {
-            if (!item.reviewId) {
-                showToast("Cannot mark helpful: review id is missing.", true);
-                return;
-            }
             button.disabled = true;
             await api("/api/review-helpful", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: formBody({ reviewId: item.reviewId })
+                body: formBody({ reviewId })
             });
             showToast("Marked review as helpful.", false);
             if (typeof onMarked === "function") {
@@ -467,7 +473,11 @@ function appendReviewHelpfulButton(container, item, onMarked) {
             }
         } catch (error) {
             button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
-            showToast(error.message, true);
+            if (String(error.message || "").includes("Review not found")) {
+                showToast("Helpful voting is unavailable for this legacy demo review.", true);
+            } else {
+                showToast(error.message, true);
+            }
         }
     });
 
