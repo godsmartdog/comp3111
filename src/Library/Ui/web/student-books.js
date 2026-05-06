@@ -46,6 +46,11 @@ function renderBookReviews(items) {
     items.forEach((item) => {
         const li = document.createElement("li");
         li.innerHTML = formatReviewDisplayHtml(item);
+        appendReviewHelpfulButton(li, item, async () => {
+            if (selectedBookId) {
+                await loadSelectedBookReviews(selectedBookId);
+            }
+        });
         list.appendChild(li);
     });
 }
@@ -64,7 +69,8 @@ async function loadSelectedBookReviews(bookId) {
     if (ratingSummary) {
         ratingSummary.textContent = `Average rating: ${formatAverageRating(selected)}`;
     }
-    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+    const sort = document.getElementById("reviewSort")?.value || "recent";
+    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sortBy=${encodeURIComponent(sort)}`);
     renderBookReviews(reviews);
 }
 
@@ -561,6 +567,12 @@ document.getElementById("authorFilter")?.addEventListener("keydown", (event) => 
 
 document.getElementById("genreFilter")?.addEventListener("change", () => {
     refreshBooks(document.getElementById("searchKeyword")?.value.trim() || "").catch((e) => showToast(e.message, true));
+});
+
+document.getElementById("reviewSort")?.addEventListener("change", () => {
+    if (selectedBookId) {
+        loadSelectedBookReviews(selectedBookId).catch((error) => showToast(error.message, true));
+    }
 });
 
 document.getElementById("prevPageBtn")?.addEventListener("click", () => {

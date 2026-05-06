@@ -717,6 +717,25 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/reviews/helpful", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/reviews", exchange -> {
             String method = exchange.getRequestMethod();
             String path = nullToEmpty(exchange.getRequestURI().getPath()).trim();
@@ -724,16 +743,23 @@ public class LibraryApiHandlers {
 
             if ("GET".equalsIgnoreCase(method)) {
                 try {
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     if (requestMine) {
                         User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                        sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                        String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                        if (sort.isBlank()) {
+                            sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                        }
+                        sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
                         return;
                     }
 
                     User viewer = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
-                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     String bookId = required(query, "bookId");
-                    String sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                    if (sort.isBlank()) {
+                        sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    }
                     sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId, sort), viewer.getUsername()));
                 } catch (ApiAuthException e) {
                     sendText(exchange, 401, e.getMessage());
@@ -800,7 +826,12 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                if (sort.isBlank()) {
+                    sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                }
+                sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -4920,13 +4951,15 @@ public class LibraryApiHandlers {
                 "\"anonymous\":" + review.isAnonymous() + "," +
                 "\"rating\":" + review.getRating() + "," +
                 "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
-            "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
-            "\"flagged\":" + review.isFlagged() + "," +
-            "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
+                "\"helpfulCount\":" + review.getHelpfulCount() + "," +
+                "\"helpfulByViewer\":" + review.isMarkedHelpfulBy(viewerUsername) + "," +
+                "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
+                "\"flagged\":" + review.isFlagged() + "," +
+                "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
                 "\"sentiment\":\"" + JsonUtil.escape(review.getSentiment()) + "\"," +
                 "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
-            "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
-            "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
+                "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
+                "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
                 "\"updatedAt\":\"" + JsonUtil.escape(updatedAt) + "\"" +
                 "}";
     }
@@ -4944,7 +4977,11 @@ public class LibraryApiHandlers {
     }
 
     private String myReviewsToJson(String username) {
-        List<BookReview> reviews = bookReviewService.listReviewsByUser(username);
+        return myReviewsToJson(username, "recent");
+    }
+
+    private String myReviewsToJson(String username, String sort) {
+        List<BookReview> reviews = bookReviewService.listReviewsByUser(username, sort);
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
             values.add(reviewToJson(review, username));

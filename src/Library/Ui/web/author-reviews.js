@@ -203,7 +203,7 @@ function renderSelectedBookReviews(items) {
     if (!selectedBook) {
         status.textContent = "Select a published book to view its reviews.";
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No book selected.</td>';
+        row.innerHTML = '<td colspan="5" class="muted">No book selected.</td>';
         body.appendChild(row);
         renderFeedbackAnalytics([]);
         return;
@@ -212,7 +212,7 @@ function renderSelectedBookReviews(items) {
     if (!Array.isArray(items) || items.length === 0) {
         status.textContent = `No reviews found for ${selectedBook.title || selectedBook.id}.`;
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No reviews available yet.</td>';
+        row.innerHTML = '<td colspan="5" class="muted">No reviews available yet.</td>';
         body.appendChild(row);
         renderFeedbackAnalytics([]);
         return;
@@ -229,6 +229,7 @@ function renderSelectedBookReviews(items) {
         row.innerHTML = `
             <td>${escapeHtml(reviewerLabel)}</td>
             <td>${Number(item.rating || 0)}/5</td>
+            <td>${Number(item.helpfulCount || 0)}</td>
             <td>${formatReviewText(item)} ${sentimentBadge}</td>
             <td>
                 <div>${item.replyText ? `<strong>Reply:</strong> ${escapeHtml(item.replyText)}` : ""}</div>
@@ -352,10 +353,17 @@ async function loadReviewsForSelectedBook(bookId) {
         status.textContent = "Loading reviews...";
     }
 
-    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+    const sort = document.getElementById("authorReviewSort")?.value || "recent";
+    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sortBy=${encodeURIComponent(sort)}`);
     selectedBookReviews = Array.isArray(reviews) ? reviews : [];
     renderSelectedBookReviews(selectedBookReviews);
 }
+
+document.getElementById("authorReviewSort")?.addEventListener("change", () => {
+    if (selectedBook?.id) {
+        loadReviewsForSelectedBook(selectedBook.id).catch((error) => showToast(error.message, true));
+    }
+});
 
 document.getElementById("refreshBooksBtn")?.addEventListener("click", () => {
     loadPublishedBooks().catch((error) => showToast(error.message, true));

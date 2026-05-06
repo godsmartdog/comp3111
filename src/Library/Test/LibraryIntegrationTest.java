@@ -91,6 +91,7 @@ public final class LibraryIntegrationTest {
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
         runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
+        runner.run("reviews can be marked helpful and sorted", LibraryIntegrationTest::testReviewsCanBeMarkedHelpfulAndSorted);
         runner.run("book request submission and librarian upload flow", LibraryIntegrationTest::testBookRequestSubmissionAndLibrarianUploadFlow);
         runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
@@ -1254,6 +1255,88 @@ public final class LibraryIntegrationTest {
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
+        }
+        }
+
+        private static void testReviewsCanBeMarkedHelpfulAndSorted() throws Exception {
+        TestContext context = new TestContext();
+        Book reviewedBook = context.addApprovedBook("Helpful Review Sorting", "Review Author", "Book for helpful sorting tests.");
+
+        context.authService.registerStudentOrStaff("helpful-review-a", "Helpful Review A", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("helpful-review-b", "Helpful Review B", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("helpful-review-c", "Helpful Review C", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("helpful-review-a", reviewedBook.getId(), 7);
+        context.borrowService.returnBook("helpful-review-a", reviewedBook.getId());
+        context.borrowService.borrowBook("helpful-review-b", reviewedBook.getId(), 7);
+        context.borrowService.returnBook("helpful-review-b", reviewedBook.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String reviewerASessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-a", "Password1!", "STUDENT");
+            String reviewerBSessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-b", "Password1!", "STUDENT");
+            String voterSessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-c", "Password1!", "STUDENT");
+
+            HttpResponse<String> reviewAResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerASessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=3&reviewText=Solid+baseline"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewAResponse.statusCode(), "first helpful-sort review should submit");
+            String reviewAId = extractJsonField(reviewAResponse.body(), "reviewId");
+
+            HttpResponse<String> reviewBResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerBSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=5&reviewText=Most+useful+review"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewBResponse.statusCode(), "second helpful-sort review should submit");
+            String reviewBId = extractJsonField(reviewBResponse.body(), "reviewId");
+
+            HttpResponse<String> helpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", voterSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, helpfulResponse.statusCode(), "helpful endpoint should accept first vote");
+            assertTrue(helpfulResponse.body().contains("\"helpfulCount\":1"), "helpful response should include count");
+            assertTrue(helpfulResponse.body().contains("\"helpfulByViewer\":true"), "helpful response should mark viewer vote");
+
+            HttpResponse<String> duplicateHelpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", voterSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, duplicateHelpfulResponse.statusCode(), "duplicate helpful vote should be rejected");
+            assertTrue(duplicateHelpfulResponse.body().contains("already marked"), "duplicate response should explain dedup");
+
+            HttpResponse<String> selfHelpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerBSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, selfHelpfulResponse.statusCode(), "self helpful vote should be rejected");
+            assertTrue(selfHelpfulResponse.body().contains("own review"), "self response should explain ownership rule");
+
+            HttpResponse<String> sortedResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews?bookId=" + reviewedBook.getId() + "&sortBy=helpful"))
+                .header("X-Session-Id", voterSessionId)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, sortedResponse.statusCode(), "helpful sorted review listing should succeed");
+            assertTrue(sortedResponse.body().contains("\"helpfulCount\":1"), "sorted response should include helpful count");
+            assertTrue(sortedResponse.body().contains("\"helpfulByViewer\":true"), "sorted response should include viewer helpful flag");
+            assertTrue(sortedResponse.body().indexOf(reviewBId) >= 0, "sorted response should include helpful review");
+            assertTrue(sortedResponse.body().indexOf(reviewAId) >= 0, "sorted response should include unhelpful review");
+            assertTrue(sortedResponse.body().indexOf(reviewBId) < sortedResponse.body().indexOf(reviewAId), "helpful review should sort before unhelpful review");
+        } finally {
+            server.stop(0);
         }
         }
 

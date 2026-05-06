@@ -415,6 +415,7 @@ function formatReviewDisplayHtml(item) {
     const flagged = Boolean(item?.flagged);
     const flagReason = escapeHtml(item?.flagReason || "");
     const flaggedAt = escapeHtml(formatDateOnly(item?.flaggedAt || ""));
+    const helpfulCount = Number(item?.helpfulCount || 0);
     const replyLine = replyText
         ? `<div class="muted" style="margin-top:6px;">Author reply${replyAt ? ` (${replyAt})` : ""}: ${replyText}</div>`
         : "";
@@ -425,10 +426,48 @@ function formatReviewDisplayHtml(item) {
     return `
         <div style="white-space:pre-wrap;">
             <strong>${reviewer}: ${rating} - ${reviewText}</strong>
+            <div class="muted" style="margin-top:4px;">Helpful: ${helpfulCount}</div>
             ${replyLine}
             ${flagLine}
         </div>
     `;
+}
+
+function appendReviewHelpfulButton(container, item, onMarked) {
+    if (!container || !item?.reviewId) {
+        return;
+    }
+
+    const viewer = getCurrentUser();
+    const count = Number(item.helpfulCount || 0);
+    const button = document.createElement("button");
+    button.className = "secondary";
+    button.type = "button";
+    button.textContent = `Helpful (${count})`;
+    button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
+    button.addEventListener("click", async () => {
+        try {
+            button.disabled = true;
+            await api("/api/reviews/helpful", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ reviewId: item.reviewId })
+            });
+            showToast("Marked review as helpful.", false);
+            if (typeof onMarked === "function") {
+                await onMarked();
+            }
+        } catch (error) {
+            button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
+            showToast(error.message, true);
+        }
+    });
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "toolbar";
+    toolbar.style.marginTop = "8px";
+    toolbar.appendChild(button);
+    container.appendChild(toolbar);
 }
 
 function promptForCurrentPassword() {

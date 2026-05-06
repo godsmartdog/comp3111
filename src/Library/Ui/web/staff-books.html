@@ -124,6 +124,13 @@
             <pre id="selectedBookPreview" style="white-space:pre-wrap;background:#f8f8f8;padding:10px;border-radius:8px;">First 2-page preview will appear here if available.</pre>
             <h4>Reviews</h4>
             <p id="selectedBookRatingSummary" class="hint">Average rating: -</p>
+            <div class="inline-row" style="margin-top:6px;">
+                <label for="reviewSort">Sort reviews</label>
+                <select id="reviewSort">
+                    <option value="recent" selected>Most Recent</option>
+                    <option value="helpful">Most Helpful</option>
+                </select>
+            </div>
             <div class="reader-scroll-block" style="max-height:220px;">
                 <ul id="selectedBookReviews" class="muted"></ul>
             </div>
