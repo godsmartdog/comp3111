@@ -1,9 +1,12 @@
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public class BookReview {
+public class BookReview implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String id;
     private final String username;
     private final String bookId;

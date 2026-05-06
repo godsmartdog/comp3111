@@ -1,12 +1,15 @@
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class NotificationItem {
+public class NotificationItem implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String id;
     private final String username;
     private final String title;

@@ -16,6 +16,8 @@ import Library.Model.Role;
 import Library.Model.SubmissionState;
 import Library.Model.AuthorProfile2;
 import Library.Model.LibrarianProfile3;
+import Library.Persistence.LibraryDatabase;
+import Library.Persistence.LibraryDatabaseService;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
@@ -52,6 +54,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -174,7 +177,55 @@ public final class LibraryIntegrationTest {
         runner.run("dev crash hook for snapshots is guarded", LibraryIntegrationTest::testDevCrashHookForSnapshotIsGuarded);
         runner.run("dev crash hook can save session snapshot", LibraryIntegrationTest::testDevCrashHookCanSaveSessionSnapshot);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
+        runner.run("persistent database round trip", LibraryIntegrationTest::testPersistentDatabaseRoundTrip);
         runner.finish();
+    }
+
+    private static void testPersistentDatabaseRoundTrip() throws Exception {
+        Path dbPath = Files.createTempDirectory("library-db-test").resolve("library-db.ser");
+        dbPath.toFile().deleteOnExit();
+
+        LibraryDatabase database = new LibraryDatabase();
+        database.userRepository.save(new Library.Model.User("persist-user", "Persist User", "hash", Role.STUDENT));
+
+        Book book = new Book(
+            "Persistent Systems",
+            "persist-author",
+            "Persist Author",
+            List.of("Technology"),
+            "Database round-trip test book."
+        );
+        book.approve(LocalDate.now());
+        database.bookRepository.save(book);
+
+        BookRequest2 request = new BookRequest2(
+            "Persistent Request",
+            "persist-user",
+            "Persist User",
+            "Persist Author",
+            List.of("Technology"),
+            "Needed for persistence test."
+        );
+        database.bookRequestRepository.save(request);
+        database.notificationRepository.save(new NotificationItem(
+            "persist-user",
+            "Persistence saved",
+            "This notification should survive a database round trip.",
+            LocalDateTime.now()
+        ));
+
+        LibraryDatabaseService.save(dbPath, database);
+        LibraryDatabase loaded = LibraryDatabaseService.load(dbPath)
+            .orElseThrow(() -> new AssertionError("database should load after save"));
+
+        assertTrue(loaded.userRepository.existsByUsername("persist-user"), "loaded database should contain saved user");
+        Book loadedBook = loaded.bookRepository.findById(book.getId())
+            .orElseThrow(() -> new AssertionError("loaded database should contain saved book"));
+        assertEquals("Persistent Systems", loadedBook.getTitle(), "loaded book title should match");
+        assertEquals(request.getId(), loaded.bookRequestRepository.findById(request.getId())
+            .orElseThrow(() -> new AssertionError("loaded database should contain saved request"))
+            .getId(), "loaded request id should match");
+        assertEquals(1, loaded.notificationRepository.findByUsername("persist-user").size(), "loaded notification should be queryable by user");
     }
 
     private static void testStudentBorrowAndReturnFlow() {

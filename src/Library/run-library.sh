@@ -123,10 +123,12 @@ if $MODE_TESTS; then
     TEST_SOURCES="$(make_source_list \
         Library/Exception \
         Library/Model \
+        Library/Persistence \
         Library/Repository \
         Library/Security \
         Library/Service \
-        Library/Test)"
+        Library/Test \
+        Library/Ui)"
 
     mkdir -p "$TEST_OUTPUT"
 

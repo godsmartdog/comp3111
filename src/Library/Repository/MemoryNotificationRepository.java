@@ -1,12 +1,15 @@
 package Library.Repository;
 
 import Library.Model.NotificationItem;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class MemoryNotificationRepository implements NotificationRepository {
+public class MemoryNotificationRepository implements NotificationRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final List<NotificationItem> items = new CopyOnWriteArrayList<>();
 
     @Override

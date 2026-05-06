@@ -1504,7 +1504,8 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.STUDENT, Role.STAFF);
-                int limit = 10;
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                int limit = RequestFilters.parseIntInRange(query, "limit", 10, 1, 50);
                 List<Book> books = recommendationService.recommendTopPopular(limit);
                 sendJson(exchange, 200, booksToJson(books));
             } catch (ApiAuthException e) {

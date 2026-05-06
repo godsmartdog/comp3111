@@ -4,6 +4,7 @@ package Library.Repository;
 import Library.Model.BookSubmission2;
 import Library.Model.SubmissionState;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 
 import java.util.List;
@@ -14,7 +15,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import java.util.stream.Collectors;
 
-public class MemoryBookSubmissionRepository2 implements BookSubmissionRepository2 {
+public class MemoryBookSubmissionRepository2 implements BookSubmissionRepository2, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final List<BookSubmission2> data = new CopyOnWriteArrayList<>();
 
     @Override

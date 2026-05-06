@@ -1,6 +1,7 @@
 package Library.Repository;
 //class of borrowRecord
 import Library.Model.BorrowRecord;
+import java.io.Serializable;
 //list to store collections
 import java.util.ArrayList;
 import java.util.List;
@@ -9,7 +10,9 @@ import java.util.Optional;
 //we return this
 import java.util.stream.Collectors;
 
-public class MemoryBorrowRepository implements BorrowRepository {
+public class MemoryBorrowRepository implements BorrowRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final List<BorrowRecord> records = new ArrayList<>();
     //add record in records
     @Override

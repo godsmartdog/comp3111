@@ -1,7 +1,10 @@
 package Library.Model; //imported to AuthorProfileRepository2.java for interface
 
+import java.io.Serializable;
+
 // Profile for Author with parameters: {username, bio}
-public class AuthorProfile2 {
+public class AuthorProfile2 implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables - final keyword for immutability
     private final String username;
