@@ -29,9 +29,14 @@ function classifySentiment(text) {
     return "neutral";
 }
 
-function sentimentBadgeHtml(text) {
-    const s = classifySentiment(text);
-    const label = s.toUpperCase();
+function sentimentBadgeHtml(item) {
+    // Prefer backend AI sentiment classification if available
+    let s = (item.sentiment || "").toLowerCase().trim();
+    if (!s || !["positive", "neutral", "negative"].includes(s)) {
+        // Fallback to client-side classification using keywords
+        s = classifySentiment(item.reviewText || "");
+    }
+    const label = s.charAt(0).toUpperCase() + s.slice(1);
     return `<span class="sentiment-badge sentiment-${s}">${label}</span>`;
 }
 
@@ -62,7 +67,12 @@ function renderFeedbackAnalytics(items) {
 
     const counts = { positive: 0, neutral: 0, negative: 0 };
     items.forEach((it) => {
-        counts[classifySentiment(it.reviewText || "")]++;
+        // Use backend sentiment if available, otherwise fall back to client-side classification
+        let sentiment = (it.sentiment || "").toLowerCase().trim();
+        if (!sentiment || !["positive", "neutral", "negative"].includes(sentiment)) {
+            sentiment = classifySentiment(it.reviewText || "");
+        }
+        counts[sentiment]++;
     });
 
     sentimentChart = new Chart(sentCanvas, {
@@ -215,7 +225,7 @@ function renderSelectedBookReviews(items) {
             ? "Anonymous"
             : (item.reviewerFullName || item.username || "");
         const row = document.createElement("tr");
-        const sentimentBadge = sentimentBadgeHtml(item.reviewText || "");
+        const sentimentBadge = sentimentBadgeHtml(item);
         row.innerHTML = `
             <td>${escapeHtml(reviewerLabel)}</td>
             <td>${Number(item.rating || 0)}/5</td>

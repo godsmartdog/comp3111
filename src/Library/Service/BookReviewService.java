@@ -12,6 +12,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import de.kherud.llama.InferenceParameters;
+import de.kherud.llama.LlamaModel;
+import de.kherud.llama.ModelParameters;
 
 public class BookReviewService {
     public record RatingSummary(double averageRating, int reviewCount) {
@@ -64,8 +79,71 @@ public class BookReviewService {
                 })
                 .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText, anonymousFlag));
 
+        // Classify sentiment of the review text using local GGUF model if available.
+        try {
+            String sentiment = classifySentiment(review.getReviewText());
+            if (sentiment != null && !sentiment.isBlank()) {
+                review.setSentiment(sentiment);
+            }
+        } catch (Exception e) {
+            // Don't fail review submission if sentiment inference fails; log and continue.
+            System.err.println("[Sentiment] Classification failed: " + e.getMessage());
+        }
+
         reviewRepository.save(review);
         return review;
+    }
+
+    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
+
+    private String resolveGgufModelPath() throws IOException {
+        String configured = System.getenv(GGUF_MODEL_PATH_ENV);
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
+        }
+        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "SmolLM2-135M-Instruct-Q3_K_XL.gguf");
+        if (Files.exists(defaultPath)) {
+            return defaultPath.toString();
+        }
+        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
+    }
+
+    private String classifySentiment(String text) throws Exception {
+        if (text == null || text.isBlank()) return "";
+        String prompt = "\"" + text.trim() + "\" is this sentence positive, neutral or negative? Return only one word: positive, neutral, or negative.";
+        String modelPath = resolveGgufModelPath();
+        ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        InferenceParameters inferParams = new InferenceParameters(prompt)
+                .setTemperature(0.0f)
+                .setTopP(0.3f)
+                .setTopK(10)
+                .setRepeatPenalty(1.1f)
+                .setStopStrings("\n", "\n\n");
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try (LlamaModel model = new LlamaModel(modelParameters)) {
+                return model.complete(inferParams);
+            }
+        });
+
+        try {
+            String result = future.get(2500, TimeUnit.MILLISECONDS);
+            if (result == null) return "";
+            String normalized = result.trim().toLowerCase();
+            if (normalized.contains("positive")) return "positive";
+            if (normalized.contains("neutral")) return "neutral";
+            if (normalized.contains("negative")) return "negative";
+            // fallback: try first token
+            String first = normalized.split("\\s+")[0].replaceAll("[^a-z]", "");
+            if (first.equals("positive") || first.equals("neutral") || first.equals("negative")) return first;
+            return "";
+        } catch (TimeoutException | InterruptedException | ExecutionException e) {
+            future.cancel(true);
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     public List<BookReview> listReviewsForBook(String bookId) {

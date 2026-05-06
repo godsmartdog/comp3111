@@ -17,6 +17,7 @@ public class BookReview {
     private LocalDateTime updatedAt;
     private LocalDateTime repliedAt;
     private LocalDateTime flaggedAt;
+    private String sentiment;
 
     public BookReview(String username, String bookId, int rating, String reviewText) {
         this(username, bookId, rating, reviewText, false);
@@ -36,6 +37,7 @@ public class BookReview {
         this.updatedAt = this.createdAt;
         this.repliedAt = null;
         this.flaggedAt = null;
+        this.sentiment = "";
     }
 
     public String getId() {
@@ -88,6 +90,15 @@ public class BookReview {
 
     public boolean isAnonymous() {
         return anonymous;
+    }
+
+    public String getSentiment() {
+        return sentiment == null ? "" : sentiment;
+    }
+
+    public void setSentiment(String sentiment) {
+        this.sentiment = sentiment == null ? "" : sentiment.trim();
+        this.updatedAt = LocalDateTime.now();
     }
 
     public void setAnonymous(boolean anonymous) {
