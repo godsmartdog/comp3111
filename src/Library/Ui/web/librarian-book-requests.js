@@ -4,6 +4,7 @@ let selectedRequest = null;
 let currentPdfSearchPage = 1;
 let currentPdfSearchHasNext = false;
 let currentPdfSearchQuery = { title: "", authorName: "", searchMode: "partial" };
+const PENDING_PUBLISHED_BOOK_PREFILL_KEY = "pendingPublishedBookPrefill";
 
 // Slice 7: client-side sort state for the request queue table.
 // state: { key: string|null, direction: "asc"|"desc"|null }
@@ -579,39 +580,31 @@ function downloadPdf() {
     showToast("Starting PDF download...", false);
 }
 
-async function uploadSelectedFile(file) {
-    try {
-        if (!selectedRequest?.id) {
-            showToast("Select a request first.", true);
-            return;
-        }
-        if (String(selectedRequest.status || "").toLowerCase() !== "approved") {
-            showToast("Request must be approved before upload.", true);
-            return;
-        }
-        if (!file) {
-            return;
-        }
-        const comment = (prompt("Upload comment (optional)") || "").trim();
-        const description = generatedDescriptionInput?.value.trim() || "";
-        const formData = new FormData();
-        formData.append("requestId", selectedRequest.id);
-        formData.append("comment", comment);
-        formData.append("description", description);
-        formData.append("file", file);
+function openAddPublishedBookPageFromRequest() {
+    if (!selectedRequest?.id) {
+        showToast("Select a request first.", true);
+        return;
+    }
+    if (String(selectedRequest.status || "").toLowerCase() !== "approved") {
+        showToast("Request must be approved before opening publish flow.", true);
+        return;
+    }
 
-        const response = await api("/api/librarian/book-request/upload", {
-            method: "POST",
-            body: formData
-        });
-        showToast(response?.message || "Uploaded.", false);
-        await refreshRequests();
+    const prefill = {
+        requestId: selectedRequest.id || "",
+        title: selectedTitleInput?.value.trim() || selectedRequest.title || "",
+        authorNames: selectedAuthorInput?.value.trim() || selectedRequest.authorName || "",
+        genres: selectedGenresInput?.value.trim() || (Array.isArray(selectedRequest.genres) ? selectedRequest.genres.join(", ") : ""),
+        description: (generatedDescriptionInput?.value.trim() || selectedReasonInput?.value.trim() || "").trim(),
+        sourcePdfUrl: selectedPdfUrlInput?.value.trim() || "",
+        coverImagePath: ""
+    };
+
+    try {
+        sessionStorage.setItem(PENDING_PUBLISHED_BOOK_PREFILL_KEY, JSON.stringify(prefill));
+        window.location.href = "librarian-manage-published.html#addPublishedBookSection";
     } catch (error) {
-        showToast(error.message, true);
-    } finally {
-        if (uploadPdfFileInput) {
-            uploadPdfFileInput.value = "";
-        }
+        showToast(`Could not open publish flow: ${error.message}`, true);
     }
 }
 
@@ -661,14 +654,7 @@ document.getElementById("downloadPdfBtn")?.addEventListener("click", () => {
 });
 
 document.getElementById("uploadPdfBtn")?.addEventListener("click", () => {
-    if (uploadPdfFileInput) {
-        uploadPdfFileInput.click();
-    }
-});
-
-uploadPdfFileInput?.addEventListener("change", (event) => {
-    const file = event.target?.files?.[0] || null;
-    uploadSelectedFile(file);
+    openAddPublishedBookPageFromRequest();
 });
 
 if (currentUser) {
