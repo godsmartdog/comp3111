@@ -739,6 +739,26 @@ public class LibraryApiHandlers {
         server.createContext("/api/reviews", exchange -> {
             String method = exchange.getRequestMethod();
             String path = nullToEmpty(exchange.getRequestURI().getPath()).trim();
+
+            if (path.endsWith("/helpful")) {
+                if (!"POST".equalsIgnoreCase(method)) {
+                    sendText(exchange, 405, "Method not allowed.");
+                    return;
+                }
+                try {
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                    Map<String, String> form = readForm(exchange);
+                    String reviewId = required(form, "reviewId");
+                    BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                    sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
             boolean requestMine = path.endsWith("/me");
 
             if ("GET".equalsIgnoreCase(method)) {

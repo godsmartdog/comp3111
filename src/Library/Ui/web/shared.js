@@ -434,7 +434,7 @@ function formatReviewDisplayHtml(item) {
 }
 
 function appendReviewHelpfulButton(container, item, onMarked) {
-    if (!container || !item?.reviewId) {
+    if (!container) {
         return;
     }
 
@@ -447,6 +447,10 @@ function appendReviewHelpfulButton(container, item, onMarked) {
     button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
     button.addEventListener("click", async () => {
         try {
+            if (!item.reviewId) {
+                showToast("Cannot mark helpful: review id is missing.", true);
+                return;
+            }
             button.disabled = true;
             await api("/api/reviews/helpful", {
                 method: "POST",
