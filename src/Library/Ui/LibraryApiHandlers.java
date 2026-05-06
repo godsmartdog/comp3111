@@ -43,6 +43,8 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.BufferedReader;
+import java.io.File;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -54,7 +56,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.io.BufferedReader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Instant;
@@ -127,6 +128,11 @@ public class LibraryApiHandlers {
     // Slice 6: in-memory edit ledger for published books (3.8 NTH Version History).
     // Keyed by bookId; capped per-book at MAX_VERSION_HISTORY entries.
     private static final int MAX_VERSION_HISTORY = 50;
+    
+    // Singleton LlamaModel instance - loaded once at first use, reused for all inference calls
+    private static volatile LlamaModel singletonLlamaModel = null;
+    private static final Object llamaModelLock = new Object();
+    
     private final Map<String, List<BookVersion>> bookVersions = new ConcurrentHashMap<>();
 
     private record BookVersion(String timestamp,
@@ -5971,9 +5977,20 @@ public class LibraryApiHandlers {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
 
         try {
+            System.out.println("[AI] Calling callInferenceSummary...");
             String summary = callInferenceSummary(title, authorName, genres, reason, content, summaryWordLimit);
-            return summary.isBlank() ? fallback : summary;
+            System.out.println("[AI] callInferenceSummary returned: " + (summary == null ? "<null>" : (summary.isBlank() ? "<blank>" : "length=" + summary.length())));
+            boolean isBlank = summary.isBlank();
+            if (isBlank) {
+                System.out.println("[AI] Summary is blank, using fallback template.");
+            } else {
+                System.out.println("[AI] Summary is valid, using LLM output.");
+            }
+            return isBlank ? fallback : summary;
         } catch (Exception e) {
+            System.err.println("[AI] generateBookRequestSummary caught exception: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            e.printStackTrace();
+            System.out.println("[AI] Using fallback template due to exception.");
             return fallback;
         }
     }
@@ -5995,6 +6012,7 @@ public class LibraryApiHandlers {
                                         String content,
                                         int summaryWordLimit) throws IOException, InterruptedException {
         int cappedLimit = parseSummaryWordLimit(String.valueOf(summaryWordLimit));
+        int sentenceCount = summaryWordLimitToSentenceCount(cappedLimit);
         String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
         String extractedContent = sanitizeText(nullToEmpty(content).trim());
         String contentForPrompt = extractedContent.isBlank() ? "" : limitWords(extractedContent, cappedLimit);
@@ -6002,52 +6020,118 @@ public class LibraryApiHandlers {
             String preview = limitWords(extractedContent, cappedLimit);
             System.out.println("[AI] Extracted text preview (first 2 pages, " + cappedLimit + " words max): " + preview);
         }
-        int sentenceCount = summaryWordLimitToSentenceCount(cappedLimit);
-        int topicCount = summaryWordLimitToTopicCount(cappedLimit);
-        String topics = extractKeyPhrases(contentForPrompt, topicCount);
-        String draftSummary = buildRuleBasedSummary(title, genreText, topics, sentenceCount);
+        String modeLabel = switch (cappedLimit) {
+            case 50 -> "short";
+            case 150 -> "detail";
+            default -> "medium";
+        };
         String prompt = "<|im_start|>system\n"
-            + "You are a helpful library catalog assistant.<|im_end|>\n"
+            + "You are a library catalog assistant. Your task is to write ONLY a " + modeLabel + " summary in exactly " + sentenceCount + " sentence(s). "
+            + "Do not echo the input. Do not include field labels. Just write the summary.\n"
+            + "Summary rules: Use " + sentenceCount + " sentence(s), keep under " + cappedLimit + " words, be specific and natural.\n"
+            + "Return ONLY the summary text, nothing else.<|im_end|>\n"
             + "<|im_start|>user\n"
-            + "Write " + sentenceCount + " sentence" + (sentenceCount == 1 ? "" : "s")
-            + " and keep it under " + cappedLimit + " words. "
-            + "Return only the summary.\n\n"
-            + "Draft summary: " + draftSummary + "\n"
-            + "Title: " + title + "\n"
-            + (genreText.isBlank() ? "" : "Genres: " + genreText + "\n")
-            + (topics.isBlank() ? "" : "Topics: " + topics + "\n")
+            + "Book Title: " + title + "\n"
+            + (genreText.isBlank() ? "" : "Genre(s): " + genreText + "\n")
+            + (reason.isBlank() ? "" : "Note: " + reason + "\n")
+            + (contentForPrompt.isBlank() ? "" : "Content preview: " + contentForPrompt + "\n")
+            + "Write the summary now:\n"
             + "<|im_end|>\n"
             + "<|im_start|>assistant\n";
         System.out.println("[AI] Prompt debug: " + prompt);
-        String modelPath = resolveGgufModelPath();
+        System.out.println("[AI] Resolving GGUF model path...");
+        String modelPath;
+        try {
+            modelPath = resolveGgufModelPath();
+            System.out.println("[AI] Resolved model path: " + modelPath);
+            java.nio.file.Path mp = java.nio.file.Paths.get(modelPath);
+            System.out.println("[AI] Model file exists: " + (java.nio.file.Files.exists(mp)));
+        } catch (Exception e) {
+            System.err.println("[AI] Failed to resolve model path: " + e.getMessage());
+            throw e;
+        }
         ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
         float temperature = summaryWordLimitToTemperature(cappedLimit);
         InferenceParameters inferParams = new InferenceParameters(prompt)
-            .setTemperature(temperature)
-            .setTopP(0.9f)
-            .setTopK(20)
-            .setRepeatPenalty(1.1f)
-            .setStopStrings("<|im_end|>", "User:", "Assistant:")
+            .setTemperature(temperature * 0.8f)  // Lower temperature for more focused output
+            .setTopP(0.85f)
+            .setTopK(15)
+            .setNPredict(summaryWordLimitToMaxTokens(cappedLimit))
+            .setRepeatPenalty(1.2f)
+            .setCachePrompt(true)
+            .setStopStrings("<|im_end|>", "User:", "Assistant:", "Title:", "Genres:", "Note:", "Content:")
             .setPenalizeNl(true);
         int timeoutMs = summaryWordLimitToTimeoutMs(cappedLimit);
+        System.out.println("[AI] Starting inference (timeout ms: " + timeoutMs + ")...");
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<String> future = executor.submit(() -> {
-            try (LlamaModel model = new LlamaModel(modelParameters)) {
-                return model.complete(inferParams);
+            try {
+                // Use singleton model instance - loaded once at first use, reused for all calls
+                LlamaModel model = getSingletonLlamaModel();
+                System.out.println("[AI] Using singleton LlamaModel for inference.");
+                System.out.println("[AI] Running model.complete() with prompt length: " + prompt.length());
+                String res = model.complete(inferParams);
+                System.out.println("[AI] Model.complete() returned (raw): " + (res == null ? "<null>" : (res.length() > 200 ? res.substring(0, 200) + "..." : res)));
+                // Note: Do NOT close the model - it's the singleton, must be reused
+                return res;
+            } catch (Exception ex) {
+                System.err.println("[AI] ERROR during model execution: " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                ex.printStackTrace();
+                throw ex;
             }
         });
 
         try {
             String summary = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (summary == null) {
-                return limitWordsToSentence(draftSummary, cappedLimit);
+                System.out.println("[AI] Model returned null; using empty string.");
+                return "";
             }
-            return limitWordsToSentence(summary.trim(), cappedLimit);
+            System.out.println("[AI] Raw model output (before processing): " + (summary.length() > 150 ? summary.substring(0, 150) + "..." : summary));
+            
+            // Post-process: strip prompt markers and assistant prefix if model echoed input
+            String processed = summary.trim();
+            // Remove <|im_start|>assistant marker if present
+            if (processed.startsWith("<|im_start|>assistant")) {
+                processed = processed.substring("<|im_start|>assistant".length()).trim();
+            }
+            // Remove leading newlines
+            processed = processed.replaceAll("^\\s+", "");
+            // Remove any trailing <|im_end|> or model control tokens
+            processed = processed.replaceAll("<\\|im_end\\|>.*", "").trim();
+            // If the output still contains prompt echoes like "Title:", "Genres:", "Content:", "Note:" at start, strip them
+            if (processed.startsWith("Title:") || processed.startsWith("Genres:") || processed.startsWith("Content:") || processed.startsWith("Note:")) {
+                System.out.println("[AI] WARNING: Model echoed back prompt structure; attempting to extract summary...");
+                // Try to find the actual summary by looking for the first complete sentence that isn't part of the form
+                // For now, if we see these markers, the model didn't follow instructions; fall back to empty
+                System.out.println("[AI] Model did not generate summary, only echoed input.");
+                return "";
+            }
+            
+            if (processed.isBlank()) {
+                System.out.println("[AI] Processed summary is blank.");
+                return "";
+            }
+            System.out.println("[AI] Processed summary (final): " + (processed.length() > 150 ? processed.substring(0, 150) + "..." : processed));
+            return processed;
         } catch (TimeoutException e) {
+            System.err.println("[AI] TIMEOUT: Model inference exceeded " + timeoutMs + "ms. " + e.getMessage());
+            e.printStackTrace();
             future.cancel(true);
-            return limitWordsToSentence(draftSummary, cappedLimit);
+            return "";
         } catch (ExecutionException e) {
-            return limitWordsToSentence(draftSummary, cappedLimit);
+            System.err.println("[AI] EXECUTION ERROR: Model inference failed. " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("[AI] Caused by: " + e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage());
+                e.getCause().printStackTrace();
+            } else {
+                e.printStackTrace();
+            }
+            return "";
+        } catch (InterruptedException e) {
+            System.err.println("[AI] INTERRUPTED: Model inference was interrupted. " + e.getMessage());
+            e.printStackTrace();
+            return "";
         } finally {
             executor.shutdownNow();
         }
@@ -6055,16 +6139,70 @@ public class LibraryApiHandlers {
 
     private String resolveGgufModelPath() throws IOException {
         String configured = nullToEmpty(System.getenv(GGUF_MODEL_PATH_ENV)).trim();
+        System.out.println("[AI] Env var " + GGUF_MODEL_PATH_ENV + " = " + (configured.isEmpty() ? "<not set>" : configured));
         if (!configured.isBlank()) {
+            System.out.println("[AI] Using configured path from env var.");
+            // Verify the env var path exists
+            if (!Files.exists(Paths.get(configured))) {
+                throw new IOException("[AI] GGUF model file does not exist at env var path: " + configured);
+            }
+            // Verify it's NOT SmolLM2
+            if (configured.contains("SmolLM2")) {
+                throw new IOException("[AI] FATAL: Attempted to load SmolLM2 instead of Meta-Llama! Check GGUF_MODEL_PATH env var.");
+            }
             return configured;
         }
 
-        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "SmolLM2-135M-Instruct-Q3_K_XL.gguf");
+        String userDir = System.getProperty("user.dir");
+        System.out.println("[AI] user.dir = " + userDir);
+        Path defaultPath = Paths.get(userDir, "Library", "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf");
+        System.out.println("[AI] Checking default path: " + defaultPath);
+        System.out.println("[AI] Default path exists: " + Files.exists(defaultPath));
         if (Files.exists(defaultPath)) {
+            System.out.println("[AI] Using default path.");
             return defaultPath.toString();
         }
 
-        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
+        // List available .gguf files in the directory for debugging
+        File libDir = new File(userDir);
+        File[] ggufFiles = libDir.listFiles((dir, name) -> name.endsWith(".gguf"));
+        if (ggufFiles != null && ggufFiles.length > 0) {
+            System.out.println("[AI] Available .gguf files in " + userDir + ":");
+            for (File f : ggufFiles) {
+                System.out.println("[AI]   - " + f.getName());
+            }
+        }
+
+        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path or place Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf in " + userDir);
+    }
+
+    /**
+     * Get or initialize the singleton LlamaModel. The model is loaded only once at first use,
+     * then reused for all inference calls. This eliminates warmup overhead on every call.
+     */
+    private LlamaModel getSingletonLlamaModel() throws IOException {
+        if (singletonLlamaModel != null) {
+            return singletonLlamaModel;
+        }
+
+        synchronized (llamaModelLock) {
+            // Double-check pattern
+            if (singletonLlamaModel != null) {
+                return singletonLlamaModel;
+            }
+
+            String modelPath = resolveGgufModelPath();
+            System.out.println("[AI] Initializing singleton LlamaModel from: " + modelPath);
+            ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+            
+            long startMs = System.currentTimeMillis();
+            LlamaModel model = new LlamaModel(modelParameters);
+            long initTimeMs = System.currentTimeMillis() - startMs;
+            System.out.println("[AI] Singleton LlamaModel initialized successfully in " + initTimeMs + "ms. Ready for inference.");
+            
+            singletonLlamaModel = model;
+            return singletonLlamaModel;
+        }
     }
 
     private static String limitWords(String text, int maxWords) {
@@ -6100,13 +6238,16 @@ public class LibraryApiHandlers {
     }
 
     private static int summaryWordLimitToTimeoutMs(int wordLimit) {
+        // 8B Llama model is slower; use much higher timeouts than SmolLM
+        // Estimate: 8B generates ~5-15 tokens/sec on CPU/GPU
+        // 50 words ≈ 60 tokens = ~5-10 sec; 100 words ≈ 130 tokens = ~10-20 sec; 150 words ≈ 200 tokens = ~15-30 sec
         if (wordLimit <= 50) {
-            return 5000;
+            return 45000;  // 45 seconds for short
         }
         if (wordLimit >= 150) {
-            return 12000;
+            return 120000;  // 120 seconds for detail
         }
-        return 8000;
+        return 90000;  // 90 seconds for medium
     }
 
     private static float summaryWordLimitToTemperature(int wordLimit) {

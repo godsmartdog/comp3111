@@ -387,9 +387,10 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", async (
                 summaryLevel
             })
         });
-
+        console.log("[DEBUG] generate-summary response:", response);
         if (description) {
-            description.value = response?.summary || "";
+            // Prefer `summary` field; fall back to top-level string or message for debug
+            description.value = (response && typeof response === 'object') ? (response.summary || response.message || "") : (response || "");
         }
         showToast(response?.message || "Summary generated. You can now submit!", false);
     } catch (error) {
