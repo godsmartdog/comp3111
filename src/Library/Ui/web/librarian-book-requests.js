@@ -55,7 +55,9 @@ const downloadAndUploadBtn = document.getElementById("downloadAndUploadBtn");
 const downloadProgressBox = document.getElementById("downloadProgressBox");
 const downloadProgressBar = document.getElementById("downloadProgressBar");
 const downloadProgressText = document.getElementById("downloadProgressText");
+const selectedRequestStatusHint = document.getElementById("selectedRequestStatusHint");
 let downloadProgressTimer = null;
+let downloadProgressResetTimer = null;
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -70,6 +72,10 @@ function normalizeText(value) {
 }
 
 function setDownloadProgress(value, text) {
+    if (downloadProgressResetTimer) {
+        clearTimeout(downloadProgressResetTimer);
+        downloadProgressResetTimer = null;
+    }
     if (downloadProgressBox) {
         downloadProgressBox.style.display = "block";
     }
@@ -110,23 +116,25 @@ function finishDownloadProgress(success, message) {
     clearDownloadProgressTimer();
     if (success) {
         setDownloadProgress(100, message || "Download and upload complete.");
-        setTimeout(() => {
+        downloadProgressResetTimer = setTimeout(() => {
             if (downloadProgressBox) {
                 downloadProgressBox.style.display = "none";
             }
             if (downloadProgressBar) {
                 downloadProgressBar.value = 0;
             }
+            downloadProgressResetTimer = null;
         }, 1800);
     } else {
         setDownloadProgress(0, message || "Download failed.");
-        setTimeout(() => {
+        downloadProgressResetTimer = setTimeout(() => {
             if (downloadProgressBox) {
                 downloadProgressBox.style.display = "none";
             }
             if (downloadProgressBar) {
                 downloadProgressBar.value = 0;
             }
+            downloadProgressResetTimer = null;
         }, 3000);
     }
 }
@@ -379,7 +387,7 @@ function syncSelectedRequest() {
     }
     const updated = cachedRequests.find((item) => item.id === selectedRequest.id);
     if (updated) {
-        setSelectedRequest(updated);
+        setSelectedRequest(updated, false);
     }
 }
 
@@ -434,7 +442,32 @@ async function reviewRequest(requestId, action, item = {}) {
     }
 }
 
-function setSelectedRequest(item) {
+function clearSelectedRequestDownloadState() {
+    if (selectedPdfUrlInput) {
+        selectedPdfUrlInput.value = "";
+    }
+    if (pdfResultsBody) {
+        pdfResultsBody.innerHTML = "";
+    }
+    currentPdfSearchPage = 1;
+    currentPdfSearchHasNext = false;
+    currentPdfSearchQuery = { title: "", authorName: "", searchMode: "partial" };
+    if (pdfPageInfo) {
+        pdfPageInfo.textContent = "Page 1";
+    }
+    if (typeof finishDownloadProgress === "function") {
+        finishDownloadProgress(false, "Waiting to start...");
+    }
+    if (downloadProgressBox) {
+        downloadProgressBox.style.display = "none";
+    }
+    if (downloadAndUploadBtn) {
+        downloadAndUploadBtn.disabled = false;
+        downloadAndUploadBtn.textContent = "Download + Upload";
+    }
+}
+
+function setSelectedRequest(item, resetDownloadState = true) {
     selectedRequest = item;
     if (selectedRequestIdInput) {
         selectedRequestIdInput.value = item?.id || "";
@@ -446,13 +479,19 @@ function setSelectedRequest(item) {
         selectedAuthorInput.value = item?.authorName || "";
     }
     if (selectedGenresInput) {
-        selectedGenresInput.value = Array.isArray(item?.genres) ? item.genres.join(", ") : "";
+        selectedGenresInput.value = Array.isArray(item?.genres) ? item.genres.join(",") : "";
     }
     if (selectedReasonInput) {
         selectedReasonInput.value = item?.reason || "";
     }
-    if (generatedDescriptionInput && !generatedDescriptionInput.value.trim()) {
-        generatedDescriptionInput.value = item?.reason || "";
+    if (generatedDescriptionInput) {
+        generatedDescriptionInput.value = item?.description || "";
+    }
+    if (selectedRequestStatusHint) {
+        selectedRequestStatusHint.textContent = `Selected request status: ${item?.status || "UNKNOWN"}. Only APPROVED requests can use Download + Upload.`;
+    }
+    if (resetDownloadState) {
+        clearSelectedRequestDownloadState();
     }
 }
 
@@ -670,6 +709,7 @@ async function downloadAndUpload() {
 
     if (downloadAndUploadBtn) {
         downloadAndUploadBtn.disabled = true;
+        downloadAndUploadBtn.textContent = "Downloading...";
     }
     startDownloadProgress();
 
@@ -694,6 +734,7 @@ async function downloadAndUpload() {
     } finally {
         if (downloadAndUploadBtn) {
             downloadAndUploadBtn.disabled = false;
+            downloadAndUploadBtn.textContent = "Download + Upload";
         }
     }
 }
