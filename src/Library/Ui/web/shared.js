@@ -452,14 +452,18 @@ function appendReviewHelpfulButton(container, item, onMarked) {
                 return;
             }
             button.disabled = true;
-            await api("/api/reviews/helpful", {
+            await api("/api/review-helpful", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: formBody({ reviewId: item.reviewId })
             });
             showToast("Marked review as helpful.", false);
             if (typeof onMarked === "function") {
-                await onMarked();
+                try {
+                    await onMarked();
+                } catch (reloadError) {
+                    showToast("Marked helpful. Refresh the review list to see the latest count.", false);
+                }
             }
         } catch (error) {
             button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
