@@ -37,6 +37,8 @@ function stringifySnapshotPayload(payload) {
 
 const RECOVERY_KEY = "libraryCrashRecoverySnapshot";
 const RECOVERY_RESTORED_FLAG = "libraryCrashRecoveryRestored";
+const RECOVERY_REDIRECT_FLAG = "libraryCrashRecoveryShouldRedirect";
+const RECOVERY_LAST_REDIRECT_KEY = "libraryCrashRecoveryLastRedirect";
 let recoverySaveTimer = null;
 let recoveryRestoreAttemptInFlight = null;
 
@@ -277,6 +279,23 @@ function isRecoveryRedirectSource(current, snapshot) {
     return page === "index.html" || page === rolePage(current?.role || "") || page === "login.html";
 }
 
+function hasExplicitRecoveryRedirectTrigger() {
+    return getQueryParam("recover") === "1"
+        || getQueryParam("recovered") === "1"
+        || sessionStorage.getItem(RECOVERY_REDIRECT_FLAG) === "1"
+        || sessionStorage.getItem(RECOVERY_RESTORED_FLAG) === "1";
+}
+
+function clearRecoveryRedirectFlags() {
+    sessionStorage.removeItem(RECOVERY_RESTORED_FLAG);
+    sessionStorage.removeItem(RECOVERY_REDIRECT_FLAG);
+}
+
+function clearRecoveryRedirectState() {
+    clearRecoveryRedirectFlags();
+    sessionStorage.removeItem(RECOVERY_LAST_REDIRECT_KEY);
+}
+
 async function attemptBackendSessionRestore(options = {}) {
     if (recoveryRestoreAttemptInFlight) {
         return recoveryRestoreAttemptInFlight;
@@ -304,7 +323,16 @@ async function attemptBackendSessionRestore(options = {}) {
         }
         const restored = await response.json();
         saveCurrentUser(restored);
-        sessionStorage.setItem(RECOVERY_RESTORED_FLAG, "1");
+        if (snapshot?.path === currentPageName()) {
+            restoreRecoveryFields(snapshot);
+            showToast("Last session restored successfully.", false);
+            clearRecoveryRedirectState();
+        } else if (snapshot?.path && isRecoveryRedirectSource(restored, snapshot)) {
+            sessionStorage.setItem(RECOVERY_RESTORED_FLAG, "1");
+            sessionStorage.setItem(RECOVERY_REDIRECT_FLAG, "1");
+        } else {
+            clearRecoveryRedirectState();
+        }
         return true;
     })().finally(() => {
         recoveryRestoreAttemptInFlight = null;
@@ -324,21 +352,35 @@ async function applyCrashRecoveryOnLoad() {
     }
 
     const currentPath = currentPageName();
-    if (snapshot.path && snapshot.path !== currentPath && isRecoveryRedirectSource(current, snapshot)) {
+    const explicitRecovery = hasExplicitRecoveryRedirectTrigger();
+    if (snapshot.path && snapshot.path !== currentPath && explicitRecovery && isRecoveryRedirectSource(current, snapshot)) {
         const separator = snapshot.path.includes("?") ? "&" : "?";
-        window.location.href = `${snapshot.path}${separator}recovered=1`;
+        const redirectTarget = `${snapshot.path}${separator}recovered=1`;
+        const lastRedirect = sessionStorage.getItem(RECOVERY_LAST_REDIRECT_KEY);
+        clearRecoveryRedirectFlags();
+        if (lastRedirect === redirectTarget) {
+            sessionStorage.removeItem(RECOVERY_LAST_REDIRECT_KEY);
+            return;
+        }
+        sessionStorage.setItem(RECOVERY_LAST_REDIRECT_KEY, redirectTarget);
+        window.location.href = redirectTarget;
         return;
+    }
+
+    if (explicitRecovery && snapshot.path && snapshot.path !== currentPath) {
+        clearRecoveryRedirectState();
     }
 
     if (snapshot.path === currentPath) {
         try {
             restoreRecoveryFields(snapshot);
-            if (getQueryParam("recovered") === "1" || sessionStorage.getItem(RECOVERY_RESTORED_FLAG) === "1") {
+            if (explicitRecovery) {
                 showToast("Last session restored successfully.", false);
-                sessionStorage.removeItem(RECOVERY_RESTORED_FLAG);
+                clearRecoveryRedirectState();
             }
         } catch (e) {
             localStorage.removeItem(RECOVERY_KEY);
+            clearRecoveryRedirectState();
             showToast("Could not restore last session. Returning to home screen.", true);
             window.location.href = rolePage(current.role);
         }
@@ -351,6 +393,7 @@ function initCrashRecovery() {
         return;
     }
     applyCrashRecoveryOnLoad().catch(() => {
+        clearRecoveryRedirectState();
         showToast("Could not restore last session. Returning to home screen.", true);
         window.location.href = rolePage(current.role);
     });
@@ -438,6 +481,16 @@ function appendReviewHelpfulButton(container, item, onMarked) {
         return;
     }
 
+    const reviewId = String(item?.reviewId || "").trim();
+    if (!reviewId) {
+        const note = document.createElement("div");
+        note.className = "muted";
+        note.style.marginTop = "8px";
+        note.textContent = "Helpful voting is unavailable for this legacy demo review.";
+        container.appendChild(note);
+        return;
+    }
+
     const viewer = getCurrentUser();
     const count = Number(item.helpfulCount || 0);
     const button = document.createElement("button");
@@ -447,15 +500,11 @@ function appendReviewHelpfulButton(container, item, onMarked) {
     button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
     button.addEventListener("click", async () => {
         try {
-            if (!item.reviewId) {
-                showToast("Cannot mark helpful: review id is missing.", true);
-                return;
-            }
             button.disabled = true;
             await api("/api/review-helpful", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: formBody({ reviewId: item.reviewId })
+                body: formBody({ reviewId })
             });
             showToast("Marked review as helpful.", false);
             if (typeof onMarked === "function") {
@@ -467,7 +516,11 @@ function appendReviewHelpfulButton(container, item, onMarked) {
             }
         } catch (error) {
             button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
-            showToast(error.message, true);
+            if (String(error.message || "").includes("Review not found")) {
+                showToast("Helpful voting is unavailable for this legacy demo review.", true);
+            } else {
+                showToast(error.message, true);
+            }
         }
     });
 
@@ -765,6 +818,7 @@ function attachLogout(buttonId) {
         }
         removeSessionRestoreBanner();
         localStorage.removeItem(RECOVERY_KEY);
+        clearRecoveryRedirectState();
         localStorage.removeItem("currentUser");
         window.location.href = "index.html";
     });

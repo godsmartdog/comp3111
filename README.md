@@ -156,6 +156,10 @@ All seeded by `LibraryManagementApp` on startup (password is shared):
 
 ## Phase 3 NTH — Testing Notes & Known Limitations
 
+### Review Helpful Voting Note
+
+Section 1.9 review sorting supports Most Recent and Most Helpful. Helpful voting is fully supported for normal persisted review records. Some preloaded seeded demo records may be read-only and show helpful counts without accepting new Helpful votes; use newly submitted/uploaded-book reviews for the full demo flow.
+
 ### Clock-aware testing (auto-return, reader auto-close, due-date features)
 
 Several Phase 3 nice-to-have features are time-sensitive (Slices 9–12 of
