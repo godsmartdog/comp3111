@@ -4,13 +4,16 @@
 package Library.Repository;
 //import class
 import Library.Model.AuthorProfile2;
+import java.io.Serializable;
 //stores pairs of information
 import java.util.HashMap;
 import java.util.Map;
 //safe return
 import java.util.Optional;
 
-public class MemoryAuthorProfileRepository2 implements AuthorProfileRepository2 {
+public class MemoryAuthorProfileRepository2 implements AuthorProfileRepository2, Serializable {
+    private static final long serialVersionUID = 1L;
+
     //make a map first
     private final Map<String, AuthorProfile2> map = new HashMap<>();
 
