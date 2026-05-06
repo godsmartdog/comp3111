@@ -63,7 +63,13 @@
             </select>
             <button id="generateSummaryBtn" class="secondary" type="button">Generate Summary</button>
             <button id="downloadPdfBtn" class="secondary" type="button">Download</button>
+            <button id="downloadAndUploadBtn" class="secondary" type="button">Download + Upload</button>
             <button id="uploadPdfBtn" class="secondary" type="button">Upload</button>
+        </div>
+        <div id="downloadProgressBox" class="panel-subtle" style="display:none; margin-top: 8px;">
+            <label for="downloadProgressBar">Download progress</label>
+            <progress id="downloadProgressBar" max="100" value="0" style="width:100%;"></progress>
+            <p id="downloadProgressText" class="hint" aria-live="polite">Waiting to start...</p>
         </div>
         <input id="uploadPdfFileInput" type="file" accept=".pdf,.doc,.docx,.txt,.md" style="display:none;">
         <div class="table-wrap" style="margin-top:12px;">
