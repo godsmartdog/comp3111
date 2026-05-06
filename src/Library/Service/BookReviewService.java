@@ -116,18 +116,19 @@ public class BookReviewService {
         if (notificationService != null) {
             Book book = bookService.findBookById(review.getBookId())
                     .orElseThrow(() -> new NotFoundException("Book not found."));
-            notificationService.addNotification(
+                notificationService.addNotification(
                     review.getUsername(),
                     "Reply to your review",
                     "Author replied to your review for \"" + book.getTitle() + "\": " + normalizedReply,
-                NotificationPriority.NORMAL,
+                    NotificationPriority.NORMAL,
+                    null,
                     Map.of(
-                    "type", "review",
-                            "bookId", book.getId(),
-                            "reviewId", review.getId(),
-                            "authorUsername", normalize(authorUsername)
+                        "type", "review",
+                        "bookId", book.getId(),
+                        "reviewId", review.getId(),
+                        "authorUsername", normalize(authorUsername)
                     )
-            );
+                );
         }
 
         return review;

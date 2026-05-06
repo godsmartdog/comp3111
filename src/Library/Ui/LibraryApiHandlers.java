@@ -42,6 +42,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -1318,6 +1319,25 @@ public class LibraryApiHandlers {
                         "\"message\":\"Requested book downloaded and uploaded.\"," +
                         "\"request\":" + bookRequestToJson(uploaded) +
                         "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/download", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String sourceUrl = required(query, "url");
+                String fileName = RequestFilters.getTrimmed(query, "filename", "download.pdf");
+                proxyDownloadPdf(exchange, sourceUrl, fileName);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -4971,8 +4991,16 @@ public class LibraryApiHandlers {
                                                           PdfSearchStats stats)
             throws IOException, InterruptedException {
         List<PdfSearchResult> results = new ArrayList<>();
-        mergePdfResults(results, searchArchivePdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
-        mergePdfResults(results, searchGoogleBooksPdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        try {
+            mergePdfResults(results, searchArchivePdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        } catch (Exception e) {
+            System.err.println("[PDF FETCH] Archive search failed: " + e.getMessage());
+        }
+        try {
+            mergePdfResults(results, searchGoogleBooksPdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        } catch (Exception e) {
+            System.err.println("[PDF FETCH] Google Books search failed: " + e.getMessage());
+        }
         return results;
     }
 
@@ -5255,11 +5283,19 @@ public class LibraryApiHandlers {
             throws IOException, InterruptedException {
         int perSourceLimit = Math.max(1, Math.min(limit, 5));
         List<PdfSearchResult> results = new ArrayList<>();
-        List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
-        mergePdfResults(results, archiveResults, limit);
+        try {
+            List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
+            mergePdfResults(results, archiveResults, limit);
+        } catch (Exception e) {
+            System.err.println("[PDF SEARCH] Archive search failed: " + e.getMessage());
+        }
 
-        List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
-        mergePdfResults(results, googleResults, limit);
+        try {
+            List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
+            mergePdfResults(results, googleResults, limit);
+        } catch (Exception e) {
+            System.err.println("[PDF SEARCH] Google Books search failed: " + e.getMessage());
+        }
 
         sortPdfResultsByRelevance(results, title, authorName);
 
@@ -5347,7 +5383,7 @@ public class LibraryApiHandlers {
                 + "&fl[]=identifier&fl[]=title&rows=" + limit
                 + "&page=" + Math.max(1, page)
                 + "&output=json";
-        String searchPayload = httpGet(searchUrl);
+        String searchPayload = httpGetArchive(searchUrl);
         List<PdfSearchResult> candidates = parseArchiveSearchResults(searchPayload, limit);
         stats.archiveCandidates += candidates.size();
         List<PdfSearchResult> results = new ArrayList<>();
@@ -5842,6 +5878,63 @@ public class LibraryApiHandlers {
         return new DownloadedPdf(targetPath.toString(), resolvedContentType);
     }
 
+    private void proxyDownloadPdf(HttpExchange exchange, String pdfUrl, String fileName)
+            throws IOException, InterruptedException {
+        URI uri = URI.create(pdfUrl.trim());
+        if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException("Only http/https PDF links are supported.");
+        }
+
+        String safeName = sanitizeFileName(fileName);
+        if (safeName.isBlank()) {
+            safeName = "download.pdf";
+        } else if (!safeName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            safeName = safeName + ".pdf";
+        }
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .GET()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/pdf,application/octet-stream,*/*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Referer", "https://archive.org/")
+                .build();
+
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        int status = response.statusCode();
+        if (status < 200 || status >= 300) {
+            String message = switch (status) {
+                case 403 -> "Archive denied the download request (403).";
+                case 502 -> "Archive returned a bad gateway (502).";
+                case 503 -> "Archive is temporarily unavailable (503).";
+                default -> "Failed to download PDF. Status: " + status;
+            };
+            throw new IOException(message);
+        }
+
+        String contentType = response.headers().firstValue("Content-Type").orElse("application/pdf");
+        String contentLengthHeader = response.headers().firstValue("Content-Length").orElse(null);
+        long contentLength = -1L;
+        if (contentLengthHeader != null) {
+            try {
+                contentLength = Long.parseLong(contentLengthHeader);
+            } catch (NumberFormatException ignored) {
+                contentLength = -1L;
+            }
+        }
+
+        exchange.getResponseHeaders().set("Content-Type", contentType);
+        exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + safeName.replace("\"", "") + "\"");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(200, contentLength >= 0 ? contentLength : 0);
+        try (InputStream inputStream = response.body(); OutputStream outputStream = exchange.getResponseBody()) {
+            inputStream.transferTo(outputStream);
+        } finally {
+            exchange.close();
+        }
+    }
+
     private boolean isValidPdfFile(Path file) {
         try (InputStream inputStream = Files.newInputStream(file)) {
             byte[] header = new byte[4];
@@ -6261,6 +6354,27 @@ public class LibraryApiHandlers {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IOException("Request failed. Status: " + response.statusCode());
+        }
+        return response.body();
+    }
+
+    private String httpGetArchive(String url) throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        // Use a more realistic browser User-Agent for Archive.org to avoid 403 blocks
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .GET()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Referer", "https://archive.org/")
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        int status = response.statusCode();
+        if (status == 403) {
+            throw new IOException("Access Forbidden (403) from Internet Archive. You may be rate-limited or the service may be temporarily blocking requests.");
+        }
+        if (status < 200 || status >= 300) {
+            throw new IOException("Internet Archive request failed. Status: " + status);
         }
         return response.body();
     }

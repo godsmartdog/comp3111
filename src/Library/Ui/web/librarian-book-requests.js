@@ -566,13 +566,17 @@ function downloadPdf() {
     }
     const title = selectedTitleInput?.value.trim() || "download";
     const safeName = title.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
+    const fileName = `${safeName || "download"}.pdf`;
+    const downloadUrl = `/api/download?url=${encodeURIComponent(pdfUrl)}&filename=${encodeURIComponent(fileName)}`;
+
     const anchor = document.createElement("a");
-    anchor.href = pdfUrl;
-    anchor.download = `${safeName || "download"}.pdf`;
-    anchor.rel = "noopener";
+    anchor.href = downloadUrl;
+    anchor.download = fileName;
+    anchor.rel = "noopener noreferrer";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+    showToast("Starting PDF download...", false);
 }
 
 async function uploadSelectedFile(file) {
