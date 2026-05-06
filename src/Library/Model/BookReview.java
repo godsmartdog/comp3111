@@ -21,6 +21,7 @@ public class BookReview implements Serializable {
     private LocalDateTime repliedAt;
     private LocalDateTime flaggedAt;
     private String sentiment;
+    private java.util.Set<String> helpfulUsernames = new java.util.LinkedHashSet<>();
 
     public BookReview(String username, String bookId, int rating, String reviewText) {
         this(username, bookId, rating, reviewText, false);
@@ -97,6 +98,33 @@ public class BookReview implements Serializable {
 
     public String getSentiment() {
         return sentiment == null ? "" : sentiment;
+    }
+
+    public int getHelpfulCount() {
+        return helpfulUsernames().size();
+    }
+
+    public boolean isMarkedHelpfulBy(String username) {
+        return username != null && helpfulUsernames().contains(username.trim());
+    }
+
+    public boolean markHelpful(String username) {
+        String normalized = username == null ? "" : username.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        boolean added = helpfulUsernames().add(normalized);
+        if (added) {
+            this.updatedAt = LocalDateTime.now();
+        }
+        return added;
+    }
+
+    private java.util.Set<String> helpfulUsernames() {
+        if (helpfulUsernames == null) {
+            helpfulUsernames = new java.util.LinkedHashSet<>();
+        }
+        return helpfulUsernames;
     }
 
     public void setSentiment(String sentiment) {

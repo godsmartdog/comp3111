@@ -48,6 +48,7 @@ function renderMyReviews(items) {
         const rating = Number(item.rating || 0);
         const reviewText = escapeHtml(item.reviewText || "");
         const createdAt = escapeHtml(item.createdAt || "");
+        const helpfulCount = Number(item.helpfulCount || 0);
         const replyText = escapeHtml(item.replyText || "");
         const repliedAt = escapeHtml(item.repliedAt || "");
         const flagged = Boolean(item.flagged);
@@ -58,6 +59,7 @@ function renderMyReviews(items) {
             <div style="margin-bottom:10px;">
                 <strong style="font-size:1.1em;">${bookTitle}</strong>
                 <span class="muted" style="margin-left:10px;">Rating: ${rating}/5</span>
+                <span class="muted" style="margin-left:10px;">Helpful: ${helpfulCount}</span>
                 ${item.anonymous ? `<span class="muted" style="margin-left:10px;">(Anonymous)</span>` : ""}
             </div>
             <div style="margin-bottom:10px;white-space:pre-wrap;">
@@ -91,9 +93,14 @@ function renderMyReviews(items) {
 }
 
 async function refreshMyReviews() {
-    const items = await api("/api/reviews/me");
+    const sort = document.getElementById("myReviewSort")?.value || "recent";
+    const items = await api(`/api/reviews/me?sortBy=${encodeURIComponent(sort)}`);
     renderMyReviews(items);
 }
+
+document.getElementById("myReviewSort")?.addEventListener("change", () => {
+    refreshMyReviews().catch((error) => showToast(error.message, true));
+});
 
 document.getElementById("refreshReviewsBtn")?.addEventListener("click", () => {
     refreshMyReviews().catch((error) => showToast(error.message, true));
