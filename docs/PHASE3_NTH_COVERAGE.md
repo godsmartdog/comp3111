@@ -75,6 +75,12 @@ All 11 slice commits maintain the pre-Phase-3 test baseline of
 introduced by Phase 3 NTH work. See
 [PHASE3_NTH_AUDIT.md](PHASE3_NTH_AUDIT.md) for the full failing-test list.
 
+## Final Sprint Test Policy
+
+During the final demo sprint, remaining nice-to-have slices are verified by compile-only checks plus focused manual browser/API smoke tests unless an integration test is cheap and isolated.
+
+Avoid adding or running default integration tests that trigger slow sentiment/LLM/PDF/network paths. In particular, the optional Section 1.9 helpful-review sorting integration test is not run by default because review submission can invoke sentiment inference.
+
 ## Not Yet Implemented (12 bullets)
 
 Spec wording verbatim. Bullets #10, #11, #25 were verified pre-existing
