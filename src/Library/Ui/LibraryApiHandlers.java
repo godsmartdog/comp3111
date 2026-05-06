@@ -717,6 +717,25 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/review-helpful", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/reviews/helpful", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
