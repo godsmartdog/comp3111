@@ -86,6 +86,25 @@ cd src/Library
 
 The application script expects `java` and `javac` to be available via `JAVA_HOME` or `PATH`.
 
+## Persistent Local Database
+
+The web app uses a local file-backed database snapshot for demo persistence.
+
+Expected / not a bug:
+
+- `data/library-db.ser` is local runtime data and should not be committed.
+- When running through `src/Library/run-library.sh`, the file is created under `src/data/library-db.ser` from the repository root.
+- If you delete `src/data/library-db.ser`, the app resets to the seeded demo accounts and demo books on the next startup.
+- After a crash, either the newly reopened browser tab or a refreshed previous tab can restore the last session successfully.
+- On first startup, the console prints `Created new persistent library database`.
+- On later startups, the console prints `Loaded persistent library database`.
+
+Demo accounts after a fresh database reset:
+
+- `student1 / Password1!`
+- `author1 / Password1!`
+- `librarian1 / Password1!`
+
 ## Testing
 
 Integration tests are included in the repository and are used to validate the implemented features across all supported roles.

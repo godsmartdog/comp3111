@@ -25,7 +25,14 @@
     <section class="panel glass-panel">
         <h2>Submitted Ratings And Reviews</h2>
         <p id="reviewsStatus" class="hint">Loading reviews...</p>
-        <button id="refreshReviewsBtn" class="secondary" type="button">Refresh</button>
+        <div class="toolbar">
+            <label for="myReviewSort">Sort reviews</label>
+            <select id="myReviewSort">
+                <option value="recent" selected>Most Recent</option>
+                <option value="helpful">Most Helpful</option>
+            </select>
+            <button id="refreshReviewsBtn" class="secondary" type="button">Refresh</button>
+        </div>
 
         <div id="reviewsList" style="display:flex;flex-direction:column;gap:15px;margin-top:20px;">
             <!-- Reviews will be rendered here -->

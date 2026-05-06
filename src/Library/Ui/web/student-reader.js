@@ -122,6 +122,11 @@ function renderReaderReviews(reviews) {
     reviews.forEach((item) => {
         const li = document.createElement("li");
         li.innerHTML = formatReviewDisplayHtml(item);
+        appendReviewHelpfulButton(li, item, async () => {
+            if (selectedBorrowedBookId) {
+                await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
+            }
+        });
         list.appendChild(li);
     });
 }
@@ -130,7 +135,7 @@ async function loadBookReviewsAndSyncInput(bookId) {
     try {
         const sortSelect = document.getElementById("reviewSort");
         const sort = sortSelect?.value || "recent";
-        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sort=${encodeURIComponent(sort)}`);
+        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sortBy=${encodeURIComponent(sort)}`);
         renderReaderReviews(reviews);
 
         const currentReview = Array.isArray(reviews)

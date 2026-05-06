@@ -35,6 +35,11 @@ function stringifySnapshotPayload(payload) {
     }
 }
 
+const RECOVERY_KEY = "libraryCrashRecoverySnapshot";
+const RECOVERY_RESTORED_FLAG = "libraryCrashRecoveryRestored";
+let recoverySaveTimer = null;
+let recoveryRestoreAttemptInFlight = null;
+
 async function api(path, options = {}, expectJson = true) {
     const merged = { ...options };
     const headers = { ...(options.headers || {}) };
@@ -44,9 +49,23 @@ async function api(path, options = {}, expectJson = true) {
     }
     merged.headers = headers;
 
-    const response = await fetch(path, merged);
+    let response = await fetch(path, merged);
     if (!response.ok) {
         const text = await response.text();
+        if (response.status === 401 && !options.skipRecovery) {
+            const restored = await attemptBackendSessionRestore({ silent: true });
+            if (restored) {
+                const retryHeaders = { ...(options.headers || {}) };
+                const refreshed = getCurrentUser();
+                if (refreshed?.sessionId) {
+                    retryHeaders["X-Session-Id"] = refreshed.sessionId;
+                }
+                response = await fetch(path, { ...options, headers: retryHeaders, skipRecovery: true });
+                if (response.ok) {
+                    return expectJson ? response.json() : response.text();
+                }
+            }
+        }
         const error = new Error(text || "Request failed.");
         error.status = response.status;
         if (response.status === 401) {
@@ -129,6 +148,224 @@ function rolePage(role) {
     return "index.html";
 }
 
+function currentPageName() {
+    const name = window.location.pathname.split("/").pop();
+    return name || "index.html";
+}
+
+function readRecoverySnapshot() {
+    const raw = localStorage.getItem(RECOVERY_KEY);
+    if (!raw) {
+        return null;
+    }
+    try {
+        return JSON.parse(raw);
+    } catch (e) {
+        localStorage.removeItem(RECOVERY_KEY);
+        return null;
+    }
+}
+
+function collectRecoveryFormState() {
+    const formState = {};
+    const fields = document.querySelectorAll("input, textarea, select");
+    fields.forEach((element) => {
+        if (element.disabled) return;
+        if (element.type === "password" || element.type === "file" || element.type === "hidden") return;
+        const key = element.id || element.name;
+        if (!key) return;
+        if (element.offsetParent === null && element.type !== "checkbox" && element.type !== "radio") return;
+        if (element.type === "checkbox") {
+            formState[key] = element.checked ? "true" : "false";
+            return;
+        }
+        if (element.type === "radio") {
+            if (element.checked) {
+                formState[key] = element.value;
+            }
+            return;
+        }
+        formState[key] = element.value;
+    });
+    return formState;
+}
+
+function buildRecoverySnapshot(lastAction = "view-update") {
+    const current = getCurrentUser();
+    if (!current?.sessionId) {
+        return null;
+    }
+    return {
+        schemaVersion: 1,
+        capturedAt: new Date().toISOString(),
+        username: current.username,
+        role: current.role,
+        sessionId: current.sessionId,
+        path: currentPageName(),
+        hash: window.location.hash || "",
+        title: document.title || "",
+        formState: collectRecoveryFormState(),
+        scrollX: window.scrollX || 0,
+        scrollY: window.scrollY || 0,
+        activeElementId: document.activeElement?.id || document.activeElement?.name || "",
+        lastAction
+    };
+}
+
+async function persistCrashRecoverySnapshot(lastAction = "view-update", options = {}) {
+    const snapshot = buildRecoverySnapshot(lastAction);
+    if (!snapshot) {
+        return null;
+    }
+    try {
+        localStorage.setItem(RECOVERY_KEY, JSON.stringify(snapshot));
+    } catch (e) {
+        // Best effort only.
+    }
+
+    await saveSessionSnapshot({
+        portalKey: snapshot.path,
+        lastViewKey: snapshot.hash || "default",
+        lastAction,
+        statePayload: snapshot
+    }, { silent: true, keepalive: Boolean(options.keepalive) });
+    return snapshot;
+}
+
+function scheduleCrashRecoverySnapshot(lastAction = "view-update") {
+    if (recoverySaveTimer) {
+        clearTimeout(recoverySaveTimer);
+    }
+    recoverySaveTimer = setTimeout(() => {
+        persistCrashRecoverySnapshot(lastAction, { silent: true }).catch(() => {});
+    }, 250);
+}
+
+function restoreRecoveryFields(snapshot) {
+    const formState = snapshot?.formState || {};
+    Object.entries(formState).forEach(([key, value]) => {
+        const escaped = CSS.escape(key);
+        const element = document.getElementById(key) || document.querySelector(`[name="${escaped}"]`);
+        if (!element || element.disabled) return;
+        if (element.type === "password" || element.type === "file" || element.type === "hidden") return;
+        if (element.type === "checkbox") {
+            element.checked = value === "true";
+        } else if (element.type === "radio") {
+            const radio = document.querySelector(`[name="${escaped}"][value="${CSS.escape(value)}"]`);
+            if (radio) radio.checked = true;
+        } else {
+            element.value = value;
+        }
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    setTimeout(() => {
+        window.scrollTo(Number(snapshot?.scrollX || 0), Number(snapshot?.scrollY || 0));
+        if (snapshot?.activeElementId) {
+            const active = document.getElementById(snapshot.activeElementId)
+                || document.querySelector(`[name="${CSS.escape(snapshot.activeElementId)}"]`);
+            if (active && typeof active.focus === "function") {
+                active.focus();
+            }
+        }
+    }, 100);
+}
+
+function isRecoveryRedirectSource(current, snapshot) {
+    const page = currentPageName();
+    return page === "index.html" || page === rolePage(current?.role || "") || page === "login.html";
+}
+
+async function attemptBackendSessionRestore(options = {}) {
+    if (recoveryRestoreAttemptInFlight) {
+        return recoveryRestoreAttemptInFlight;
+    }
+    recoveryRestoreAttemptInFlight = (async () => {
+        const current = getCurrentUser();
+        const snapshot = readRecoverySnapshot();
+        const sessionId = snapshot?.sessionId || current?.sessionId;
+        const username = snapshot?.username || current?.username;
+        const role = snapshot?.role || current?.role;
+        if (!sessionId || !username || !role) {
+            return false;
+        }
+
+        const response = await fetch("/api/session/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ sessionId, username, role })
+        });
+        if (!response.ok) {
+            if (!options.silent) {
+                showToast("Could not restore last session. Returning to home screen.", true);
+            }
+            return false;
+        }
+        const restored = await response.json();
+        saveCurrentUser(restored);
+        sessionStorage.setItem(RECOVERY_RESTORED_FLAG, "1");
+        return true;
+    })().finally(() => {
+        recoveryRestoreAttemptInFlight = null;
+    });
+    return recoveryRestoreAttemptInFlight;
+}
+
+async function applyCrashRecoveryOnLoad() {
+    const current = getCurrentUser();
+    if (!current?.sessionId) {
+        return;
+    }
+
+    const snapshot = readRecoverySnapshot();
+    if (!snapshot || snapshot.username !== current.username || snapshot.role !== current.role) {
+        return;
+    }
+
+    const currentPath = currentPageName();
+    if (snapshot.path && snapshot.path !== currentPath && isRecoveryRedirectSource(current, snapshot)) {
+        const separator = snapshot.path.includes("?") ? "&" : "?";
+        window.location.href = `${snapshot.path}${separator}recovered=1`;
+        return;
+    }
+
+    if (snapshot.path === currentPath) {
+        try {
+            restoreRecoveryFields(snapshot);
+            if (getQueryParam("recovered") === "1" || sessionStorage.getItem(RECOVERY_RESTORED_FLAG) === "1") {
+                showToast("Last session restored successfully.", false);
+                sessionStorage.removeItem(RECOVERY_RESTORED_FLAG);
+            }
+        } catch (e) {
+            localStorage.removeItem(RECOVERY_KEY);
+            showToast("Could not restore last session. Returning to home screen.", true);
+            window.location.href = rolePage(current.role);
+        }
+    }
+}
+
+function initCrashRecovery() {
+    const current = getCurrentUser();
+    if (!current?.sessionId) {
+        return;
+    }
+    applyCrashRecoveryOnLoad().catch(() => {
+        showToast("Could not restore last session. Returning to home screen.", true);
+        window.location.href = rolePage(current.role);
+    });
+    ["input", "change", "click"].forEach((eventName) => {
+        document.addEventListener(eventName, () => scheduleCrashRecoverySnapshot(eventName), true);
+    });
+    window.addEventListener("beforeunload", () => {
+        void persistCrashRecoverySnapshot("beforeunload", { keepalive: true });
+    });
+    setInterval(() => {
+        persistCrashRecoverySnapshot("interval", { silent: true }).catch(() => {});
+    }, 2000);
+    installDevCrashTools();
+}
+
 function escapeHtml(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -178,6 +415,7 @@ function formatReviewDisplayHtml(item) {
     const flagged = Boolean(item?.flagged);
     const flagReason = escapeHtml(item?.flagReason || "");
     const flaggedAt = escapeHtml(formatDateOnly(item?.flaggedAt || ""));
+    const helpfulCount = Number(item?.helpfulCount || 0);
     const replyLine = replyText
         ? `<div class="muted" style="margin-top:6px;">Author reply${replyAt ? ` (${replyAt})` : ""}: ${replyText}</div>`
         : "";
@@ -188,10 +426,52 @@ function formatReviewDisplayHtml(item) {
     return `
         <div style="white-space:pre-wrap;">
             <strong>${reviewer}: ${rating} - ${reviewText}</strong>
+            <div class="muted" style="margin-top:4px;">Helpful: ${helpfulCount}</div>
             ${replyLine}
             ${flagLine}
         </div>
     `;
+}
+
+function appendReviewHelpfulButton(container, item, onMarked) {
+    if (!container) {
+        return;
+    }
+
+    const viewer = getCurrentUser();
+    const count = Number(item.helpfulCount || 0);
+    const button = document.createElement("button");
+    button.className = "secondary";
+    button.type = "button";
+    button.textContent = `Helpful (${count})`;
+    button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
+    button.addEventListener("click", async () => {
+        try {
+            if (!item.reviewId) {
+                showToast("Cannot mark helpful: review id is missing.", true);
+                return;
+            }
+            button.disabled = true;
+            await api("/api/reviews/helpful", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ reviewId: item.reviewId })
+            });
+            showToast("Marked review as helpful.", false);
+            if (typeof onMarked === "function") {
+                await onMarked();
+            }
+        } catch (error) {
+            button.disabled = Boolean(item.helpfulByViewer) || Boolean(viewer?.username && item.username === viewer.username);
+            showToast(error.message, true);
+        }
+    });
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "toolbar";
+    toolbar.style.marginTop = "8px";
+    toolbar.appendChild(button);
+    container.appendChild(toolbar);
 }
 
 function promptForCurrentPassword() {
@@ -303,34 +583,21 @@ async function invokeDevCrashEndpoint(snapshot, crashAction) {
         throw new Error("Cannot run crash test without an active session.");
     }
 
-    const form = formBody({
-        portalKey: snapshot?.portalKey || window.location.pathname,
-        lastViewKey: snapshot?.lastViewKey || "default",
-        lastAction: snapshot?.lastAction || "crash-test",
-        statePayload: stringifySnapshotPayload(snapshot?.statePayload || {})
-    });
+    await persistCrashRecoverySnapshot(crashAction || "crash-test");
 
-    const response = await fetch("/api/dev/crash-test", {
+    const response = await fetch("/api/dev/crash-now", {
         method: "POST",
         headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
             "X-Session-Id": current.sessionId,
             [DEV_CRASH_HEADER]: DEV_CRASH_TOKEN
-        },
-        body: form
+        }
     });
 
     if (!response.ok) {
         throw new Error((await response.text()) || "Crash test request failed.");
     }
 
-    showToast("Crash simulated. Reloading page...", false);
-    setTimeout(() => {
-        if (crashAction === "random") {
-            throw new Error("Random crash simulation triggered.");
-        }
-        throw new Error("Manual crash simulation triggered.");
-    }, 120);
+    showToast("Crash test armed. Restart the app to restore this page.", false);
 }
 
 async function triggerCrashSimulation(reason) {
@@ -357,13 +624,20 @@ function applyRandomCrashSimulation() {
 
     devRandomCrashTimer = setInterval(() => {
         if (Math.random() < chance) {
-            triggerCrashSimulation("random-crash").catch((error) => showToast(error.message, true));
+            fetch("/api/dev/crash-random-arm", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    [DEV_CRASH_HEADER]: DEV_CRASH_TOKEN
+                },
+                body: formBody({ minSeconds: 5, maxSeconds: 15 })
+            }).catch((error) => showToast(error.message, true));
         }
     }, 15000);
 }
 
 function installDevCrashTools() {
-    if (!isDevCrashModeEnabled() || !getCurrentUser()?.sessionId) {
+    if (!getCurrentUser()?.sessionId) {
         return;
     }
 
@@ -375,29 +649,46 @@ function installDevCrashTools() {
     const box = document.createElement("div");
     box.id = "devCrashTools";
     box.style.position = "fixed";
-    box.style.right = "12px";
+    box.style.left = "12px";
     box.style.bottom = "12px";
+    box.style.right = "";
     box.style.zIndex = "90";
+    box.style.background = "transparent";
+    box.style.padding = "0";
+    box.style.display = "flex";
+    box.style.flexDirection = "column";
+    box.style.gap = "8px";
+
+    const crashBtn = document.createElement("button");
+    crashBtn.id = "crashTestBtn";
+    crashBtn.type = "button";
+    crashBtn.className = "secondary";
+    crashBtn.textContent = "Crash Test";
+    crashBtn.addEventListener("click", () => {
+        const ok = window.confirm("Simulate crash now? The server will stop abruptly. Restart the app and this page should restore.");
+        if (!ok) {
+            return;
+        }
+        triggerCrashSimulation("manual-crash").catch((error) => showToast(error.message, true));
+    });
+
+    box.appendChild(crashBtn);
+
+    if (!isDevCrashModeEnabled()) {
+        document.body.appendChild(box);
+        return;
+    }
+
     box.style.background = "rgba(20, 28, 40, 0.95)";
     box.style.color = "#fff";
     box.style.padding = "10px";
     box.style.borderRadius = "10px";
     box.style.border = "1px solid rgba(102, 153, 204, 0.55)";
-    box.style.display = "flex";
-    box.style.flexDirection = "column";
-    box.style.gap = "8px";
     box.style.minWidth = "220px";
 
     const title = document.createElement("div");
     title.textContent = "Dev Crash Tools";
     title.style.fontWeight = "700";
-
-    const crashBtn = document.createElement("button");
-    crashBtn.type = "button";
-    crashBtn.textContent = "Crash Test";
-    crashBtn.addEventListener("click", () => {
-        triggerCrashSimulation("manual-crash").catch((error) => showToast(error.message, true));
-    });
 
     const label = document.createElement("label");
     label.textContent = "Random crash chance";
@@ -418,8 +709,7 @@ function installDevCrashTools() {
     const hint = document.createElement("small");
     hint.textContent = "Adds crash simulation during runtime for resilience testing.";
 
-    box.appendChild(title);
-    box.appendChild(crashBtn);
+    box.insertBefore(title, crashBtn);
     box.appendChild(label);
     box.appendChild(chanceSelect);
     box.appendChild(hint);
@@ -470,6 +760,7 @@ function attachLogout(buttonId) {
             // Ignore network/logout errors and continue clearing local session.
         }
         removeSessionRestoreBanner();
+        localStorage.removeItem(RECOVERY_KEY);
         localStorage.removeItem("currentUser");
         window.location.href = "index.html";
     });
@@ -676,7 +967,7 @@ function getQueryParam(name) {
     return url.searchParams.get(name);
 }
 
-installDevCrashTools();
+initCrashRecovery();
 function getTextPolicyViolations(value, label = "Value") {
     const violations = [];
 

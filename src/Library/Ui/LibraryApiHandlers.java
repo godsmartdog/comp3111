@@ -73,6 +73,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
@@ -321,6 +322,46 @@ public class LibraryApiHandlers {
             sendText(exchange, 200, "Logged out.");
         });
 
+        server.createContext("/api/session/restore", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                Map<String, String> form = readForm(exchange);
+                String sessionId = required(form, "sessionId");
+                String username = required(form, "username");
+                Role role = Role.valueOf(required(form, "role").toUpperCase(Locale.ROOT));
+                User user = authService.findUserByUsername(username)
+                        .orElseThrow(() -> new ApiAuthException("Session restore failed: user not found."));
+
+                if (user.getRole() != role) {
+                    throw new ApiAuthException("Session restore failed: role mismatch.");
+                }
+                if (!user.isActive()) {
+                    throw new ApiAuthException("Session restore failed: account is inactive.");
+                }
+
+                sessionSnapshotService.getSnapshot(sessionId, user.getUsername(), user.getRole());
+                sessions.put(sessionId, user);
+                sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
+                refreshSessionSnapshot();
+
+                sendJson(exchange, 200, "{" +
+                        "\"restored\":true," +
+                        "\"username\":\"" + JsonUtil.escape(user.getUsername()) + "\"," +
+                        "\"fullName\":\"" + JsonUtil.escape(user.getFullName()) + "\"," +
+                        "\"role\":\"" + user.getRole() + "\"," +
+                        "\"sessionId\":\"" + JsonUtil.escape(sessionId) + "\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, "Session restore failed: " + e.getMessage());
+            }
+        });
+
         server.createContext("/api/session-snapshot/save", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -430,6 +471,63 @@ public class LibraryApiHandlers {
                 sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
+        });
+
+        server.createContext("/api/dev/crash-now", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                refreshSessionSnapshot();
+                sendJson(exchange, 200, "{\"crashing\":true,\"delayMs\":300,\"scope\":\"dev-only endpoint\"}");
+                haltJvmSoon(300);
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
+        });
+
+        server.createContext("/api/dev/crash-random-arm", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                Map<String, String> form = readForm(exchange);
+                int minSeconds = RequestFilters.parseIntInRange(form, "minSeconds", 10, 1, 3600);
+                int maxSeconds = RequestFilters.parseIntInRange(form, "maxSeconds", 30, 1, 3600);
+                if (maxSeconds < minSeconds) {
+                    throw new IllegalArgumentException("maxSeconds must be greater than or equal to minSeconds.");
+                }
+                int delaySeconds = ThreadLocalRandom.current().nextInt(minSeconds, maxSeconds + 1);
+                Thread crashThread = new Thread(() -> {
+                    try {
+                        TimeUnit.SECONDS.sleep(delaySeconds);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    Runtime.getRuntime().halt(137);
+                }, "library-random-crash-test");
+                crashThread.setDaemon(true);
+                crashThread.start();
+                sendJson(exchange, 200, "{" +
+                        "\"armed\":true," +
+                        "\"delaySeconds\":" + delaySeconds +
+                        "}");
             } catch (Exception e) {
                 sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
             }
@@ -625,23 +723,69 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/reviews/helpful", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/reviews", exchange -> {
             String method = exchange.getRequestMethod();
             String path = nullToEmpty(exchange.getRequestURI().getPath()).trim();
+
+            if (path.endsWith("/helpful")) {
+                if (!"POST".equalsIgnoreCase(method)) {
+                    sendText(exchange, 405, "Method not allowed.");
+                    return;
+                }
+                try {
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                    Map<String, String> form = readForm(exchange);
+                    String reviewId = required(form, "reviewId");
+                    BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                    sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
             boolean requestMine = path.endsWith("/me");
 
             if ("GET".equalsIgnoreCase(method)) {
                 try {
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     if (requestMine) {
                         User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                        sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                        String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                        if (sort.isBlank()) {
+                            sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                        }
+                        sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
                         return;
                     }
 
                     User viewer = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
-                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     String bookId = required(query, "bookId");
-                    String sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                    if (sort.isBlank()) {
+                        sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    }
                     sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId, sort), viewer.getUsername()));
                 } catch (ApiAuthException e) {
                     sendText(exchange, 401, e.getMessage());
@@ -708,7 +852,12 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                if (sort.isBlank()) {
+                    sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                }
+                sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -3910,6 +4059,20 @@ public class LibraryApiHandlers {
         return CRASH_TEST_TOKEN.equals(token);
     }
 
+    private void haltJvmSoon(long delayMs) {
+        Thread crashThread = new Thread(() -> {
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            Runtime.getRuntime().halt(137);
+        }, "library-crash-test-halt");
+        crashThread.setDaemon(true);
+        crashThread.start();
+    }
+
     private void refreshSessionSnapshot() {
         latestSessionSnapshot = SessionSnapshotSchema.capture(sessions);
     }
@@ -4814,13 +4977,15 @@ public class LibraryApiHandlers {
                 "\"anonymous\":" + review.isAnonymous() + "," +
                 "\"rating\":" + review.getRating() + "," +
                 "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
-            "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
-            "\"flagged\":" + review.isFlagged() + "," +
-            "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
+                "\"helpfulCount\":" + review.getHelpfulCount() + "," +
+                "\"helpfulByViewer\":" + review.isMarkedHelpfulBy(viewerUsername) + "," +
+                "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
+                "\"flagged\":" + review.isFlagged() + "," +
+                "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
                 "\"sentiment\":\"" + JsonUtil.escape(review.getSentiment()) + "\"," +
                 "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
-            "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
-            "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
+                "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
+                "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
                 "\"updatedAt\":\"" + JsonUtil.escape(updatedAt) + "\"" +
                 "}";
     }
@@ -4838,7 +5003,11 @@ public class LibraryApiHandlers {
     }
 
     private String myReviewsToJson(String username) {
-        List<BookReview> reviews = bookReviewService.listReviewsByUser(username);
+        return myReviewsToJson(username, "recent");
+    }
+
+    private String myReviewsToJson(String username, String sort) {
+        List<BookReview> reviews = bookReviewService.listReviewsByUser(username, sort);
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
             values.add(reviewToJson(review, username));

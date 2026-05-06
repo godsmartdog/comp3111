@@ -206,10 +206,33 @@ public class BookReviewService {
     }
 
     public List<BookReview> listReviewsByUser(String username) {
+        return listReviewsByUser(username, "recent");
+    }
+
+    public List<BookReview> listReviewsByUser(String username, String sort) {
         String normalizedUsername = normalize(username);
         return reviewRepository.findByUsername(normalizedUsername).stream()
-                .sorted(reviewComparator())
+                .sorted(reviewComparatorForSort(sort))
                 .collect(Collectors.toList());
+    }
+
+    public BookReview markHelpful(String username, String reviewId) {
+        String normalizedUsername = normalize(username);
+        String normalizedReviewId = normalize(reviewId);
+        if (normalizedUsername.isEmpty()) {
+            throw new BusinessException("Username cannot be empty.");
+        }
+        BookReview review = reviewRepository.findById(normalizedReviewId)
+                .orElseThrow(() -> new NotFoundException("Review not found."));
+        if (normalizedUsername.equals(review.getUsername())) {
+            throw new BusinessException("You cannot mark your own review as helpful.");
+        }
+        boolean added = review.markHelpful(normalizedUsername);
+        if (!added) {
+            throw new BusinessException("You already marked this review as helpful.");
+        }
+        reviewRepository.save(review);
+        return review;
     }
 
     public List<BookReview> listReviewsForAuthor(String authorUsername) {
@@ -321,6 +344,11 @@ public class BookReviewService {
                         .thenComparing(BookReview::getId);
             case "lowest":
                 return Comparator.comparingInt(BookReview::getRating)
+                        .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                        .thenComparing(BookReview::getId);
+            case "helpful":
+            case "most-helpful":
+                return Comparator.comparingInt(BookReview::getHelpfulCount).reversed()
                         .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
                         .thenComparing(BookReview::getId);
             case "recent":
