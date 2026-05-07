@@ -435,11 +435,20 @@ async function reviewRequest(requestId, action, item = {}) {
             body: formBody({ requestId, action, comment, reason: rejectionReason })
         });
 
-        showToast(response?.message || "Request updated.", false);
+        showToast(formatRequesterNotificationMessage(response, "Request updated."), false);
         await refreshRequests();
     } catch (error) {
         showToast(error.message, true);
     }
+}
+
+function formatRequesterNotificationMessage(response, fallback) {
+    const message = response?.message || fallback;
+    const count = Number(response?.notificationsSent || 0);
+    if (count <= 0) {
+        return message;
+    }
+    return `${message} ${count} requester notification${count === 1 ? "" : "s"} sent.`;
 }
 
 function clearSelectedRequestDownloadState() {
@@ -725,8 +734,9 @@ async function downloadAndUpload() {
                 content: ""
             })
         });
-        finishDownloadProgress(true, response?.message || "Downloaded and uploaded.");
-        showToast(response?.message || "Downloaded and uploaded.", false);
+        const message = formatRequesterNotificationMessage(response, "Downloaded and uploaded.");
+        finishDownloadProgress(true, message);
+        showToast(message, false);
         await refreshRequests();
     } catch (error) {
         finishDownloadProgress(false, error.message);
