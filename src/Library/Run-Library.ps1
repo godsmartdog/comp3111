@@ -4,25 +4,20 @@ param(
     [switch]$SmokeTest,
     [switch]$CompileOnly
 )
+# model need change then BookReviewService java :104 and LibraryApiHandlers java :6062
 # powershell -ExecutionPolicy Bypass -File "Run-Library.ps1"
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
-$env:INFERENCE_BASE_URL = "http://127.0.0.1:1234/v1"
-$env:INFERENCE_API_KEY = ""
-$env:INFERENCE_MODEL = "local-model"
-$env:S3_ENDPOINT = "https://s3.us.archive.org"
-$env:S3_REGION = "us-east-1"
-$env:S3_ACCESS_KEY = ""
-$env:S3_SECRET_KEY = ""
-$env:IA_ACCESS_KEY = ""
-$env:IA_SECRET_KEY = ""
-$env:GGUF_MODEL_PATH = (Join-Path $PSScriptRoot "SmolLM2-135M-Instruct-Q3_K_XL.gguf")
 
-# Load local overrides (not tracked by git)
-$localOverrides = Join-Path $PSScriptRoot "Run-Library.local.ps1"
-if (Test-Path $localOverrides) {
-    . $localOverrides
+# Ensure absolute path to Meta-Llama model - NEVER use SmolLM2
+$metaLlamaModel = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"))
+$env:GGUF_MODEL_PATH = $metaLlamaModel
+
+# Verify Meta-Llama model exists
+if (!(Test-Path $metaLlamaModel)) {
+    Write-Host "ERROR: Meta-Llama model not found at: $metaLlamaModel" -ForegroundColor Red
+    throw "Meta-Llama model file is missing!"
 }
 
 # Define JavaFX path
@@ -31,14 +26,8 @@ $javafxModules = "javafx.controls,javafx.fxml"
 
 Write-Host "JAVA_HOME set to: $env:JAVA_HOME" -ForegroundColor Green
 Write-Host "Google Books API key set." -ForegroundColor Green
-Write-Host "GGUF model path: $env:GGUF_MODEL_PATH" -ForegroundColor Green
+Write-Host "GGUF model path (ABSOLUTE): $env:GGUF_MODEL_PATH" -ForegroundColor Green
 Write-Host "JavaFX path: $javafxLib" -ForegroundColor Green
-Write-Host "S3 endpoint: $env:S3_ENDPOINT" -ForegroundColor Green
-Write-Host "S3 region: $env:S3_REGION" -ForegroundColor Green
-Write-Host "S3 access key set: $([bool]$env:S3_ACCESS_KEY) (length: $($env:S3_ACCESS_KEY.Length))" -ForegroundColor Green
-Write-Host "S3 secret key set: $([bool]$env:S3_SECRET_KEY) (length: $($env:S3_SECRET_KEY.Length))" -ForegroundColor Green
-Write-Host "IA access key set: $([bool]$env:IA_ACCESS_KEY) (length: $($env:IA_ACCESS_KEY.Length))" -ForegroundColor Green
-Write-Host "IA secret key set: $([bool]$env:IA_SECRET_KEY) (length: $($env:IA_SECRET_KEY.Length))" -ForegroundColor Green
 function Resolve-ToolPath {
     param(
         [string[]]$Candidates,

@@ -37,6 +37,11 @@ public class BookReviewService {
     private final BorrowService borrowService;
     private final NotificationService notificationService;
 
+    // Singleton LlamaModel for sentiment analysis - loaded once, reused for all calls
+    private static volatile LlamaModel singletonLlamaModel = null;
+    private static final Object llamaModelLock = new Object();
+    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
+
     public BookReviewService(BookReviewRepository reviewRepository,
                              BookService bookService,
                              BorrowService borrowService) {
@@ -94,41 +99,81 @@ public class BookReviewService {
         return review;
     }
 
-    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
-
     private String resolveGgufModelPath() throws IOException {
         String configured = System.getenv(GGUF_MODEL_PATH_ENV);
         if (configured != null && !configured.isBlank()) {
-            return configured.trim();
+            String trimmed = configured.trim();
+            System.out.println("[AI] BookReviewService: Using env var GGUF_MODEL_PATH = " + trimmed);
+            // Verify path exists
+            if (!Files.exists(Paths.get(trimmed))) {
+                throw new IOException("[AI] GGUF model file does not exist at env var path: " + trimmed);
+            }
+            // Verify it's NOT SmolLM2
+            if (trimmed.contains("SmolLM2")) {
+                throw new IOException("[AI] FATAL: Attempted to load SmolLM2 instead of Meta-Llama! Check GGUF_MODEL_PATH env var.");
+            }
+            return trimmed;
         }
-        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "SmolLM2-135M-Instruct-Q3_K_XL.gguf");
+        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf");
         if (Files.exists(defaultPath)) {
+            System.out.println("[AI] BookReviewService: Using default path " + defaultPath);
             return defaultPath.toString();
         }
         throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
     }
 
+    /**
+     * Get or initialize the singleton LlamaModel for sentiment analysis.
+     * The model is loaded only once at first use, then reused for all calls.
+     */
+    private LlamaModel getSingletonLlamaModel() throws IOException {
+        if (singletonLlamaModel != null) {
+            return singletonLlamaModel;
+        }
+
+        synchronized (llamaModelLock) {
+            // Double-check pattern
+            if (singletonLlamaModel != null) {
+                return singletonLlamaModel;
+            }
+
+            String modelPath = resolveGgufModelPath();
+            System.out.println("[AI] BookReviewService: Initializing singleton LlamaModel from: " + modelPath);
+            ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+            
+            long startMs = System.currentTimeMillis();
+            LlamaModel model = new LlamaModel(modelParameters);
+            long initTimeMs = System.currentTimeMillis() - startMs;
+            System.out.println("[AI] BookReviewService: Singleton LlamaModel initialized in " + initTimeMs + "ms");
+            
+            singletonLlamaModel = model;
+            return singletonLlamaModel;
+        }
+    }
+
     private String classifySentiment(String text) throws Exception {
         if (text == null || text.isBlank()) return "";
         String prompt = "\"" + text.trim() + "\" is this sentence positive, neutral or negative? Return only one word: positive, neutral, or negative.";
-        String modelPath = resolveGgufModelPath();
-        ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        LlamaModel model = getSingletonLlamaModel();
         InferenceParameters inferParams = new InferenceParameters(prompt)
                 .setTemperature(0.0f)
                 .setTopP(0.3f)
                 .setTopK(10)
+            .setNPredict(4)
                 .setRepeatPenalty(1.1f)
                 .setStopStrings("\n", "\n\n");
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<String> future = executor.submit(() -> {
-            try (LlamaModel model = new LlamaModel(modelParameters)) {
+            try {
                 return model.complete(inferParams);
+            } catch (Exception e) {
+                throw e;
             }
         });
 
         try {
-            String result = future.get(2500, TimeUnit.MILLISECONDS);
+            String result = future.get(20000, TimeUnit.MILLISECONDS);
             if (result == null) return "";
             String normalized = result.trim().toLowerCase();
             if (normalized.contains("positive")) return "positive";
