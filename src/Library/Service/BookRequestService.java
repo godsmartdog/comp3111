@@ -22,7 +22,8 @@ import java.util.stream.Collectors;
 public class BookRequestService {
     private static final Set<String> TINY_STOPWORDS = Set.of(
             "a", "an", "the", "of", "and", "or", "to", "in",
-            "test", "manual", "smoke", "analytics", "duplicate", "guard", "book", "request", "section", "author"
+            "test", "manual", "smoke", "analytics", "duplicate", "guard", "book", "request", "section", "author",
+            "strict", "demo", "workflow", "notify", "cleanup", "alpha", "browser", "upload"
     );
     private final BookRequestRepository2 requestRepository;
     private final BookRepository bookRepository;
@@ -317,9 +318,7 @@ public class BookRequestService {
             authorMatch = true;
             addReason(reasons, "Same author");
         } else if (!requestAuthor.isEmpty() && !bookAuthor.isEmpty()
-                && (requestAuthor.contains(bookAuthor)
-                || bookAuthor.contains(requestAuthor)
-                || countSharedTokens(tokenize(request.getAuthorName()), tokenize(book.getAuthorFullName())) > 0)) {
+                && hasMeaningfulAuthorSubstring(requestAuthor, bookAuthor)) {
             score += 15;
             authorMatch = true;
             addReason(reasons, "Similar author");
@@ -374,6 +373,16 @@ public class BookRequestService {
             return false;
         }
         return sharedCount >= Math.min(leftTokens.size(), rightTokens.size());
+    }
+
+    private static boolean hasMeaningfulAuthorSubstring(String leftAuthor, String rightAuthor) {
+        String shorter = leftAuthor.length() <= rightAuthor.length() ? leftAuthor : rightAuthor;
+        String longer = leftAuthor.length() <= rightAuthor.length() ? rightAuthor : leftAuthor;
+        if (shorter.length() < 4 || !longer.contains(shorter)) {
+            return false;
+        }
+        Set<String> shorterTokens = tokenize(shorter);
+        return !shorterTokens.isEmpty();
     }
 
     private static Set<String> normalizeGenreSet(List<String> genres) {

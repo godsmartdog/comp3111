@@ -1394,7 +1394,7 @@ public class LibraryApiHandlers {
                             null,
                             Map.of("type", "submission", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                     );
-                        int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
+                    int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Requested book uploaded to the library.\"," +
                             "\"request\":" + bookRequestToJson(uploaded) + "," +
@@ -1542,7 +1542,7 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                 );
-                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book downloaded and uploaded.\"," +
@@ -1619,7 +1619,7 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                 );
-                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book uploaded to the library.\"," +
@@ -3182,7 +3182,7 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "submission", "bookId", book.getId())
                 );
-                notifyRequestersForAvailableBook(book);
+                notifyRequestersForAvailableBook(book, "");
                 sendText(exchange, 200, "Published book added successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -5158,23 +5158,27 @@ public class LibraryApiHandlers {
         return "[" + String.join(",", values) + "]";
     }
 
-    private int notifyRequestersForAvailableBook(String bookId) {
+    private int notifyRequestersForAvailableBook(String bookId, String directRequestIdToSkip) {
         if (bookId == null || bookId.isBlank()) {
             return 0;
         }
         return bookService.findBookById(bookId.trim())
-                .map(this::notifyRequestersForAvailableBook)
+                .map(book -> notifyRequestersForAvailableBook(book, directRequestIdToSkip))
                 .orElse(0);
     }
 
-    private int notifyRequestersForAvailableBook(Book book) {
+    private int notifyRequestersForAvailableBook(Book book, String directRequestIdToSkip) {
         int sent = 0;
         if (book == null) {
             return sent;
         }
+        String skippedRequestId = nullToEmpty(directRequestIdToSkip).trim();
         Set<String> sentKeys = new HashSet<>();
         for (BookRequestService.RequestBookMatch match : bookRequestService.findSimilarOpenRequestsForBook(book)) {
             BookRequest2 request = match.request();
+            if (!skippedRequestId.isEmpty() && skippedRequestId.equals(request.getId())) {
+                continue;
+            }
             String requester = nullToEmpty(request.getRequesterUsername()).trim();
             if (requester.isEmpty()) {
                 continue;
@@ -5188,10 +5192,10 @@ public class LibraryApiHandlers {
             String message = exactTitle
                     ? "Your requested book \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + "."
                     : "A book similar to your request \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + ".";
-                    if (!sentKeys.add(key)
-                        || notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId(), title, message)) {
-                    continue;
-                    }
+            if (!sentKeys.add(key)
+                    || notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId(), title, message)) {
+                continue;
+            }
             notificationService.addNotification(
                     requester,
                     title,
