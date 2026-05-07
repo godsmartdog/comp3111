@@ -3,11 +3,13 @@
 //markReturned() set true mean the book available now
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDate; // local system date for reference (just the date such as YYYYMMDD)
 import java.util.UUID; // universial unique object identifier
 
 // BorrowRecord indicate flow of books between library and borrowers
-public class BorrowRecord {
+public class BorrowRecord implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables
     private final String id;

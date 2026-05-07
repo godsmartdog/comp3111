@@ -9,7 +9,10 @@ import Library.Service.BorrowService;
 import Library.Service.BookReviewService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.NotificationService;
+import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Service.SessionSnapshotService;
 
 import com.sun.net.httpserver.HttpServer;
 
@@ -34,6 +37,9 @@ public class LibraryWebServer {
     private final AuthorDraftService authorDraftService;
     private final FileService fileService;
     private final LibrarianService3 librarianService;
+    private final NotificationService notificationService;
+    private final ReadingProgressService readingProgressService;
+    private final SessionSnapshotService sessionSnapshotService;
 
     private final int port;
     private final Path staticDir;
@@ -50,6 +56,36 @@ public class LibraryWebServer {
                             FileService fileService,
                             LibrarianService3 librarianService,
                             int port) {
+        this(authService,
+                bookService,
+                borrowService,
+                bookReviewService,
+                bookRequestService,
+                recommendationService,
+                authorService,
+                authorDraftService,
+                fileService,
+                librarianService,
+                null,
+                null,
+                null,
+                port);
+    }
+
+    public LibraryWebServer(AuthService authService,
+                            BookService bookService,
+                            BorrowService borrowService,
+                            BookReviewService bookReviewService,
+                            BookRequestService bookRequestService,
+                            RecommendationService recommendationService,
+                            AuthorService2 authorService,
+                            AuthorDraftService authorDraftService,
+                            FileService fileService,
+                            LibrarianService3 librarianService,
+                            NotificationService notificationService,
+                            ReadingProgressService readingProgressService,
+                            SessionSnapshotService sessionSnapshotService,
+                            int port) {
         this.authService = authService;
         this.bookService = bookService;
         this.borrowService = borrowService;
@@ -60,6 +96,9 @@ public class LibraryWebServer {
         this.authorDraftService = authorDraftService;
         this.fileService = fileService;
         this.librarianService = librarianService;
+        this.notificationService = notificationService;
+        this.readingProgressService = readingProgressService;
+        this.sessionSnapshotService = sessionSnapshotService;
         this.port = port;
         this.staticDir = resolveStaticDir();
     }
@@ -77,7 +116,10 @@ public class LibraryWebServer {
             authorService,
             authorDraftService,
             fileService,
-            librarianService
+            librarianService,
+            notificationService,
+            readingProgressService,
+            sessionSnapshotService
         );
         apiHandlers.register(server);
         server.createContext("/", new StaticFileHandler(staticDir));

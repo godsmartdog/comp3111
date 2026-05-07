@@ -58,3 +58,31 @@ are computed client-side from `requestedDate` age. Both reset on server
 restart by design — no DB layer was added during Phase 3 NTH. The version
 ledger is also cleared per-book when a book is bulk-deleted in slice 6's
 handler.
+
+## 5. Coverage matrix correction (slice 8b)
+
+The original `PHASE3_NTH_COVERAGE.md` matrix conflated three things:
+features that already shipped before the `phase-3-nice-to-have` branch,
+features built during Phase 3 slice work, and polish that resembles a
+spec bullet but is not in the spec word-for-word. Slice 8b reconciles
+the matrix with the actual repo state. Ten Phase 2 carryover bullets
+(profile photo upload, password strength meter, unread counter, priority
+notifications, mark-read & delete, archive notifications, role-based
+user filter, manage-librarian accounts, request tracking, request
+history) were verified present in the repo and added to the matrix as
+`Phase 2 carryover` rows with commit `(existing)`. Six Slice-1-through-7
+entries (Slice 2 borrowed-records keyword search; Slice 6 admin-stats
+panel; Slice 7 keyword search, multi-column sort, priority badge, and
+bulk approve/reject on the book-request queue) were over-claims and
+have been relocated to a dedicated "Over-claims" section — SHAs and
+file lists preserved for traceability, but flagged as polish, not
+bullet coverage. Bullet #11 (auto-logout on password change) was
+verified implemented (`invalidateSessionsByUsername` at
+`LibraryApiHandlers.java:818`, `:2169`, `:3491`) and removed from the
+outstanding list; bullet #10 (re-auth on any profile change) is not
+implemented and remains. Sixteen bullets remain outstanding. Plan:
+Slice 9+ to chip away at them.
+
+Slice 12 reclassifies 1.7 #7 (Search/Filter Notifications) as Phase 2 carryover; auto-return promoted to first-class category for Slice 9 alignment.
+
+Slice 14.1 banks bullets #10, #11, #25 — all pre-existing implementations missed by the original Slice 8b audit. Same pattern as bullet #7 banked in Slice 12.

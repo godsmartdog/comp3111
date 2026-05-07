@@ -30,8 +30,21 @@
         <h3>Reader</h3>
         <div id="readerBox" class="panel-subtle">
             <img id="readerCoverImage" alt="Book cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
+            <div class="inline-row" style="margin-top:6px;">
+                <label for="readerSummaryStyle">Summary Style</label>
+                <select id="readerSummaryStyle">
+                    <option value="short">Short</option>
+                    <option value="medium">Medium</option>
+                    <option value="detailed" selected>Detailed</option>
+                </select>
+            </div>
+            <p class="hint">Choose short, medium, or detailed summary display. Short and medium summaries are derived from the existing book description.</p>
+            <p id="readerBookSummary" class="hint">Select a borrowed book to view summary.</p>
             <div class="reader-scroll-block">
                 <p id="readerStatus">Select a borrowed book and click Read.</p>
+                <p class="hint" style="margin: 4px 0 8px 0; font-style: italic; opacity: 0.85;">
+                    Tip: this reader auto-closes when your borrow period expires. The book will then be auto-returned and a high-priority notification is sent. To finish reading earlier, use the Return button on the borrows list.
+                </p>
                 <iframe id="readerPdf" style="display:none;width:100%;height:360px;border:1px solid #d9d9d9;border-radius:8px;"></iframe>
                 <div id="readerPdfPages" style="display:none;gap:10px;flex-direction:column;"></div>
                 <pre id="readerText" style="display:none;white-space:pre-wrap;background:#f8f8f8;padding:12px;border-radius:8px;"></pre>
@@ -72,17 +85,22 @@
             <label for="reviewTextInput">Review</label>
             <textarea id="reviewTextInput" rows="3" placeholder="Share your reading feedback..."></textarea>
             <button id="saveReviewBtn" class="secondary" type="button">Save Review</button>
-            <p id="readerRatingSummary" class="hint">Average rating: -</p>
-            <div class="inline-row" style="margin-top:6px;">
-                <label for="reviewSort">Sort reviews</label>
-                <select id="reviewSort">
-                    <option value="recent" selected>Most Recent</option>
-                    <option value="highest">Highest Rating</option>
-                    <option value="lowest">Lowest Rating</option>
-                </select>
-            </div>
-            <div class="reader-scroll-block" style="max-height:220px;">
-                <ul id="readerReviewsList"></ul>
+            <div class="panel-subtle" style="margin-top:14px; padding:12px; border:1px solid rgba(0,0,0,0.12); border-radius:10px;">
+                <h4 style="margin-top:0;">Reviews</h4>
+                <p id="readerRatingSummary" class="hint">Average rating: -</p>
+                <div class="inline-row" style="margin-top:6px;">
+                    <label for="reviewSort">Sort reviews</label>
+                    <select id="reviewSort">
+                        <option value="recent" selected>Most Recent</option>
+                        <option value="helpful">Most Helpful</option>
+                        <option value="highest">Highest Rating</option>
+                        <option value="lowest">Lowest Rating</option>
+                    </select>
+                </div>
+                <p class="hint" style="margin-top:4px;">Use Most Helpful to rank reviews by helpful votes. Some seeded demo records may be read-only.</p>
+                <div class="reader-scroll-block" style="max-height:220px; margin-top:10px; padding:10px; background:rgba(255,255,255,0.55); border-radius:8px;">
+                    <ul id="readerReviewsList" style="margin:0; padding-left:18px;"></ul>
+                </div>
             </div>
         </div>
     </section>

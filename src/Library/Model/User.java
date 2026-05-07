@@ -1,10 +1,12 @@
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDateTime; // local system date and time for reference (both the day such as YYYYMMDD and the time HHMMSS)
 import java.util.Objects; // the Java Object class is here for convenient bulit-in function
 
 // This is a general User class, for future specialization classes (such as Student/Staff, Author, Librarian)
-public class User {
+public class User implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables
     private final String username;

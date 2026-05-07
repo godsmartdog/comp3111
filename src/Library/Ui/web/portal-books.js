@@ -24,6 +24,77 @@ const MAX_BORROW_LIMIT = 5;
 let selectedBookCoverObjectUrl = null;
 let selectedBookPreviewObjectUrl = null;
 
+// Slice 11: reader expiry watchdog (auto-close reader when borrow period expires).
+let activeReaderBookId = null;
+let activeReaderDueDate = null;
+let readerExpiryWatchdogId = null;
+
+async function fetchActiveDueDateForBook(bookId) {
+    try {
+        const items = await api("/api/borrows?status=active");
+        if (!Array.isArray(items)) return null;
+        const match = items.find((r) => r.bookId === bookId && !r.returned);
+        return match?.dueDate || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function isBorrowExpiredAgainstToday(dueDateStr) {
+    if (!dueDateStr) return false;
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    return todayStr > String(dueDateStr).slice(0, 10);
+}
+
+function startReaderExpiryWatchdog() {
+    stopReaderExpiryWatchdog();
+    readerExpiryWatchdogId = setInterval(() => {
+        if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+            handleReaderExpiry();
+        }
+    }, 30 * 1000);
+}
+
+function stopReaderExpiryWatchdog() {
+    if (readerExpiryWatchdogId !== null) {
+        clearInterval(readerExpiryWatchdogId);
+        readerExpiryWatchdogId = null;
+    }
+}
+
+async function handleReaderExpiry() {
+    stopReaderExpiryWatchdog();
+    try {
+        // Hit /api/return so BorrowService.returnBook -> autoReturnOverdueBooks
+        // executes (this is the only workflow path Slice 9's notification hooks
+        // into; /api/borrows is read-only by design). The 400 BusinessException
+        // for "not currently borrowed" after auto-return is expected and ignored.
+        if (activeReaderBookId) {
+            await api("/api/return", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ bookId: activeReaderBookId })
+            }, false).catch(() => {});
+        }
+    } finally {
+        resetReaderUi("Borrowing period expired — book auto-returned.");
+        showToast("Borrowing period expired. Reader closed; book auto-returned.", true);
+        activeReaderBookId = null;
+        activeReaderDueDate = null;
+        if (window.location.pathname.endsWith("student-reader.html")) {
+            setTimeout(() => { window.location.href = "student-borrows.html"; }, 2000);
+        } else if (window.location.pathname.endsWith("staff-reader.html")) {
+            setTimeout(() => { window.location.href = "staff-borrows.html"; }, 2000);
+        } else {
+            if (typeof refreshBorrows === "function") refreshBorrows().catch(() => {});
+            if (typeof refreshBooks === "function") refreshBooks().catch(() => {});
+        }
+    }
+}
+
+window.addEventListener("beforeunload", stopReaderExpiryWatchdog);
+
 function clearSelectedBookObjectUrls() {
     if (selectedBookCoverObjectUrl) {
         URL.revokeObjectURL(selectedBookCoverObjectUrl);
@@ -493,6 +564,10 @@ async function refreshRecommendations() {
 
 async function refreshBorrows() {
     const list = document.getElementById("borrows");
+    const selectAll = document.getElementById("selectAllBorrowsInline");
+    if (selectAll) {
+        selectAll.checked = false;
+    }
     const params = new URLSearchParams();
     const status = document.getElementById("borrowStatusFilter")?.value || "active";
     const sortBy = document.getElementById("borrowSortBy")?.value || "";
@@ -543,6 +618,7 @@ async function refreshBorrows() {
 
         li.innerHTML = `
             <div class="borrow-item-row">
+                <input type="checkbox" class="borrow-select-box" data-book-id="${item.bookId}" data-book-title="${escapeHtml(item.bookTitle)}" aria-label="Select ${escapeHtml(item.bookTitle)}">
                 <span>${item.bookTitle} (borrowed ${formatDateOnly(item.borrowDate || "")}, due ${formatDateOnly(item.dueDate || "")})${warningLabel ? ` [${warningLabel}]` : ""}</span>
                 <div class="borrow-item-actions">
                     <button class="secondary" type="button">Read</button>
@@ -550,6 +626,7 @@ async function refreshBorrows() {
                 </div>
             </div>
         `;
+        li.querySelector(".borrow-select-box")?.addEventListener("change", updateReturnSelectedButtonInline);
         const buttons = li.querySelectorAll("button");
         const readBtn = buttons[0];
         const returnBtn = buttons[1];
@@ -588,7 +665,62 @@ async function refreshBorrows() {
 
         list.appendChild(li);
     });
+
+    updateReturnSelectedButtonInline();
 }
+
+function getBorrowSelectBoxesInline() {
+    return Array.from(document.querySelectorAll(".borrow-select-box"));
+}
+
+function updateReturnSelectedButtonInline() {
+    const button = document.getElementById("returnSelectedBtnInline");
+    if (!button) {
+        return;
+    }
+    const selected = getBorrowSelectBoxesInline().filter((cb) => cb.checked);
+    button.textContent = `Return Selected (${selected.length})`;
+    button.disabled = selected.length === 0;
+}
+
+document.getElementById("selectAllBorrowsInline")?.addEventListener("change", (event) => {
+    const checked = event.target.checked === true;
+    getBorrowSelectBoxesInline().forEach((cb) => { cb.checked = checked; });
+    updateReturnSelectedButtonInline();
+});
+
+document.getElementById("returnSelectedBtnInline")?.addEventListener("click", async () => {
+    const ids = getBorrowSelectBoxesInline().filter((cb) => cb.checked).map((cb) => cb.dataset.bookId);
+    if (ids.length === 0) {
+        return;
+    }
+    if (!confirm(`Confirm return ${ids.length} selected book(s)?`)) {
+        return;
+    }
+    try {
+        const payload = await api("/api/return-bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ bookIds: ids.join(",") })
+        });
+        const failedCount = Array.isArray(payload.failed) ? payload.failed.length : 0;
+        showToast(`Returned ${payload.succeeded || 0} book(s)${failedCount ? `; ${failedCount} failed` : ""}.`, failedCount > 0);
+        if (failedCount) {
+            console.warn("Bulk return failures:", payload.failed);
+        }
+        if (ids.includes(selectedBorrowedBookId)) {
+            resetReaderUi("Book returned.");
+        }
+        // Slice 11: also defensively clear if the displayed reader book was bulk-returned.
+        if (activeReaderBookId && ids.includes(activeReaderBookId)) {
+            resetReaderUi("Book returned.");
+        }
+        await refreshBooks();
+        await refreshBorrows();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 async function refreshNotifications() {
     const list = document.getElementById("notificationsList");
@@ -702,6 +834,7 @@ function renderCurrentNotificationPage() {
                 </div>
                 <div class="notification-actions">
                     <button class="secondary notification-read-btn" type="button" ${item.read ? "disabled" : ""}>Mark As Read</button>
+                    ${item.archived ? "" : `<button class="secondary notification-archive-btn" type="button">Archive</button>`}
                     <button class="danger notification-delete-btn" type="button">Delete</button>
                 </div>
             `;
@@ -744,6 +877,27 @@ function renderCurrentNotificationPage() {
                 }
             });
 
+            const archiveButton = li.querySelector(".notification-archive-btn");
+            if (archiveButton) {
+                archiveButton.addEventListener("click", async () => {
+                    try {
+                        const payload = await api("/api/notifications/archive", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                            body: formBody({ notificationId: item.id })
+                        });
+                        showToast(payload.message || "Notification archived.", false);
+                        allNotifications = allNotifications.filter((notification) => notification.id !== item.id);
+                        if (currentNotificationPage > getTotalNotificationPages()) {
+                            currentNotificationPage = getTotalNotificationPages();
+                        }
+                        renderCurrentNotificationPage();
+                    } catch (error) {
+                        showToast(error.message, true);
+                    }
+                });
+            }
+
             list.appendChild(li);
     });
 
@@ -766,6 +920,9 @@ function applyNotificationSnapshotState(state) {
 }
 
 function resetReaderUi(statusText) {
+    stopReaderExpiryWatchdog();
+    activeReaderBookId = null;
+    activeReaderDueDate = null;
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
@@ -781,6 +938,13 @@ function resetReaderUi(statusText) {
 }
 
 async function loadBorrowedContent(bookId) {
+    activeReaderBookId = bookId;
+    activeReaderDueDate = await fetchActiveDueDateForBook(bookId);
+    if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+        await handleReaderExpiry();
+        return;
+    }
+    startReaderExpiryWatchdog();
     const payload = await api(`/api/borrow/content?bookId=${encodeURIComponent(bookId)}`);
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");

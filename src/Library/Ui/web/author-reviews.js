@@ -29,9 +29,14 @@ function classifySentiment(text) {
     return "neutral";
 }
 
-function sentimentBadgeHtml(text) {
-    const s = classifySentiment(text);
-    const label = s.toUpperCase();
+function sentimentBadgeHtml(item) {
+    // Prefer backend deterministic sentiment classification if available.
+    let s = (item.sentiment || "").toLowerCase().trim();
+    if (!s || !["positive", "neutral", "negative"].includes(s)) {
+        // Fallback to client-side keyword classification.
+        s = classifySentiment(item.reviewText || "");
+    }
+    const label = s.charAt(0).toUpperCase() + s.slice(1);
     return `<span class="sentiment-badge sentiment-${s}">${label}</span>`;
 }
 
@@ -62,7 +67,12 @@ function renderFeedbackAnalytics(items) {
 
     const counts = { positive: 0, neutral: 0, negative: 0 };
     items.forEach((it) => {
-        counts[classifySentiment(it.reviewText || "")]++;
+        // Use backend deterministic sentiment if available, otherwise fall back to client-side classification.
+        let sentiment = (it.sentiment || "").toLowerCase().trim();
+        if (!sentiment || !["positive", "neutral", "negative"].includes(sentiment)) {
+            sentiment = classifySentiment(it.reviewText || "");
+        }
+        counts[sentiment]++;
     });
 
     sentimentChart = new Chart(sentCanvas, {
@@ -193,7 +203,7 @@ function renderSelectedBookReviews(items) {
     if (!selectedBook) {
         status.textContent = "Select a published book to view its reviews.";
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No book selected.</td>';
+        row.innerHTML = '<td colspan="5" class="muted">No book selected.</td>';
         body.appendChild(row);
         renderFeedbackAnalytics([]);
         return;
@@ -202,7 +212,7 @@ function renderSelectedBookReviews(items) {
     if (!Array.isArray(items) || items.length === 0) {
         status.textContent = `No reviews found for ${selectedBook.title || selectedBook.id}.`;
         const row = document.createElement("tr");
-        row.innerHTML = '<td colspan="4" class="muted">No reviews available yet.</td>';
+        row.innerHTML = '<td colspan="5" class="muted">No reviews available yet.</td>';
         body.appendChild(row);
         renderFeedbackAnalytics([]);
         return;
@@ -215,10 +225,11 @@ function renderSelectedBookReviews(items) {
             ? "Anonymous"
             : (item.reviewerFullName || item.username || "");
         const row = document.createElement("tr");
-        const sentimentBadge = sentimentBadgeHtml(item.reviewText || "");
+        const sentimentBadge = sentimentBadgeHtml(item);
         row.innerHTML = `
             <td>${escapeHtml(reviewerLabel)}</td>
             <td>${Number(item.rating || 0)}/5</td>
+            <td>${Number(item.helpfulCount || 0)}</td>
             <td>${formatReviewText(item)} ${sentimentBadge}</td>
             <td>
                 <div>${item.replyText ? `<strong>Reply:</strong> ${escapeHtml(item.replyText)}` : ""}</div>
@@ -342,10 +353,17 @@ async function loadReviewsForSelectedBook(bookId) {
         status.textContent = "Loading reviews...";
     }
 
-    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}`);
+    const sort = document.getElementById("authorReviewSort")?.value || "recent";
+    const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sortBy=${encodeURIComponent(sort)}`);
     selectedBookReviews = Array.isArray(reviews) ? reviews : [];
     renderSelectedBookReviews(selectedBookReviews);
 }
+
+document.getElementById("authorReviewSort")?.addEventListener("change", () => {
+    if (selectedBook?.id) {
+        loadReviewsForSelectedBook(selectedBook.id).catch((error) => showToast(error.message, true));
+    }
+});
 
 document.getElementById("refreshBooksBtn")?.addEventListener("click", () => {
     loadPublishedBooks().catch((error) => showToast(error.message, true));

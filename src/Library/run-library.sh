@@ -4,9 +4,9 @@
 # Usage:
 #   chmod +x run-library.sh   # make executable once
 #   ./run-library.sh              # defaults to --web
-#   ./run-library.sh --tests
-#   ./run-library.sh --smoke-test
-#   ./run-library.sh --compile-only
+#   ./run-library.sh --tests      # equivalent to Run-Library.ps1 -Tests
+#   ./run-library.sh --web        # equivalent to Run-Library.ps1 -Web
+#   ./run-library.sh --smoke-test # equivalent to Run-Library.ps1 -SmokeTest
 #   ./run-library.sh --compile-only --tests
 
 set -euo pipefail
@@ -21,13 +21,14 @@ COMPILE_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --tests)        MODE_TESTS=true ;;
-        --web)          MODE_WEB=true ;;
-        --smoke-test)   MODE_SMOKE=true ;;
-        --compile-only) COMPILE_ONLY=true ;;
+        --tests|-Tests|-tests)                       MODE_TESTS=true ;;
+        --web|-Web|-web)                             MODE_WEB=true ;;
+        --smoke-test|--smoketest|-SmokeTest|-smoketest) MODE_SMOKE=true ;;
+        --compile-only|--compileonly|-CompileOnly|-compileonly) COMPILE_ONLY=true ;;
         *)
             echo "Unknown option: $arg" >&2
             echo "Usage: $0 [--tests|--web|--smoke-test] [--compile-only]" >&2
+            echo "PowerShell-style switches are also accepted: -Tests -Web -SmokeTest -CompileOnly" >&2
             exit 1
             ;;
     esac
@@ -39,25 +40,50 @@ if ! $MODE_TESTS && ! $MODE_WEB && ! $MODE_SMOKE; then
     MODE_WEB=true
 fi
 
-# ---------------------------------------------------------------------------
-# Runtime environment — mirrors Run-Library.ps1 (Windows) so Phase 3 features
-# 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS.
-# Each variable is only set if not already exported, so a user can override
-# any of these by exporting them before invoking this script.
-# ---------------------------------------------------------------------------
-: "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
-: "${INFERENCE_BASE_URL:=http://127.0.0.1:1234/v1}"
-: "${INFERENCE_API_KEY:=}"
-: "${INFERENCE_MODEL:=local-model}"
-export GOOGLE_BOOKS_API_KEY INFERENCE_BASE_URL INFERENCE_API_KEY INFERENCE_MODEL
+# Resolve script directory for default model path
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
-    echo "Google Books API key: set"
-else
-    echo "Google Books API key: (empty)"
+# ---------------------------------------------------------------------------
+# Runtime environment — mirrors Run-Library.ps1 so Phase 3 features
+# 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS/Linux.
+# ---------------------------------------------------------------------------
+if [[ -z "${JAVA_HOME:-}" ]]; then
+    if [[ -d "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home"
+    elif [[ -d "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+    elif [[ -d "/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+    fi
 fi
-echo "Inference base URL:   $INFERENCE_BASE_URL"
-echo "Inference model:      $INFERENCE_MODEL"
+
+export GOOGLE_BOOKS_API_KEY="AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
+export INFERENCE_BASE_URL="http://127.0.0.1:1234/v1"
+export INFERENCE_API_KEY=""
+export INFERENCE_MODEL="local-model"
+export S3_ENDPOINT="https://s3.us.archive.org/"
+export S3_REGION="us-east-1"
+export S3_ACCESS_KEY="yvYHv4GfeuJ7Kqut"
+export S3_SECRET_KEY="ElDaSOgwK30QTEag"
+export IA_ACCESS_KEY="yvYHv4GfeuJ7Kqut"
+export IA_SECRET_KEY="ElDaSOgwK30QTEag"
+export GGUF_MODEL_PATH="$(cd "$SCRIPT_DIR" && pwd)/Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"
+LLAMA_JAR="$(cd "$SCRIPT_DIR/third-party/llama" && pwd)/llama-4.1.0.jar"
+export LLAMA_JAR
+
+if [[ ! -f "$GGUF_MODEL_PATH" ]]; then
+    echo "ERROR: Meta-Llama model not found at: $GGUF_MODEL_PATH" >&2
+    exit 1
+fi
+
+JAVAFX_LIB="/Library/Java/JavaVirtualMachines/javafx-sdk-21.0.10/lib"
+JAVAFX_MODULES="javafx.controls,javafx.fxml"
+
+echo "JAVA_HOME set to: ${JAVA_HOME:-}"
+echo "Google Books API key set."
+echo "GGUF model path (ABSOLUTE): $GGUF_MODEL_PATH"
+echo "JavaFX path: $JAVAFX_LIB"
+echo "Llama jar: $LLAMA_JAR"
 
 # ---------------------------------------------------------------------------
 # Resolve java / javac
@@ -75,7 +101,7 @@ resolve_tool() {
         echo "$tool"
         return
     fi
-    echo "Cannot find $tool. Set JAVA_HOME or add it to PATH." >&2
+    echo "Cannot find $tool." >&2
     exit 1
 }
 
@@ -88,7 +114,6 @@ echo "Using javac: $JAVAC"
 # ---------------------------------------------------------------------------
 # Change to src/ (parent of Library/) as the working directory
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SOURCE_ROOT"
 echo "Working directory: $SOURCE_ROOT"
@@ -108,7 +133,7 @@ make_source_list() {
     local tmp_file
     tmp_file="$(mktemp)"
     # Remaining args are directories to search
-    find "$@" -name "*.java" | sort > "$tmp_file"
+    find "$@" -type f -name "*.java" | sort > "$tmp_file"
     echo "$tmp_file"
 }
 
@@ -130,11 +155,11 @@ if $MODE_TESTS; then
     mkdir -p "$TEST_OUTPUT"
 
     echo "Compiling integration tests..."
-    "$JAVAC" -encoding UTF-8 -d "$TEST_OUTPUT" @"$TEST_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$TEST_OUTPUT" @"$TEST_SOURCES"
 
     if ! $COMPILE_ONLY; then
         echo "Running integration tests..."
-        "$JAVA" -cp "$TEST_OUTPUT" Library.Test.LibraryIntegrationTest
+        "$JAVA" -cp "$TEST_OUTPUT:$LLAMA_JAR" Library.Test.LibraryIntegrationTest
     fi
 fi
 
@@ -150,15 +175,15 @@ if $MODE_WEB || $MODE_SMOKE; then
     mkdir -p "$FX_OUTPUT"
 
     echo "Compiling application (web UI + services)..."
-    "$JAVAC" -encoding UTF-8 -d "$FX_OUTPUT" @"$FX_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$FX_OUTPUT" @"$FX_SOURCES"
 
     if ! $COMPILE_ONLY; then
         if $MODE_SMOKE; then
             echo "Running web UI smoke test..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp --smoke-test
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp --smoke-test
         else
             echo "Starting web UI on http://localhost:8080 ..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp
         fi
     fi
 fi

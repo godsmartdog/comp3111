@@ -11,12 +11,18 @@ This project is a multi-role library management system built around a shared web
 
 The system combines borrowing workflows, content submission and review, notifications, account security controls, and integration-tested backend behavior in a single Java codebase.
 
+## LLM Scope
+
+LLM is used only for book summary generation. Sentiment analysis, recommendations, similar-book matching, and analytics use deterministic approaches such as keyword detection, lexicon-based scoring, TF-IDF/cosine-style similarity where applicable, aggregate counts, trends, rankings, filters, and rule-based classification.
+
 ## Core Features
 
 - Authentication and role-based access control for student, staff, author, and librarian workflows
 - Student and staff borrowing and return flows with active/returned/overdue borrow views
 - Approved-book discovery with search and filtering support
 - Multi-book borrowing with duration validation and borrowing limits
+- Review sentiment classification based on keyword and lexicon scoring, not LLM generation
+- Recommendations based on borrow counts, popularity, genre similarity, rating signals, or keyword similarity
 - Author draft saving, submission publishing, and published-book management
 - Librarian submission review workflows, including approve, reject, and queue filtering/sorting
 - Notification system with priority levels, mark-read, delete, archive/unarchive, keyword search, filtering, and sorting
@@ -86,6 +92,25 @@ cd src/Library
 
 The application script expects `java` and `javac` to be available via `JAVA_HOME` or `PATH`.
 
+## Persistent Local Database
+
+The web app uses a local file-backed database snapshot for demo persistence.
+
+Expected / not a bug:
+
+- `data/library-db.ser` is local runtime data and should not be committed.
+- When running through `src/Library/run-library.sh`, the file is created under `src/data/library-db.ser` from the repository root.
+- If you delete `src/data/library-db.ser`, the app resets to the seeded demo accounts and demo books on the next startup.
+- After a crash, either the newly reopened browser tab or a refreshed previous tab can restore the last session successfully.
+- On first startup, the console prints `Created new persistent library database`.
+- On later startups, the console prints `Loaded persistent library database`.
+
+Demo accounts after a fresh database reset:
+
+- `student1 / Password1!`
+- `author1 / Password1!`
+- `librarian1 / Password1!`
+
 ## Testing
 
 Integration tests are included in the repository and are used to validate the implemented features across all supported roles.
@@ -134,3 +159,70 @@ All seeded by `LibraryManagementApp` on startup (password is shared):
 - Librarian: `librarian1` / `Password1!`
 - Author:    `author1`    / `Password1!`
 - Student:   `student1`   / `Password1!`
+
+## Phase 3 NTH — Testing Notes & Known Limitations
+
+### Review Helpful Voting Note
+
+Section 1.9 review sorting supports Most Recent and Most Helpful. Helpful voting is fully supported for normal persisted review records. Some preloaded seeded demo records may be read-only and show helpful counts without accepting new Helpful votes; use newly submitted/uploaded-book reviews for the full demo flow.
+
+### Clock-aware testing (auto-return, reader auto-close, due-date features)
+
+Several Phase 3 nice-to-have features are time-sensitive (Slices 9–12 of
+the `phase-3-nice-to-have` branch):
+
+- **1.5 #1** Auto-return Notifications
+- **1.5 #2** Partial Return Option
+- **1.5 #3** Closed Book Reading Screen on borrow-period expiry
+- **1.7 #7** Search and Filter Notifications (auto-return surfacing)
+
+To test these end-to-end you must wind the OS clock backward at borrow
+time, then forward past the due date. To prevent the session-idle
+timeout from kicking in during clock jumps, the default has been
+extended to **15 days** (one day beyond `MAX_BORROW_DAYS = 14`),
+overridable at JVM start via:
+
+```
+-Dlibrary.sessionIdleTimeoutMs=<milliseconds>
+```
+
+Recommended manual-test recipe (macOS):
+
+```bash
+# Disable network time, then jump back ~10 days:
+sudo systemsetup -setusingnetworktime off
+sudo date 0424120000      # April 24, 12:00
+
+# In browser: login, borrow a book with min-duration 1 day, click Read.
+
+# Jump forward to "today":
+sudo date 0504220000
+
+# Wait ≤30 s. Reader closes; redirect; HIGH "Book auto-returned"
+# notification arrives; Active borrows list goes empty;
+# Returned filter shows the book.
+
+# Restore clock:
+sudo systemsetup -setusingnetworktime on
+```
+
+### Reader watchdog scope (Slice 11 / 1.5 #3)
+
+The client-side reader expiry watchdog has been verified end-to-end
+for the realistic workflow:
+
+1. Author uploads a real book file (PDF confirmed working).
+2. Librarian approves the submission.
+3. Student borrows + opens the reader.
+4. Clock-jump past due date → within 30 s the reader closes, redirects
+   to the borrows list, server-side auto-return runs, and the HIGH
+   "Book auto-returned" notification appears.
+
+**Known limitation:** the watchdog has been observed not to fire
+reliably for some of the bundled seed text-tile demo books that ship
+with the in-memory store. These seed entries appear to render through
+a different content path that bypasses the watchdog hook in
+`loadBorrowedContent`. The realistic upload-approve-borrow-read path
+is the one being graded; no spec-relevant feature is affected. To
+reproduce the working behavior, prefer testing with a freshly
+uploaded PDF rather than the seed text tiles.

@@ -1,9 +1,12 @@
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-public class BookReview {
+public class BookReview implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String id;
     private final String username;
     private final String bookId;
@@ -17,6 +20,8 @@ public class BookReview {
     private LocalDateTime updatedAt;
     private LocalDateTime repliedAt;
     private LocalDateTime flaggedAt;
+    private String sentiment;
+    private java.util.Set<String> helpfulUsernames = new java.util.LinkedHashSet<>();
 
     public BookReview(String username, String bookId, int rating, String reviewText) {
         this(username, bookId, rating, reviewText, false);
@@ -36,6 +41,7 @@ public class BookReview {
         this.updatedAt = this.createdAt;
         this.repliedAt = null;
         this.flaggedAt = null;
+        this.sentiment = "";
     }
 
     public String getId() {
@@ -88,6 +94,42 @@ public class BookReview {
 
     public boolean isAnonymous() {
         return anonymous;
+    }
+
+    public String getSentiment() {
+        return sentiment == null ? "" : sentiment;
+    }
+
+    public int getHelpfulCount() {
+        return helpfulUsernames().size();
+    }
+
+    public boolean isMarkedHelpfulBy(String username) {
+        return username != null && helpfulUsernames().contains(username.trim());
+    }
+
+    public boolean markHelpful(String username) {
+        String normalized = username == null ? "" : username.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        boolean added = helpfulUsernames().add(normalized);
+        if (added) {
+            this.updatedAt = LocalDateTime.now();
+        }
+        return added;
+    }
+
+    private java.util.Set<String> helpfulUsernames() {
+        if (helpfulUsernames == null) {
+            helpfulUsernames = new java.util.LinkedHashSet<>();
+        }
+        return helpfulUsernames;
+    }
+
+    public void setSentiment(String sentiment) {
+        this.sentiment = sentiment == null ? "" : sentiment.trim();
+        this.updatedAt = LocalDateTime.now();
     }
 
     public void setAnonymous(boolean anonymous) {

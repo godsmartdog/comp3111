@@ -24,11 +24,33 @@
 <main class="layout single-col" data-role="AUTHOR">
     <section class="panel glass-panel">
         <p id="publishedStatus">Loading published books...</p>
+        <p class="hint" style="margin: 4px 0 8px 0; font-style: italic; opacity: 0.85;">
+            Tip: clicking <strong>Edit</strong> opens three sequential prompts —
+            Title → Genres → Description. Cancel any step to abort; changes are
+            saved only after the third step. Books with active borrows cannot be edited.
+        </p>
+        <div class="toolbar">
+            <label><input id="publishedSelectAll" type="checkbox"> Select all visible</label>
+            <button id="bulkDeletePublishedBtn" class="secondary" type="button" disabled>Delete Selected (0)</button>
+        </div>
+        <p class="hint" style="margin: 4px 0 8px 0; font-style: italic; opacity: 0.85;">
+            Tip: select rows to bulk-delete. Books with active borrows cannot be deleted and will be skipped with a reason.
+        </p>
         <button id="loadPublishedBtn" class="secondary" type="button">Refresh Published Books</button>
+        <div class="inline-row" style="margin-top:8px;">
+            <label for="authorPublishedSummaryStyle">Summary Style</label>
+            <select id="authorPublishedSummaryStyle">
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="detailed" selected>Detailed</option>
+            </select>
+        </div>
+        <p class="hint">Choose short, medium, or detailed summary display. Short and medium summaries are derived from the existing book description.</p>
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
+                    <th>Select</th>
                     <th>ID</th>
                     <th>Title</th>
                     <th>Genres</th>

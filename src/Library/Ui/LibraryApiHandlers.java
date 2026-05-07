@@ -33,6 +33,10 @@ import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
 import Library.Service.SessionSnapshotService;
 
+import de.kherud.llama.InferenceParameters;
+import de.kherud.llama.LlamaModel;
+import de.kherud.llama.ModelParameters;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -41,6 +45,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
+import java.io.OutputStream;
+import java.io.BufferedReader;
+import java.io.File;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -52,20 +59,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.io.BufferedReader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.time.ZoneOffset;
@@ -81,7 +96,9 @@ public class LibraryApiHandlers {
     private static final String CRASH_TEST_HEADER = "X-Crash-Test-Hook";
     private static final String[] BASIC_NOTIFICATION_CATEGORIES = {
             "submission",
+            "review",
             "account-update",
+            "auto-return",
             "borrow-reminder",
             "book-deleted",
             "announcement"
@@ -96,9 +113,7 @@ public class LibraryApiHandlers {
     private static final int PDF_SEARCH_MAX_SOURCE_PAGES = 12;
     private static final int PDF_SEARCH_CACHE_MAX_AGE_MINUTES = 15;
     private static final int PDF_SEARCH_CACHE_MAX_RESULTS = 60;
-    private static final String PDF_RERANKER_PROVIDER_ENV = "PDF_RERANKER_PROVIDER";
-    private static final String PDF_RERANKER_URL_ENV = "PDF_RERANKER_URL";
-    private static final String PDF_RERANKER_MODEL_ENV = "PDF_RERANKER_MODEL";
+    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
 
     private final AuthService authService;
     private final BookService bookService;
@@ -122,6 +137,11 @@ public class LibraryApiHandlers {
     // Slice 6: in-memory edit ledger for published books (3.8 NTH Version History).
     // Keyed by bookId; capped per-book at MAX_VERSION_HISTORY entries.
     private static final int MAX_VERSION_HISTORY = 50;
+    
+    // Singleton LlamaModel instance - loaded once at first use, reused for all inference calls
+    private static volatile LlamaModel singletonLlamaModel = null;
+    private static final Object llamaModelLock = new Object();
+    
     private final Map<String, List<BookVersion>> bookVersions = new ConcurrentHashMap<>();
 
     private record BookVersion(String timestamp,
@@ -213,6 +233,9 @@ public class LibraryApiHandlers {
             ? new SessionSnapshotService(new MemorySessionSnapshotRepository())
             : sessionSnapshotService;
         this.latestSessionSnapshot = SessionSnapshotSchema.empty();
+        if (borrowService != null) {
+            borrowService.setNotificationService(this.notificationService);
+        }
     }
 
     public void register(HttpServer server) {
@@ -305,6 +328,46 @@ public class LibraryApiHandlers {
                 refreshSessionSnapshot();
             }
             sendText(exchange, 200, "Logged out.");
+        });
+
+        server.createContext("/api/session/restore", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                Map<String, String> form = readForm(exchange);
+                String sessionId = required(form, "sessionId");
+                String username = required(form, "username");
+                Role role = Role.valueOf(required(form, "role").toUpperCase(Locale.ROOT));
+                User user = authService.findUserByUsername(username)
+                        .orElseThrow(() -> new ApiAuthException("Session restore failed: user not found."));
+
+                if (user.getRole() != role) {
+                    throw new ApiAuthException("Session restore failed: role mismatch.");
+                }
+                if (!user.isActive()) {
+                    throw new ApiAuthException("Session restore failed: account is inactive.");
+                }
+
+                sessionSnapshotService.getSnapshot(sessionId, user.getUsername(), user.getRole());
+                sessions.put(sessionId, user);
+                sessionLastActiveAtMs.put(sessionId, Instant.now().toEpochMilli());
+                refreshSessionSnapshot();
+
+                sendJson(exchange, 200, "{" +
+                        "\"restored\":true," +
+                        "\"username\":\"" + JsonUtil.escape(user.getUsername()) + "\"," +
+                        "\"fullName\":\"" + JsonUtil.escape(user.getFullName()) + "\"," +
+                        "\"role\":\"" + user.getRole() + "\"," +
+                        "\"sessionId\":\"" + JsonUtil.escape(sessionId) + "\"" +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, "Session restore failed: " + e.getMessage());
+            }
         });
 
         server.createContext("/api/session-snapshot/save", exchange -> {
@@ -416,6 +479,63 @@ public class LibraryApiHandlers {
                 sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
+        });
+
+        server.createContext("/api/dev/crash-now", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                refreshSessionSnapshot();
+                sendJson(exchange, 200, "{\"crashing\":true,\"delayMs\":300,\"scope\":\"dev-only endpoint\"}");
+                haltJvmSoon(300);
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
+            }
+        });
+
+        server.createContext("/api/dev/crash-random-arm", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed (dev-only endpoint).");
+                return;
+            }
+            if (!isCrashHookEnabled(exchange)) {
+                sendText(exchange, 403, "Crash test hook disabled (dev-only endpoint).");
+                return;
+            }
+
+            try {
+                Map<String, String> form = readForm(exchange);
+                int minSeconds = RequestFilters.parseIntInRange(form, "minSeconds", 10, 1, 3600);
+                int maxSeconds = RequestFilters.parseIntInRange(form, "maxSeconds", 30, 1, 3600);
+                if (maxSeconds < minSeconds) {
+                    throw new IllegalArgumentException("maxSeconds must be greater than or equal to minSeconds.");
+                }
+                int delaySeconds = ThreadLocalRandom.current().nextInt(minSeconds, maxSeconds + 1);
+                Thread crashThread = new Thread(() -> {
+                    try {
+                        TimeUnit.SECONDS.sleep(delaySeconds);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    Runtime.getRuntime().halt(137);
+                }, "library-random-crash-test");
+                crashThread.setDaemon(true);
+                crashThread.start();
+                sendJson(exchange, 200, "{" +
+                        "\"armed\":true," +
+                        "\"delaySeconds\":" + delaySeconds +
+                        "}");
             } catch (Exception e) {
                 sendText(exchange, 400, e.getMessage() + " (dev-only endpoint)");
             }
@@ -611,23 +731,88 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/review-helpful", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/reviews/helpful", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                String reviewId = required(form, "reviewId");
+                BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/reviews", exchange -> {
             String method = exchange.getRequestMethod();
             String path = nullToEmpty(exchange.getRequestURI().getPath()).trim();
+
+            if (path.endsWith("/helpful")) {
+                if (!"POST".equalsIgnoreCase(method)) {
+                    sendText(exchange, 405, "Method not allowed.");
+                    return;
+                }
+                try {
+                    User user = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
+                    Map<String, String> form = readForm(exchange);
+                    String reviewId = required(form, "reviewId");
+                    BookReview review = bookReviewService.markHelpful(user.getUsername(), reviewId);
+                    sendJson(exchange, 200, reviewToJson(review, user.getUsername()));
+                } catch (ApiAuthException e) {
+                    sendText(exchange, 401, e.getMessage());
+                } catch (Exception e) {
+                    sendText(exchange, 400, e.getMessage());
+                }
+                return;
+            }
+
             boolean requestMine = path.endsWith("/me");
 
             if ("GET".equalsIgnoreCase(method)) {
                 try {
+                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     if (requestMine) {
                         User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                        sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                        String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                        if (sort.isBlank()) {
+                            sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                        }
+                        sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
                         return;
                     }
 
                     User viewer = requireRole(exchange, Role.STUDENT, Role.STAFF, Role.AUTHOR, Role.LIBRARIAN);
-                    Map<String, String> query = readQuery(exchange.getRequestURI());
                     String bookId = required(query, "bookId");
-                    String sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                    if (sort.isBlank()) {
+                        sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                    }
                     sendJson(exchange, 200, reviewsToJson(bookReviewService.listReviewsForBook(bookId, sort), viewer.getUsername()));
                 } catch (ApiAuthException e) {
                     sendText(exchange, 401, e.getMessage());
@@ -694,7 +879,12 @@ public class LibraryApiHandlers {
 
             try {
                 User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
-                sendJson(exchange, 200, myReviewsToJson(user.getUsername()));
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String sort = RequestFilters.getTrimmed(query, "sortBy", "");
+                if (sort.isBlank()) {
+                    sort = RequestFilters.getTrimmed(query, "sort", "recent");
+                }
+                sendJson(exchange, 200, myReviewsToJson(user.getUsername(), sort));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -1024,6 +1214,37 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/book-requests/alternatives", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String title = RequestFilters.getTrimmed(query, "title", "");
+                String authorName = RequestFilters.getTrimmed(query, "author", "");
+                if (authorName.isEmpty()) {
+                    authorName = RequestFilters.getTrimmed(query, "authorName", "");
+                }
+                List<String> genres = RequestFilters.parseCsv(query, "genres");
+                int limit = RequestFilters.parseIntInRange(query, "limit", 5, 1, 10);
+
+                if (title.isEmpty() && authorName.isEmpty() && genres.isEmpty()) {
+                    sendJson(exchange, 200, "[]");
+                    return;
+                }
+
+                sendJson(exchange, 200, alternativeBookSuggestionsToJson(
+                        bookService.suggestAlternativeBooks(title, authorName, genres, limit)));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/book-requests", exchange -> {
             if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 try {
@@ -1037,6 +1258,7 @@ public class LibraryApiHandlers {
                             required(form, "genres"),
                             required(form, "reason")
                     );
+                    notifyLibrariansForBookRequest(request, user);
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request submitted successfully.\"," +
                             "\"request\":" + bookRequestToJson(request) +
@@ -1103,6 +1325,38 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/request-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                sendJson(exchange, 200, requestStatsToJson(bookRequestService.getRequestStats()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/download-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                sendJson(exchange, 200, downloadStatsToJson(bookRequestService.getDownloadStats()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/book-request/review", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -1124,9 +1378,9 @@ public class LibraryApiHandlers {
                             approved.getRequesterUsername(),
                             "Book Request Approved",
                         "Your request for \"" + approved.getTitle() + "\" was approved by a librarian." + approvalComment,
-                        NotificationPriority.HIGH,
+                        NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", approved.getId(), "status", approved.getStatus().name())
+                            Map.of("type", "submission", "requestId", approved.getId(), "status", approved.getStatus().name())
                     );
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request approved.\"," +
@@ -1140,9 +1394,9 @@ public class LibraryApiHandlers {
                             rejected.getRequesterUsername(),
                             "Book Request Rejected",
                         "Your request for \"" + rejected.getTitle() + "\" was rejected by a librarian." + rejectionReason + rejectionComment,
-                        NotificationPriority.HIGH,
+                        NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", rejected.getId(), "status", rejected.getStatus().name())
+                            Map.of("type", "submission", "requestId", rejected.getId(), "status", rejected.getStatus().name())
                     );
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Book request rejected.\"," +
@@ -1155,13 +1409,15 @@ public class LibraryApiHandlers {
                             uploaded.getRequesterUsername(),
                             "Requested Book Uploaded",
                         "Your requested book \"" + uploaded.getTitle() + "\" is now available in the library." + uploadComment,
-                            NotificationPriority.HIGH,
+                            NotificationPriority.NORMAL,
                             null,
-                            Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                            Map.of("type", "submission", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                     );
+                    int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Requested book uploaded to the library.\"," +
-                            "\"request\":" + bookRequestToJson(uploaded) +
+                            "\"request\":" + bookRequestToJson(uploaded) + "," +
+                            "\"notificationsSent\":" + notificationsSent +
                             "}");
                 } else {
                     sendText(exchange, 400, "Action must be approve, reject, or upload.");
@@ -1209,7 +1465,7 @@ public class LibraryApiHandlers {
                 String authorName = RequestFilters.getTrimmed(query, "authorName", "");
                 int limit = RequestFilters.parseIntInRange(query, "limit", PDF_SEARCH_LIMIT, 1, 10);
                 int page = RequestFilters.parseIntInRange(query, "page", 1, 1, 1000);
-                String searchMode = normalizePdfSearchMode(RequestFilters.getTrimmed(query, "searchMode", "partial"));
+                String searchMode = normalizePdfSearchMode(RequestFilters.getTrimmed(query, "searchMode", "exact"));
                 boolean debug = "1".equals(RequestFilters.getTrimmed(query, "debug", ""));
 
                 PdfSearchStats stats = new PdfSearchStats();
@@ -1254,7 +1510,7 @@ public class LibraryApiHandlers {
                 String reason = RequestFilters.getTrimmed(form, "reason", "");
                 String content = RequestFilters.getTrimmed(form, "content", "");
 
-                String description = generateBookRequestSummary(title, authorName, genres, reason, content);
+                String description = generateBookRequestSummary(title, authorName, genres, reason, content, 50);
                 sendJson(exchange, 200, "{" +
                         "\"description\":\"" + JsonUtil.escape(description) + "\"" +
                         "}");
@@ -1285,7 +1541,7 @@ public class LibraryApiHandlers {
                 fileService.validateSubmissionFile(downloadedPdf.filePath());
 
                 String resolvedDescription = description.isBlank()
-                    ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason(), content)
+                    ? generateBookRequestSummary(request.getTitle(), request.getAuthorName(), request.getGenres(), request.getReason(), content, 50)
                     : description;
 
                 BookRequest2 uploaded = bookRequestService.uploadRequest(
@@ -1305,10 +1561,89 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                 );
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book downloaded and uploaded.\"," +
-                        "\"request\":" + bookRequestToJson(uploaded) +
+                        "\"request\":" + bookRequestToJson(uploaded) + "," +
+                        "\"notificationsSent\":" + notificationsSent +
+                        "}");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/download", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String sourceUrl = required(query, "url");
+                String fileName = RequestFilters.getTrimmed(query, "filename", "download.pdf");
+                proxyDownloadPdf(exchange, sourceUrl, fileName);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/book-request/upload", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                String contentType = nullToEmpty(exchange.getRequestHeaders().getFirst("Content-Type")).toLowerCase(Locale.ROOT);
+                if (!contentType.startsWith("multipart/form-data")) {
+                    sendText(exchange, 400, "Multipart upload is required.");
+                    return;
+                }
+
+                MultipartData multipartData = readMultipartForm(exchange);
+                Map<String, String> form = multipartData.fields();
+                UploadedFile uploadedFile = multipartData.uploadedFile("file");
+                if (uploadedFile == null) {
+                    sendText(exchange, 400, "Book file is required.");
+                    return;
+                }
+
+                String requestId = required(form, "requestId");
+                String comment = nullToEmpty(form.getOrDefault("comment", "")).trim();
+                String description = nullToEmpty(form.getOrDefault("description", "")).trim();
+
+                fileService.validateSubmissionFile(uploadedFile.path().toString());
+                BookRequest2 uploaded = bookRequestService.uploadRequest(
+                        requestId,
+                        comment,
+                        description,
+                        uploadedFile.path().toString(),
+                        detectContentType(uploadedFile.originalFileName())
+                );
+
+                String uploadComment = uploaded.getLibrarianComment().isBlank() ? "" : " Comment: " + uploaded.getLibrarianComment();
+                notificationService.addNotification(
+                        uploaded.getRequesterUsername(),
+                        "Requested Book Uploaded",
+                        "Your requested book \"" + uploaded.getTitle() + "\" was uploaded to the library." + uploadComment,
+                        NotificationPriority.HIGH,
+                        null,
+                        Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
+                );
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId(), uploaded.getId());
+
+                sendJson(exchange, 200, "{" +
+                        "\"message\":\"Requested book uploaded to the library.\"," +
+                        "\"request\":" + bookRequestToJson(uploaded) + "," +
+                        "\"notificationsSent\":" + notificationsSent +
                         "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1420,7 +1755,8 @@ public class LibraryApiHandlers {
 
             try {
                 requireRole(exchange, Role.STUDENT, Role.STAFF);
-                int limit = 10;
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                int limit = RequestFilters.parseIntInRange(query, "limit", 10, 1, 50);
                 List<Book> books = recommendationService.recommendTopPopular(limit);
                 sendJson(exchange, 200, booksToJson(books));
             } catch (ApiAuthException e) {
@@ -1453,6 +1789,58 @@ public class LibraryApiHandlers {
                     Map.of("type", "borrow-reminder", "bookId", bookId)
                 );
                 sendText(exchange, 200, "Returned successfully. Due date was: " + record.getDueDate());
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        // Slice 10: bulk / partial return (1.5 NTH "Partial Return Option").
+        // Form-encoded `bookIds` (CSV). Loops BorrowService.returnBook with
+        // try/catch per id; succeeded count + failed [{id, reason}] returned.
+        // Emits the same NORMAL "Book Returned" notification as /api/return
+        // for each successful return so notification UX matches single-return.
+        server.createContext("/api/return-bulk", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> form = readForm(exchange);
+                String csv = RequestFilters.getTrimmed(form, "bookIds", "");
+                if (csv.isEmpty()) {
+                    sendText(exchange, 400, "At least one book must be selected.");
+                    return;
+                }
+                int succeeded = 0;
+                List<String> failedItems = new ArrayList<>();
+                for (String raw : csv.split(",")) {
+                    String id = raw.trim();
+                    if (id.isEmpty()) continue;
+                    try {
+                        BorrowRecord record = borrowService.returnBook(user.getUsername(), id);
+                        String returnedBookTitle = bookService.findBookById(id)
+                            .map(Book::getTitle)
+                            .orElse(id);
+                        notificationService.addNotification(
+                                user.getUsername(),
+                                "Book Returned",
+                                "You return this book (" + returnedBookTitle + "). Due date was: " + record.getDueDate(),
+                                NotificationPriority.NORMAL,
+                                null,
+                                Map.of("type", "borrow-reminder", "bookId", id)
+                        );
+                        succeeded++;
+                    } catch (Exception ex) {
+                        failedItems.add("{\"id\":\"" + JsonUtil.escape(id)
+                                + "\",\"reason\":\"" + JsonUtil.escape(ex.getMessage() == null ? "Failed" : ex.getMessage()) + "\"}");
+                    }
+                }
+                String payload = "{\"succeeded\":" + succeeded
+                        + ",\"failed\":[" + String.join(",", failedItems) + "]}";
+                sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -2133,6 +2521,55 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/author/published-book/bulk-delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+
+                Map<String, String> bookIdToTitle = new java.util.LinkedHashMap<>();
+                Map<String, java.util.Set<String>> bookIdToAffectedUsers = new java.util.LinkedHashMap<>();
+                for (String bookId : bookIds == null ? java.util.List.<String>of() : bookIds) {
+                    if (bookId == null || bookId.isBlank()) continue;
+                    bookIdToTitle.put(bookId, bookService.findBookById(bookId).map(Book::getTitle).orElse(bookId));
+                    java.util.Set<String> affected = new java.util.LinkedHashSet<>();
+                    for (BorrowRecord record : borrowService.listAllBorrowRecords()) {
+                        if (bookId.equals(record.getBookId())) {
+                            affected.add(record.getUsername());
+                        }
+                    }
+                    bookIdToAffectedUsers.put(bookId, affected);
+                }
+
+                AuthorService2.BulkDeleteResult result =
+                        authorService.bulkDeleteOwnedPublishedBooks(user.getUsername(), bookIds);
+
+                for (String deletedId : result.deletedIds()) {
+                    String title = bookIdToTitle.getOrDefault(deletedId, deletedId);
+                    for (String username : bookIdToAffectedUsers.getOrDefault(deletedId, java.util.Set.of())) {
+                        notificationService.addNotification(
+                                username,
+                                "Book Deleted",
+                                "The book \"" + title + "\" you borrowed has been removed from the catalog.",
+                                NotificationPriority.HIGH,
+                                null,
+                                Map.of("type", "book-deleted", "bookId", deletedId)
+                        );
+                    }
+                }
+
+                sendJson(exchange, 200, bulkDeleteResultToJson(result));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/author/profile", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -2287,8 +2724,11 @@ public class LibraryApiHandlers {
                 String title = required(form, "title");
                 List<String> genres = RequestFilters.parseCsv(form, "genres");
                 String note = RequestFilters.getTrimmed(form, "note", "");
+                String content = RequestFilters.getTrimmed(form, "content", "");
+                String summaryLevel = RequestFilters.getTrimmed(form, "summaryLevel", "medium");
+                int summaryWordLimit = parseSummaryWordLimit(summaryLevel);
 
-                String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note);
+                String summary = generateAuthorSubmissionSummary(user.getFullName(), title, genres, note, content, summaryWordLimit);
                 sendJson(exchange, 200, "{" +
                         "\"summary\":\"" + JsonUtil.escape(summary) + "\"," +
                         "\"message\":\"Summary generated! You can edit it or click Submit to proceed.\"" +
@@ -2453,6 +2893,35 @@ public class LibraryApiHandlers {
                     Map.of("type", "submission")
                 );
                 sendText(exchange, 200, "Submission deleted successfully.");
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/author/submission/bulk-delete", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.AUTHOR);
+                Map<String, String> form = readForm(exchange);
+                List<String> submissionIds = RequestFilters.parseCsv(form, "submissionIds");
+                AuthorService2.BulkDeleteResult result =
+                        authorService.bulkDeletePendingSubmissions(user.getUsername(), submissionIds);
+                if (!result.deletedIds().isEmpty()) {
+                    notificationService.addNotification(
+                            user.getUsername(),
+                            "Submissions Deleted",
+                            "Your pending submissions were deleted. Count: " + result.deletedIds().size(),
+                            NotificationPriority.NORMAL,
+                            null,
+                            Map.of("type", "submission")
+                    );
+                }
+                sendJson(exchange, 200, bulkDeleteResultToJson(result));
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
             } catch (Exception e) {
@@ -2732,6 +3201,7 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "submission", "bookId", book.getId())
                 );
+                notifyRequestersForAvailableBook(book, "");
                 sendText(exchange, 200, "Published book added successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -2872,6 +3342,90 @@ public class LibraryApiHandlers {
                     }
                 }
                 String payload = "{\"deleted\":" + deleted + ",\"failed\":[" + String.join(",", failedItems) + "]}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
+        server.createContext("/api/librarian/published-books-bulk-edit", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+                if (bookIds.isEmpty()) {
+                    throw new IllegalArgumentException("bookIds is required.");
+                }
+
+                boolean applyDescription = parseBooleanFlag(form.get("applyDescription"));
+                boolean applyGenres = parseBooleanFlag(form.get("applyGenres"));
+                boolean applyTotalCopies = parseBooleanFlag(form.get("applyTotalCopies"));
+                if (!applyDescription && !applyGenres && !applyTotalCopies) {
+                    throw new IllegalArgumentException("Select at least one field to update.");
+                }
+
+                String description = RequestFilters.getTrimmed(form, "description", "");
+                if (applyDescription && description.isEmpty()) {
+                    throw new IllegalArgumentException("Description is required when updating description.");
+                }
+
+                List<String> genres = List.of();
+                if (applyGenres) {
+                    genres = validateSupportedGenres(RequestFilters.parseCsv(form, "genres"));
+                }
+
+                int totalCopies = 0;
+                if (applyTotalCopies) {
+                    totalCopies = RequestFilters.parseIntInRange(form, "totalCopies", 1, 1, 1000);
+                }
+
+                List<String> updatedIds = new ArrayList<>();
+                List<String> skippedItems = new ArrayList<>();
+                for (String bookId : bookIds) {
+                    try {
+                        Book existing = bookService.findBookById(bookId)
+                                .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                        if (!existing.isApproved()) {
+                            throw new IllegalArgumentException("Only approved books can be edited.");
+                        }
+
+                        String oldDescription = nullToEmpty(existing.getSummary());
+                        String oldGenresCsv = existing.getGenres() == null ? "" : String.join(",", existing.getGenres());
+                        String oldTotalCopies = Integer.toString(existing.getTotalCopies());
+
+                        if (applyTotalCopies) {
+                            existing.setTotalCopies(totalCopies);
+                        }
+
+                        String nextDescription = applyDescription ? description : existing.getSummary();
+                        List<String> nextGenres = applyGenres ? genres : existing.getGenres();
+                        existing.updateMetadata(existing.getTitle(), nextGenres, nextDescription);
+                        bookService.getBookRepository().save(existing);
+
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "description", oldDescription, nullToEmpty(existing.getSummary()));
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "genres", oldGenresCsv, existing.getGenres() == null ? "" : String.join(",", existing.getGenres()));
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "totalCopies", oldTotalCopies, Integer.toString(existing.getTotalCopies()));
+                        updatedIds.add(bookId);
+                    } catch (Exception ex) {
+                        skippedItems.add("{\"id\":\"" + JsonUtil.escape(bookId) + "\",\"reason\":\"" + JsonUtil.escape(ex.getMessage() == null ? "Failed" : ex.getMessage()) + "\"}");
+                    }
+                }
+
+                String message = "Bulk edit complete. Updated " + updatedIds.size() + " book(s)" +
+                        (skippedItems.isEmpty() ? "." : ", skipped " + skippedItems.size() + ".");
+                String payload = "{" +
+                        "\"updatedIds\":" + stringListToJson(updatedIds) + "," +
+                        "\"skipped\":[" + String.join(",", skippedItems) + "]," +
+                        "\"updatedCount\":" + updatedIds.size() + "," +
+                        "\"skippedCount\":" + skippedItems.size() + "," +
+                        "\"message\":\"" + JsonUtil.escape(message) + "\"" +
+                        "}";
                 sendJson(exchange, 200, payload);
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -3686,6 +4240,20 @@ public class LibraryApiHandlers {
         return CRASH_TEST_TOKEN.equals(token);
     }
 
+    private void haltJvmSoon(long delayMs) {
+        Thread crashThread = new Thread(() -> {
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            Runtime.getRuntime().halt(137);
+        }, "library-crash-test-halt");
+        crashThread.setDaemon(true);
+        crashThread.start();
+    }
+
     private void refreshSessionSnapshot() {
         latestSessionSnapshot = SessionSnapshotSchema.capture(sessions);
     }
@@ -3809,6 +4377,35 @@ public class LibraryApiHandlers {
                     "\"available\":" + book.isAvailable() + "," +
                     "\"totalCopies\":" + book.getTotalCopies() + "," +
                     "\"availableCopies\":" + book.getAvailableCopies() +
+                    "}");
+        }
+        return "[" + String.join(",", items) + "]";
+    }
+
+    private String alternativeBookSuggestionsToJson(List<BookService.AlternativeBookSuggestion> suggestions) {
+        List<String> items = new ArrayList<>();
+        for (BookService.AlternativeBookSuggestion suggestion : suggestions) {
+            Book book = suggestion.book();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
+            List<String> reasonValues = new ArrayList<>();
+            for (String reason : suggestion.reasons()) {
+                reasonValues.add("\"" + JsonUtil.escape(reason) + "\"");
+            }
+            String availability = book.isAvailable()
+                    ? "Available (" + book.getAvailableCopies() + " copy/copies)"
+                    : "Unavailable";
+            items.add("{" +
+                    "\"bookId\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                    "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"available\":" + book.isAvailable() + "," +
+                    "\"availability\":\"" + JsonUtil.escape(availability) + "\"," +
+                    "\"score\":" + suggestion.score() + "," +
+                    "\"reasons\":[" + String.join(",", reasonValues) + "]" +
                     "}");
         }
         return "[" + String.join(",", items) + "]";
@@ -4297,7 +4894,9 @@ public class LibraryApiHandlers {
     private static String notificationCategoryLabel(String categoryKey) {
         return switch (normalizeNotificationCategoryFilter(categoryKey)) {
             case "submission" -> "Submission";
+            case "review" -> "Review";
             case "account-update" -> "Account Update";
+            case "auto-return" -> "Auto Return";
             case "borrow-reminder" -> "Borrow Reminder";
             case "book-deleted" -> "Book Deleted";
             case "announcement" -> "Announcement";
@@ -4588,12 +5187,15 @@ public class LibraryApiHandlers {
                 "\"anonymous\":" + review.isAnonymous() + "," +
                 "\"rating\":" + review.getRating() + "," +
                 "\"reviewText\":\"" + JsonUtil.escape(review.getReviewText()) + "\"," +
-            "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
-            "\"flagged\":" + review.isFlagged() + "," +
-            "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
+                "\"helpfulCount\":" + review.getHelpfulCount() + "," +
+                "\"helpfulByViewer\":" + review.isMarkedHelpfulBy(viewerUsername) + "," +
+                "\"replyText\":\"" + JsonUtil.escape(review.getReplyText()) + "\"," +
+                "\"flagged\":" + review.isFlagged() + "," +
+                "\"flagReason\":\"" + JsonUtil.escape(review.getFlagReason()) + "\"," +
+                "\"sentiment\":\"" + JsonUtil.escape(review.getSentiment()) + "\"," +
                 "\"createdAt\":\"" + JsonUtil.escape(createdAt) + "\"," +
-            "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
-            "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
+                "\"repliedAt\":\"" + JsonUtil.escape(repliedAt) + "\"," +
+                "\"flaggedAt\":\"" + JsonUtil.escape(flaggedAt) + "\"," +
                 "\"updatedAt\":\"" + JsonUtil.escape(updatedAt) + "\"" +
                 "}";
     }
@@ -4611,7 +5213,11 @@ public class LibraryApiHandlers {
     }
 
     private String myReviewsToJson(String username) {
-        List<BookReview> reviews = bookReviewService.listReviewsByUser(username);
+        return myReviewsToJson(username, "recent");
+    }
+
+    private String myReviewsToJson(String username, String sort) {
+        List<BookReview> reviews = bookReviewService.listReviewsByUser(username, sort);
         List<String> values = new ArrayList<>();
         for (BookReview review : reviews) {
             values.add(reviewToJson(review, username));
@@ -4651,6 +5257,139 @@ public class LibraryApiHandlers {
         List<String> values = new ArrayList<>();
         for (BookRequest2 request : requests) {
             values.add(bookRequestToJson(request));
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private int notifyRequestersForAvailableBook(String bookId, String directRequestIdToSkip) {
+        if (bookId == null || bookId.isBlank()) {
+            return 0;
+        }
+        return bookService.findBookById(bookId.trim())
+                .map(book -> notifyRequestersForAvailableBook(book, directRequestIdToSkip))
+                .orElse(0);
+    }
+
+    private int notifyRequestersForAvailableBook(Book book, String directRequestIdToSkip) {
+        int sent = 0;
+        if (book == null) {
+            return sent;
+        }
+        String skippedRequestId = nullToEmpty(directRequestIdToSkip).trim();
+        Set<String> sentKeys = new HashSet<>();
+        for (BookRequestService.RequestBookMatch match : bookRequestService.findSimilarOpenRequestsForBook(book)) {
+            BookRequest2 request = match.request();
+            if (!skippedRequestId.isEmpty() && skippedRequestId.equals(request.getId())) {
+                continue;
+            }
+            String requester = nullToEmpty(request.getRequesterUsername()).trim();
+            if (requester.isEmpty()) {
+                continue;
+            }
+            String key = requester.toLowerCase(Locale.ROOT) + "|" + request.getId() + "|" + book.getId();
+
+            boolean exactTitle = match.exactTitleMatch();
+            String title = exactTitle
+                    ? "Requested book is now available"
+                    : "Similar requested book is now available";
+            String message = exactTitle
+                    ? "Your requested book \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + "."
+                    : "A book similar to your request \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + ".";
+            if (!sentKeys.add(key)
+                    || notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId(), title, message)) {
+                continue;
+            }
+            notificationService.addNotification(
+                    requester,
+                    title,
+                    message,
+                    exactTitle ? NotificationPriority.HIGH : NotificationPriority.NORMAL,
+                    null,
+                    Map.of(
+                            "type", "request-fulfilled",
+                            "requestId", request.getId(),
+                            "bookId", book.getId(),
+                            "matchedTitle", book.getTitle(),
+                            "score", Integer.toString(match.score()),
+                            "reasons", String.join(", ", match.reasons())
+                    )
+            );
+            sent++;
+        }
+        return sent;
+    }
+
+    private String requestStatsToJson(BookRequestService.RequestStats stats) {
+        List<String> statusValues = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : stats.totalByStatus().entrySet()) {
+            statusValues.add("\"" + JsonUtil.escape(entry.getKey()) + "\":" + entry.getValue());
+        }
+        return "{" +
+                "\"totalRequests\":" + stats.totalRequests() + "," +
+                "\"topGenres\":" + countItemsToJson(stats.topGenres()) + "," +
+                "\"topAuthors\":" + countItemsToJson(stats.topAuthors()) + "," +
+                "\"totalByStatus\":{" + String.join(",", statusValues) + "}" +
+                "}";
+    }
+
+    private String downloadStatsToJson(BookRequestService.DownloadStats stats) {
+        BookRequestService.DownloadStatsSummary summary = stats.summary();
+        List<String> bookValues = new ArrayList<>();
+        for (BookRequestService.DownloadedBookStatsItem book : stats.books()) {
+            String uploadedDate = book.uploadedDate() == null ? "" : book.uploadedDate().toString();
+            bookValues.add("{" +
+                    "\"bookId\":\"" + JsonUtil.escape(book.bookId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.title()) + "\"," +
+                    "\"author\":\"" + JsonUtil.escape(book.author()) + "\"," +
+                    "\"genres\":" + stringListToJson(book.genres()) + "," +
+                    "\"downloadCount\":" + book.downloadCount() + "," +
+                    "\"requestCount\":" + book.requestCount() + "," +
+                    "\"uploadedDate\":\"" + JsonUtil.escape(uploadedDate) + "\"," +
+                    "\"requesters\":" + stringListToJson(book.requesters()) +
+                    "}");
+        }
+
+        return "{" +
+                "\"summary\":{" +
+                "\"totalDownloadedBooks\":" + summary.totalDownloadedBooks() + "," +
+                "\"uniqueBooks\":" + summary.uniqueBooks() + "," +
+                "\"uniqueRequesters\":" + summary.uniqueRequesters() + "," +
+                "\"topGenre\":\"" + JsonUtil.escape(summary.topGenre()) + "\"," +
+                "\"topAuthor\":\"" + JsonUtil.escape(summary.topAuthor()) + "\"" +
+                "}," +
+                "\"books\":[" + String.join(",", bookValues) + "]," +
+                "\"topGenres\":" + countItemsToJson(stats.topGenres()) + "," +
+                "\"topAuthors\":" + countItemsToJson(stats.topAuthors()) + "," +
+                "\"trend\":" + trendItemsToJson(stats.trend()) +
+                "}";
+    }
+
+    private String trendItemsToJson(List<BookRequestService.CountItem> items) {
+        List<String> values = new ArrayList<>();
+        for (BookRequestService.CountItem item : items) {
+            values.add("{" +
+                    "\"date\":\"" + JsonUtil.escape(item.name()) + "\"," +
+                    "\"count\":" + item.count() +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String stringListToJson(List<String> items) {
+        List<String> values = new ArrayList<>();
+        for (String item : items) {
+            values.add("\"" + JsonUtil.escape(item == null ? "" : item) + "\"");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String countItemsToJson(List<BookRequestService.CountItem> items) {
+        List<String> values = new ArrayList<>();
+        for (BookRequestService.CountItem item : items) {
+            values.add("{" +
+                    "\"name\":\"" + JsonUtil.escape(item.name()) + "\"," +
+                    "\"count\":" + item.count() +
+                    "}");
         }
         return "[" + String.join(",", values) + "]";
     }
@@ -4775,8 +5514,16 @@ public class LibraryApiHandlers {
                                                           PdfSearchStats stats)
             throws IOException, InterruptedException {
         List<PdfSearchResult> results = new ArrayList<>();
-        mergePdfResults(results, searchArchivePdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
-        mergePdfResults(results, searchGoogleBooksPdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        try {
+            mergePdfResults(results, searchArchivePdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        } catch (Exception e) {
+            System.err.println("[PDF FETCH] Archive search failed: " + e.getMessage());
+        }
+        try {
+            mergePdfResults(results, searchGoogleBooksPdfSources(title, authorName, PDF_SEARCH_LIMIT, sourcePage, searchMode, stats), PDF_SEARCH_CACHE_MAX_RESULTS);
+        } catch (Exception e) {
+            System.err.println("[PDF FETCH] Google Books search failed: " + e.getMessage());
+        }
         return results;
     }
 
@@ -4806,177 +5553,35 @@ public class LibraryApiHandlers {
             return filtered;
         }
 
-        if (isExactPdfSearchMode(searchMode)) {
-            filtered.sort((left, right) -> {
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-            return filtered;
-        }
-
-        List<String> rerankedIds = rerankPdfResultsWithLocalModel(filtered, title, authorName, searchMode);
-        if (!rerankedIds.isEmpty()) {
-            Map<String, Integer> order = new LinkedHashMap<>();
-            for (int index = 0; index < rerankedIds.size(); index += 1) {
-                order.put(rerankedIds.get(index), index);
+        String normalizedTitle = normalizeSearchTerm(title);
+        String normalizedAuthor = normalizeSearchTerm(authorName);
+        filtered.sort((left, right) -> {
+            int leftScore = scorePdfResult(left, normalizedTitle, normalizedAuthor);
+            int rightScore = scorePdfResult(right, normalizedTitle, normalizedAuthor);
+            if (leftScore != rightScore) {
+                return Integer.compare(rightScore, leftScore);
             }
-            filtered.sort((left, right) -> {
-                Integer leftIndex = order.get(left.identifier());
-                Integer rightIndex = order.get(right.identifier());
-                if (leftIndex != null || rightIndex != null) {
-                    if (leftIndex == null) {
-                        return 1;
-                    }
-                    if (rightIndex == null) {
-                        return -1;
-                    }
-                    if (!leftIndex.equals(rightIndex)) {
-                        return Integer.compare(leftIndex, rightIndex);
-                    }
-                }
-
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-        } else {
-            filtered.sort((left, right) -> {
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-        }
+            return left.title().compareToIgnoreCase(right.title());
+        });
 
         return filtered;
     }
 
-    private List<String> rerankPdfResultsWithLocalModel(List<PdfSearchResult> candidates,
-                                                        String title,
-                                                        String authorName,
-                                                        String searchMode) {
-        String provider = nullToEmpty(System.getenv(PDF_RERANKER_PROVIDER_ENV)).trim().toLowerCase(Locale.ROOT);
-        if (provider.isBlank() || provider.equals("none") || provider.equals("off") || provider.equals("heuristic")) {
-            return List.of();
-        }
-
-        try {
-            if (provider.equals("ollama")) {
-                return rerankPdfResultsWithOllama(candidates, title, authorName, searchMode);
-            }
-            if (provider.equals("openai")) {
-                return rerankPdfResultsWithOpenAiCompatibleApi(candidates, title, authorName, searchMode);
-            }
-        } catch (Exception ignored) {
-            // Fall back to heuristic ranking when the local model endpoint is unavailable.
-        }
-
-        return List.of();
-    }
-
-    private List<String> rerankPdfResultsWithOllama(List<PdfSearchResult> candidates,
-                                                    String title,
-                                                    String authorName,
-                                                    String searchMode) throws IOException, InterruptedException {
-        String baseUrl = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
-        if (baseUrl.isBlank()) {
-            baseUrl = "http://localhost:11434";
-        }
-        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
-        if (model.isBlank()) {
-            model = "llama3.1";
-        }
-
-        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"prompt\":\"" + JsonUtil.escape(prompt) + "\"," +
-                "\"stream\":false," +
-                "\"format\":\"json\"," +
-                "\"options\":{" +
-                "\"temperature\":0" +
-                "}" +
-                "}";
-        String response = httpPostJson(baseUrl + "/api/generate", payload, Map.of("Content-Type", "application/json"));
-            String modelJson = extractJsonStringField(response, "response");
-            String rankingJson = modelJson.isBlank() ? response : modelJson;
-        return extractJsonStringArray(rankingJson, "rankedIds");
-    }
-
-    private List<String> rerankPdfResultsWithOpenAiCompatibleApi(List<PdfSearchResult> candidates,
-                                                                 String title,
-                                                                 String authorName,
-                                                                 String searchMode) throws IOException, InterruptedException {
-        String endpoint = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
-        if (endpoint.isBlank()) {
-            return List.of();
-        }
-        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
-        if (model.isBlank()) {
-            model = "local-model";
-        }
-
-        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"temperature\":0," +
-                "\"messages\":[{" +
-                "\"role\":\"system\",\"content\":\"You rank librarian PDF search results. Return only JSON.\"},{" +
-                "\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
-                "]}";
-        String response = httpPostJson(endpoint, payload, Map.of("Content-Type", "application/json"));
-        List<String> rankedIds = new ArrayList<>();
-        for (String choice : extractJsonObjectsFromArray(response, "choices")) {
-            String message = extractJsonBlock(choice, "message");
-            String parsed = extractJsonStringField(message, "content");
-            rankedIds = extractJsonStringArray(parsed, "rankedIds");
-            if (!rankedIds.isEmpty()) {
-                break;
-            }
-        }
-        return rankedIds;
-    }
-
-    private String buildPdfRerankPrompt(String title, String authorName, String searchMode, List<PdfSearchResult> candidates) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("Rank PDF search candidates for a librarian.\n");
-        prompt.append("Return only JSON in the form {\"rankedIds\":[...]} .\n");
-        prompt.append("Exclude unrelated items entirely.\n");
-        prompt.append("Search mode: ").append(searchMode).append("\n");
-        prompt.append("Query title: ").append(title == null ? "" : title.trim()).append("\n");
-        prompt.append("Query author: ").append(authorName == null ? "" : authorName.trim()).append("\n");
-        prompt.append("Candidates:\n");
-        for (PdfSearchResult candidate : candidates) {
-            prompt.append("- id: ").append(candidate.identifier())
-                    .append(" | title: ").append(candidate.title())
-                    .append(" | authors: ").append(String.join(", ", candidate.authors()))
-                    .append(" | source: ").append(candidate.source())
-                    .append('\n');
-        }
-        prompt.append("Rank by title/author fit first, then overall semantic closeness.");
-        return prompt.toString();
-    }
-
     private boolean matchesStrictPdfQuery(PdfSearchResult candidate, String title, String authorName) {
-        if (!matchesStrictSearchText(candidate.title(), title)) {
-            return false;
-        }
-
-        if (authorName == null || authorName.isBlank()) {
+        // OR logic: match if title matches OR author matches (or both)
+        boolean titleMatches = matchesStrictSearchText(candidate.title(), title);
+        if (titleMatches) {
             return true;
         }
 
-        String authorText = String.join(" ", candidate.authors());
-        return matchesStrictSearchText(authorText, authorName);
+        if (authorName != null && !authorName.isBlank()) {
+            String authorText = String.join(" ", candidate.authors());
+            if (matchesStrictSearchText(authorText, authorName)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean matchesStrictSearchText(String candidateText, String queryText) {
@@ -5034,34 +5639,23 @@ public class LibraryApiHandlers {
                 + normalizePdfSearchMode(searchMode);
     }
 
-    private String httpPostJson(String url, String body, Map<String, String> headers) throws IOException, InterruptedException {
-        HttpClient client = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
-                .timeout(java.time.Duration.ofSeconds(20))
-                .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                builder.header(entry.getKey(), entry.getValue());
-            }
-        }
-        HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Request failed. Status: " + response.statusCode());
-        }
-        return response.body();
-    }
-
     private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit, int page, String searchMode, PdfSearchStats stats)
             throws IOException, InterruptedException {
         int perSourceLimit = Math.max(1, Math.min(limit, 5));
         List<PdfSearchResult> results = new ArrayList<>();
-        List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
-        mergePdfResults(results, archiveResults, limit);
+        try {
+            List<PdfSearchResult> archiveResults = searchArchivePdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
+            mergePdfResults(results, archiveResults, limit);
+        } catch (Exception e) {
+            System.err.println("[PDF SEARCH] Archive search failed: " + e.getMessage());
+        }
 
-        List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
-        mergePdfResults(results, googleResults, limit);
+        try {
+            List<PdfSearchResult> googleResults = searchGoogleBooksPdfSources(title, authorName, perSourceLimit, page, searchMode, stats);
+            mergePdfResults(results, googleResults, limit);
+        } catch (Exception e) {
+            System.err.println("[PDF SEARCH] Google Books search failed: " + e.getMessage());
+        }
 
         sortPdfResultsByRelevance(results, title, authorName);
 
@@ -5129,18 +5723,13 @@ public class LibraryApiHandlers {
             throws IOException, InterruptedException {
         String query = buildArchiveSearchQuery(title, authorName, searchMode);
         List<PdfSearchResult> results = searchArchiveByQuery(query, limit, page, stats);
-        if (!results.isEmpty()) {
-            return results;
+        
+        // Fallback to relaxed search if exact/main search returns no results
+        if (results.isEmpty() && isExactPdfSearchMode(searchMode)) {
+            String relaxedQuery = buildArchiveSearchQueryRelaxed(title, authorName);
+            results = searchArchiveByQuery(relaxedQuery, limit, page, stats);
         }
-
-        if (isExactPdfSearchMode(searchMode)) {
-            return results;
-        }
-
-        String relaxedQuery = buildArchiveSearchQueryRelaxed(title, authorName);
-        if (!relaxedQuery.isBlank()) {
-            return searchArchiveByQuery(relaxedQuery, limit, page, stats);
-        }
+        
         return results;
     }
 
@@ -5154,7 +5743,7 @@ public class LibraryApiHandlers {
                 + "&fl[]=identifier&fl[]=title&rows=" + limit
                 + "&page=" + Math.max(1, page)
                 + "&output=json";
-        String searchPayload = httpGet(searchUrl);
+        String searchPayload = httpGetArchive(searchUrl);
         List<PdfSearchResult> candidates = parseArchiveSearchResults(searchPayload, limit);
         stats.archiveCandidates += candidates.size();
         List<PdfSearchResult> results = new ArrayList<>();
@@ -5181,19 +5770,8 @@ public class LibraryApiHandlers {
         }
 
         List<PdfSearchResult> results = searchGoogleBooksByQuery(query, apiKey, limit, title, authorName, page, stats);
-        if (!results.isEmpty()) {
-            return results;
-        }
-
-        if (isExactPdfSearchMode(searchMode)) {
-            return results;
-        }
-
-        String relaxedQuery = buildGoogleBooksQueryRelaxed(title, authorName);
-        if (relaxedQuery.isBlank()) {
-            return results;
-        }
-        return searchGoogleBooksByQuery(relaxedQuery, apiKey, limit, title, authorName, page, stats);
+        // No auto-fallback to partial: if no results in exact mode, return empty
+        return results;
     }
 
     private List<PdfSearchResult> searchGoogleBooksByQuery(String query, String apiKey, int limit, String title, String authorName, int page, PdfSearchStats stats)
@@ -5249,32 +5827,61 @@ public class LibraryApiHandlers {
     }
 
     private String buildArchiveSearchQuery(String title, String authorName, String searchMode) {
-        StringBuilder sb = new StringBuilder("collection:publicdomain AND format:\"Text PDF\"");
-        String titleQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(title) + "\"" : buildOrQuery(title);
-        String authorQuery = isExactPdfSearchMode(searchMode) ? "\"" + buildExactQuery(authorName) + "\"" : buildOrQuery(authorName);
-        if (!titleQuery.isBlank()) {
-            sb.append(" AND title:(").append(titleQuery).append(")");
+        List<String> keywords = new ArrayList<>();
+        if (title != null && !title.isBlank()) {
+            keywords.add(title.trim());
         }
-        if (!authorQuery.isBlank()) {
-            sb.append(" AND creator:(").append(authorQuery).append(")");
+        if (authorName != null && !authorName.isBlank()) {
+            keywords.add(authorName.trim());
+        }
+
+        if (keywords.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (isExactPdfSearchMode(searchMode) || keywords.size() == 1) {
+            for (int i = 0; i < keywords.size(); i++) {
+                if (i > 0) {
+                    sb.append(" AND ");
+                }
+                sb.append('"').append(keywords.get(i)).append('"');
+            }
+        } else {
+            sb.append("(");
+            for (int i = 0; i < keywords.size(); i++) {
+                if (i > 0) {
+                    sb.append(" OR ");
+                }
+                sb.append('"').append(keywords.get(i)).append('"');
+            }
+            sb.append(")");
         }
         return sb.toString();
     }
 
     private String buildArchiveSearchQueryRelaxed(String title, String authorName) {
-        String titleQuery = buildOrQuery(title);
-        String authorQuery = buildOrQuery(authorName);
-        StringBuilder sb = new StringBuilder("format:\"Text PDF\"");
-        if (!titleQuery.isBlank() && !authorQuery.isBlank()) {
-            sb.append(" AND (")
-                .append("title:(").append(titleQuery).append(")")
-                .append(" OR creator:(").append(authorQuery).append(")")
-                .append(")");
-        } else if (!titleQuery.isBlank()) {
-            sb.append(" AND title:(").append(titleQuery).append(")");
-        } else if (!authorQuery.isBlank()) {
-            sb.append(" AND creator:(").append(authorQuery).append(")");
+        List<String> keywords = new ArrayList<>();
+        if (title != null && !title.isBlank()) {
+            keywords.add(title.trim());
         }
+        if (authorName != null && !authorName.isBlank()) {
+            keywords.add(authorName.trim());
+        }
+
+        if (keywords.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        for (int i = 0; i < keywords.size(); i++) {
+            if (i > 0) {
+                sb.append(" OR ");
+            }
+            sb.append('"').append(keywords.get(i)).append('"');
+        }
+        sb.append(")");
         return sb.toString();
     }
 
@@ -5543,13 +6150,17 @@ public class LibraryApiHandlers {
         if (metadataJson.isBlank()) {
             return "";
         }
-        Pattern filePattern = Pattern.compile("\\{[^\\{\\}]*?\\\"name\\\":\\\"([^\\\"]+?\\.pdf)\\\"[^\\{\\}]*?\\\"format\\\":\\\"([^\\\"]*)\\\"[^\\{\\}]*?\\}");
+        
+        // Look for PDF files in the files array - simpler pattern
+        // Pattern to extract PDF file names from JSON
+        Pattern filePattern = Pattern.compile("\\\"name\\\":\\\"([^\\\"]+?\\.pdf)\\\"");
         Matcher matcher = filePattern.matcher(metadataJson);
+        
         while (matcher.find()) {
             String fileName = unescapeJsonString(matcher.group(1));
-            String format = unescapeJsonString(matcher.group(2));
-            if (format.toLowerCase(Locale.ROOT).contains("pdf")) {
-                return "https://archive.org/download/" + identifier + "/" + fileName;
+            if (!fileName.isBlank()) {
+                // Return first valid PDF found
+                return "https://archive.org/download/" + URLEncoder.encode(identifier, StandardCharsets.UTF_8) + "/" + URLEncoder.encode(fileName, StandardCharsets.UTF_8);
             }
         }
         return "";
@@ -6003,6 +6614,63 @@ public class LibraryApiHandlers {
         }
     }
 
+    private void proxyDownloadPdf(HttpExchange exchange, String pdfUrl, String fileName)
+            throws IOException, InterruptedException {
+        URI uri = URI.create(pdfUrl.trim());
+        if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException("Only http/https PDF links are supported.");
+        }
+
+        String safeName = sanitizeFileName(fileName);
+        if (safeName.isBlank()) {
+            safeName = "download.pdf";
+        } else if (!safeName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+            safeName = safeName + ".pdf";
+        }
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .GET()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/pdf,application/octet-stream,*/*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Referer", "https://archive.org/")
+                .build();
+
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        int status = response.statusCode();
+        if (status < 200 || status >= 300) {
+            String message = switch (status) {
+                case 403 -> "Archive denied the download request (403).";
+                case 502 -> "Archive returned a bad gateway (502).";
+                case 503 -> "Archive is temporarily unavailable (503).";
+                default -> "Failed to download PDF. Status: " + status;
+            };
+            throw new IOException(message);
+        }
+
+        String contentType = response.headers().firstValue("Content-Type").orElse("application/pdf");
+        String contentLengthHeader = response.headers().firstValue("Content-Length").orElse(null);
+        long contentLength = -1L;
+        if (contentLengthHeader != null) {
+            try {
+                contentLength = Long.parseLong(contentLengthHeader);
+            } catch (NumberFormatException ignored) {
+                contentLength = -1L;
+            }
+        }
+
+        exchange.getResponseHeaders().set("Content-Type", contentType);
+        exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + safeName.replace("\"", "") + "\"");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(200, contentLength >= 0 ? contentLength : 0);
+        try (InputStream inputStream = response.body(); OutputStream outputStream = exchange.getResponseBody()) {
+            inputStream.transferTo(outputStream);
+        } finally {
+            exchange.close();
+        }
+    }
+
     private boolean isValidPdfFile(Path file) {
         try (InputStream inputStream = Files.newInputStream(file)) {
             byte[] header = new byte[4];
@@ -6028,75 +6696,487 @@ public class LibraryApiHandlers {
         return normalized;
     }
 
-    private String generateBookRequestSummary(String title, String authorName, List<String> genres, String reason, String content) {
+    private String generateBookRequestSummary(String title,
+                                              String authorName,
+                                              List<String> genres,
+                                              String reason,
+                                              String content,
+                                              int summaryWordLimit) {
         String fallback = generateBookDescriptionSuggestion(title, authorName, genres);
-        String baseUrl = nullToEmpty(System.getenv("INFERENCE_BASE_URL")).trim();
-        String apiKey = nullToEmpty(System.getenv("INFERENCE_API_KEY")).trim();
-        String model = nullToEmpty(System.getenv("INFERENCE_MODEL")).trim();
-        if (baseUrl.isBlank() || model.isBlank()) {
-            return fallback;
-        }
 
         try {
-            String summary = callInferenceSummary(baseUrl, apiKey, model, title, authorName, genres, reason, content);
-            return summary.isBlank() ? fallback : summary;
+            System.out.println("[AI] Calling callInferenceSummary...");
+            String summary = callInferenceSummary(title, authorName, genres, reason, content, summaryWordLimit);
+            System.out.println("[AI] callInferenceSummary returned: " + (summary == null ? "<null>" : (summary.isBlank() ? "<blank>" : "length=" + summary.length())));
+            boolean isBlank = summary.isBlank();
+            if (isBlank) {
+                System.out.println("[AI] Summary is blank, using fallback template.");
+            } else {
+                System.out.println("[AI] Summary is valid, using LLM output.");
+            }
+            return isBlank ? fallback : summary;
         } catch (Exception e) {
+            System.err.println("[AI] generateBookRequestSummary caught exception: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            e.printStackTrace();
+            System.out.println("[AI] Using fallback template due to exception.");
             return fallback;
         }
     }
 
-    private String generateAuthorSubmissionSummary(String authorName, String title, List<String> genres, String note) {
-        String summary = generateBookRequestSummary(title, authorName, genres, note, "");
+    private String generateAuthorSubmissionSummary(String authorName,
+                                                   String title,
+                                                   List<String> genres,
+                                                   String note,
+                                                   String content,
+                                                   int summaryWordLimit) {
+        String summary = generateBookRequestSummary(title, authorName, genres, note, content, summaryWordLimit);
         return summary == null ? "" : summary.trim();
     }
 
-    private String callInferenceSummary(String baseUrl,
-                                        String apiKey,
-                                        String model,
-                                        String title,
+    private String callInferenceSummary(String title,
                                         String authorName,
                                         List<String> genres,
                                         String reason,
-                                        String content) throws IOException, InterruptedException {
-        String endpoint = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        endpoint = endpoint + "/chat/completions";
-
+                                        String content,
+                                        int summaryWordLimit) throws IOException, InterruptedException {
+        int cappedLimit = parseSummaryWordLimit(String.valueOf(summaryWordLimit));
+        int sentenceCount = summaryWordLimitToSentenceCount(cappedLimit);
         String genreText = genres == null || genres.isEmpty() ? "" : String.join(", ", genres);
-                        String extractedContent = nullToEmpty(content).trim();
-        String prompt = "Write a concise 2-3 sentence summary for a library catalog. "
-                + "Use neutral tone and avoid spoilers. "
-                            + (extractedContent.isBlank() ? "" : "Base the summary primarily on the following extracted text from the first two pages. ")
-                + "Title: " + title + ". Author: " + authorName + ". "
-                + (genreText.isBlank() ? "" : "Genres: " + genreText + ". ")
-                            + (reason == null || reason.isBlank() ? "" : "Requester note: " + reason + ". ")
-                            + (extractedContent.isBlank() ? "" : "Extracted text: " + extractedContent + ".");
-
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"messages\":[" +
-                "{\"role\":\"system\",\"content\":\"You are a helpful library assistant.\"}," +
-                "{\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
-                "]," +
-                            "\"max_tokens\":200," +
-                            "\"temperature\":0.7" +
-                "}";
-
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(endpoint))
-            .header("Content-Type", "application/json");
-        if (!apiKey.isBlank()) {
-            requestBuilder.header("Authorization", "Bearer " + apiKey);
+        String extractedContent = sanitizeText(nullToEmpty(content).trim());
+        String contentForPrompt = extractedContent.isBlank() ? "" : limitWords(extractedContent, cappedLimit);
+        if (!extractedContent.isBlank()) {
+            String preview = limitWords(extractedContent, cappedLimit);
+            System.out.println("[AI] Extracted text preview (first 2 pages, " + cappedLimit + " words max): " + preview);
         }
-        HttpRequest request = requestBuilder
-            .POST(HttpRequest.BodyPublishers.ofString(payload))
-            .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Inference API error. Status: " + response.statusCode());
+        String modeLabel = switch (cappedLimit) {
+            case 50 -> "short";
+            case 150 -> "detail";
+            default -> "medium";
+        };
+        String prompt = "<|im_start|>system\n"
+            + "You are a library catalog assistant. Your task is to write ONLY a " + modeLabel + " summary in exactly " + sentenceCount + " sentence(s). "
+            + "Do not echo the input. Do not include field labels. Just write the summary.\n"
+            + "Summary rules: Use " + sentenceCount + " sentence(s), keep under " + cappedLimit + " words, be specific and natural.\n"
+            + "Return ONLY the summary text, nothing else.<|im_end|>\n"
+            + "<|im_start|>user\n"
+            + "Book Title: " + title + "\n"
+            + (genreText.isBlank() ? "" : "Genre(s): " + genreText + "\n")
+            + (reason.isBlank() ? "" : "Note: " + reason + "\n")
+            + (contentForPrompt.isBlank() ? "" : "Content preview: " + contentForPrompt + "\n")
+            + "Write the summary now:\n"
+            + "<|im_end|>\n"
+            + "<|im_start|>assistant\n";
+        System.out.println("[AI] Prompt debug: " + prompt);
+        System.out.println("[AI] Resolving GGUF model path...");
+        String modelPath;
+        try {
+            modelPath = resolveGgufModelPath();
+            System.out.println("[AI] Resolved model path: " + modelPath);
+            java.nio.file.Path mp = java.nio.file.Paths.get(modelPath);
+            System.out.println("[AI] Model file exists: " + (java.nio.file.Files.exists(mp)));
+        } catch (Exception e) {
+            System.err.println("[AI] Failed to resolve model path: " + e.getMessage());
+            throw e;
+        }
+        ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        float temperature = summaryWordLimitToTemperature(cappedLimit);
+        InferenceParameters inferParams = new InferenceParameters(prompt)
+            .setTemperature(temperature * 0.8f)  // Lower temperature for more focused output
+            .setTopP(0.85f)
+            .setTopK(15)
+            .setNPredict(summaryWordLimitToMaxTokens(cappedLimit))
+            .setRepeatPenalty(1.2f)
+            .setCachePrompt(true)
+            .setStopStrings("<|im_end|>", "User:", "Assistant:", "Title:", "Genres:", "Note:", "Content:")
+            .setPenalizeNl(true);
+        int timeoutMs = summaryWordLimitToTimeoutMs(cappedLimit);
+        System.out.println("[AI] Starting inference (timeout ms: " + timeoutMs + ")...");
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try {
+                // Use singleton model instance - loaded once at first use, reused for all calls
+                LlamaModel model = getSingletonLlamaModel();
+                System.out.println("[AI] Using singleton LlamaModel for inference.");
+                System.out.println("[AI] Running model.complete() with prompt length: " + prompt.length());
+                String res = model.complete(inferParams);
+                System.out.println("[AI] Model.complete() returned (raw): " + (res == null ? "<null>" : (res.length() > 200 ? res.substring(0, 200) + "..." : res)));
+                // Note: Do NOT close the model - it's the singleton, must be reused
+                return res;
+            } catch (Exception ex) {
+                System.err.println("[AI] ERROR during model execution: " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+                ex.printStackTrace();
+                throw ex;
+            }
+        });
+
+        try {
+            String summary = future.get(timeoutMs, TimeUnit.MILLISECONDS);
+            if (summary == null) {
+                System.out.println("[AI] Model returned null; using empty string.");
+                return "";
+            }
+            System.out.println("[AI] Raw model output (before processing): " + (summary.length() > 150 ? summary.substring(0, 150) + "..." : summary));
+            
+            // Post-process: strip prompt markers and assistant prefix if model echoed input
+            String processed = summary.trim();
+            // Remove <|im_start|>assistant marker if present
+            if (processed.startsWith("<|im_start|>assistant")) {
+                processed = processed.substring("<|im_start|>assistant".length()).trim();
+            }
+            // Remove leading newlines
+            processed = processed.replaceAll("^\\s+", "");
+            // Remove any trailing <|im_end|> or model control tokens
+            processed = processed.replaceAll("<\\|im_end\\|>.*", "").trim();
+            // If the output still contains prompt echoes like "Title:", "Genres:", "Content:", "Note:" at start, strip them
+            if (processed.startsWith("Title:") || processed.startsWith("Genres:") || processed.startsWith("Content:") || processed.startsWith("Note:")) {
+                System.out.println("[AI] WARNING: Model echoed back prompt structure; attempting to extract summary...");
+                // Try to find the actual summary by looking for the first complete sentence that isn't part of the form
+                // For now, if we see these markers, the model didn't follow instructions; fall back to empty
+                System.out.println("[AI] Model did not generate summary, only echoed input.");
+                return "";
+            }
+            
+            if (processed.isBlank()) {
+                System.out.println("[AI] Processed summary is blank.");
+                return "";
+            }
+            System.out.println("[AI] Processed summary (final): " + (processed.length() > 150 ? processed.substring(0, 150) + "..." : processed));
+            return processed;
+        } catch (TimeoutException e) {
+            System.err.println("[AI] TIMEOUT: Model inference exceeded " + timeoutMs + "ms. " + e.getMessage());
+            e.printStackTrace();
+            future.cancel(true);
+            return "";
+        } catch (ExecutionException e) {
+            System.err.println("[AI] EXECUTION ERROR: Model inference failed. " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("[AI] Caused by: " + e.getCause().getClass().getSimpleName() + ": " + e.getCause().getMessage());
+                e.getCause().printStackTrace();
+            } else {
+                e.printStackTrace();
+            }
+            return "";
+        } catch (InterruptedException e) {
+            System.err.println("[AI] INTERRUPTED: Model inference was interrupted. " + e.getMessage());
+            e.printStackTrace();
+            return "";
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private String resolveGgufModelPath() throws IOException {
+        String configured = nullToEmpty(System.getenv(GGUF_MODEL_PATH_ENV)).trim();
+        System.out.println("[AI] Env var " + GGUF_MODEL_PATH_ENV + " = " + (configured.isEmpty() ? "<not set>" : configured));
+        if (!configured.isBlank()) {
+            System.out.println("[AI] Using configured path from env var.");
+            // Verify the env var path exists
+            if (!Files.exists(Paths.get(configured))) {
+                throw new IOException("[AI] GGUF model file does not exist at env var path: " + configured);
+            }
+            // Verify it's NOT SmolLM2
+            if (configured.contains("SmolLM2")) {
+                throw new IOException("[AI] FATAL: Attempted to load SmolLM2 instead of Meta-Llama! Check GGUF_MODEL_PATH env var.");
+            }
+            return configured;
         }
 
-        String responseContent = extractJsonField(response.body(), "content");
-        return unescapeJsonString(responseContent).trim();
+        String userDir = System.getProperty("user.dir");
+        System.out.println("[AI] user.dir = " + userDir);
+        Path defaultPath = Paths.get(userDir, "Library", "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf");
+        System.out.println("[AI] Checking default path: " + defaultPath);
+        System.out.println("[AI] Default path exists: " + Files.exists(defaultPath));
+        if (Files.exists(defaultPath)) {
+            System.out.println("[AI] Using default path.");
+            return defaultPath.toString();
+        }
+
+        // List available .gguf files in the directory for debugging
+        File libDir = new File(userDir);
+        File[] ggufFiles = libDir.listFiles((dir, name) -> name.endsWith(".gguf"));
+        if (ggufFiles != null && ggufFiles.length > 0) {
+            System.out.println("[AI] Available .gguf files in " + userDir + ":");
+            for (File f : ggufFiles) {
+                System.out.println("[AI]   - " + f.getName());
+            }
+        }
+
+        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path or place Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf in " + userDir);
+    }
+
+    /**
+     * Get or initialize the singleton LlamaModel. The model is loaded only once at first use,
+     * then reused for all inference calls. This eliminates warmup overhead on every call.
+     */
+    private LlamaModel getSingletonLlamaModel() throws IOException {
+        if (singletonLlamaModel != null) {
+            return singletonLlamaModel;
+        }
+
+        synchronized (llamaModelLock) {
+            // Double-check pattern
+            if (singletonLlamaModel != null) {
+                return singletonLlamaModel;
+            }
+
+            String modelPath = resolveGgufModelPath();
+            System.out.println("[AI] Initializing singleton LlamaModel from: " + modelPath);
+            ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+            
+            long startMs = System.currentTimeMillis();
+            LlamaModel model = new LlamaModel(modelParameters);
+            long initTimeMs = System.currentTimeMillis() - startMs;
+            System.out.println("[AI] Singleton LlamaModel initialized successfully in " + initTimeMs + "ms. Ready for inference.");
+            
+            singletonLlamaModel = model;
+            return singletonLlamaModel;
+        }
+    }
+
+    private static String limitWords(String text, int maxWords) {
+        if (text == null || text.isBlank() || maxWords <= 0) {
+            return "";
+        }
+        String[] parts = text.trim().split("\\s+");
+        if (parts.length <= maxWords) {
+            return text.trim();
+        }
+        StringJoiner joiner = new StringJoiner(" ");
+        for (int i = 0; i < maxWords; i += 1) {
+            joiner.add(parts[i]);
+        }
+        return joiner + "...";
+    }
+
+    private static int parseSummaryWordLimit(String raw) {
+        String level = nullToEmpty(raw).trim().toLowerCase(Locale.ROOT);
+        if (level.matches("\\d+")) {
+            try {
+                return Integer.parseInt(level);
+            } catch (NumberFormatException e) {
+                return 100;
+            }
+        }
+        return switch (level) {
+            case "short" -> 50;
+            case "medium" -> 100;
+            case "detail", "detailed" -> 150;
+            default -> 100;
+        };
+    }
+
+    private static int summaryWordLimitToTimeoutMs(int wordLimit) {
+        // 8B Llama model is slower; use much higher timeouts than SmolLM
+        // Estimate: 8B generates ~5-15 tokens/sec on CPU/GPU
+        // 50 words ≈ 60 tokens = ~5-10 sec; 100 words ≈ 130 tokens = ~10-20 sec; 150 words ≈ 200 tokens = ~15-30 sec
+        if (wordLimit <= 50) {
+            return 45000;  // 45 seconds for short
+        }
+        if (wordLimit >= 150) {
+            return 120000;  // 120 seconds for detail
+        }
+        return 90000;  // 90 seconds for medium
+    }
+
+    private static float summaryWordLimitToTemperature(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 0.9f;
+        }
+        if (wordLimit >= 150) {
+            return 0.5f;
+        }
+        return 0.7f;
+    }
+
+    private static int summaryWordLimitToSentenceCount(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 1;
+        }
+        if (wordLimit >= 150) {
+            return 3;
+        }
+        return 2;
+    }
+
+    private static int summaryWordLimitToTopicCount(int wordLimit) {
+        if (wordLimit <= 50) {
+            return 6;
+        }
+        if (wordLimit >= 150) {
+            return 18;
+        }
+        return 10;
+    }
+
+    private static int summaryWordLimitToMaxTokens(int wordLimit) {
+        if (wordLimit <= 20) {
+            return 80;
+        }
+        if (wordLimit >= 70) {
+            return 100;
+        }
+        return 90;
+    }
+
+    private static String limitWordsToSentence(String text, int maxWords) {
+        if (text == null || text.isBlank() || maxWords <= 0) {
+            return "";
+        }
+        String trimmed = text.trim();
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length <= maxWords) {
+            return trimmed;
+        }
+
+        int wordCount = 0;
+        int scanIndex = 0;
+        for (String part : parts) {
+            int nextIndex = trimmed.indexOf(part, scanIndex);
+            if (nextIndex < 0) {
+                break;
+            }
+            scanIndex = nextIndex + part.length();
+            wordCount += 1;
+            if (wordCount >= maxWords) {
+                int periodIndex = trimmed.indexOf('.', scanIndex);
+                if (periodIndex >= 0) {
+                    return trimmed.substring(0, periodIndex + 1).trim();
+                }
+                return String.join(" ", java.util.Arrays.copyOfRange(parts, 0, maxWords)).trim();
+            }
+        }
+
+        return String.join(" ", java.util.Arrays.copyOfRange(parts, 0, maxWords)).trim();
+    }
+
+    private static String buildRuleBasedSummary(String title, String genreText, String content, int sentenceCount) {
+        String safeTitle = nullToEmpty(title).trim();
+        String safeGenres = nullToEmpty(genreText).trim();
+        List<String> topics = extractTopics(content, 6);
+
+        String genreLabel = safeGenres.isBlank() ? "library" : safeGenres;
+        if (topics.isEmpty()) {
+            if (safeTitle.isBlank()) {
+                return sentenceCount <= 1
+                    ? "This " + genreLabel + " resource highlights key themes in the subject."
+                    : "This " + genreLabel + " resource highlights key themes in the subject. It offers a concise overview.";
+            }
+            return sentenceCount <= 1
+                ? "This " + genreLabel + " resource covers " + safeTitle + "."
+                : "This " + genreLabel + " resource covers " + safeTitle + ". It frames the topic for quick understanding.";
+        }
+
+        String topicPhrase = buildTopicPhrase(topics);
+        if (sentenceCount <= 1) {
+            return "Covers " + topicPhrase + " in the context of " + genreLabel + ".";
+        }
+        if (sentenceCount == 2) {
+            String titleClause = safeTitle.isBlank() ? "" : " It connects to " + safeTitle + ".";
+            return "Covers " + topicPhrase + " in the context of " + genreLabel + "." + titleClause;
+        }
+        String titleClause = safeTitle.isBlank() ? "" : " It connects to " + safeTitle + ".";
+        return "Covers " + topicPhrase + " in the context of " + genreLabel + "."
+            + titleClause + " It highlights practical and conceptual takeaways.";
+    }
+
+    private static List<String> extractTopics(String content, int maxTopics) {
+        List<String> topics = new ArrayList<>();
+        if (content == null || content.isBlank()) {
+            return topics;
+        }
+
+        String normalized = content.replace(";", ",").replace(" and ", ",");
+        String[] parts = normalized.split(",");
+        for (String part : parts) {
+            String topic = part.trim();
+            if (topic.isEmpty()) {
+                continue;
+            }
+            if (!topics.contains(topic)) {
+                topics.add(topic);
+            }
+            if (topics.size() >= maxTopics) {
+                break;
+            }
+        }
+        return topics;
+    }
+
+    private static String extractKeyPhrases(String text, int maxTerms) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String cleaned = sanitizeText(text)
+            .replaceAll("[^A-Za-z\\s-]", " ")
+            .replaceAll("\\b\\d+\\b", " ")
+            .replaceAll("(?i)\\b(the|this|are|for|of|in|on|is|a|an|to|be|can|that|most|which|them|two|with|from|into|by|as|at|it|its|their|they|we|you|your|our|ours)\\b", " ")
+            .replaceAll("\\s+", " ")
+            .trim();
+        if (cleaned.isBlank()) {
+            return "";
+        }
+
+        String[] tokens = cleaned.split(" ");
+        List<String> unique = new ArrayList<>();
+        for (String token : tokens) {
+            String term = token.trim();
+            if (term.isEmpty()) {
+                continue;
+            }
+            String lower = term.toLowerCase(Locale.ROOT);
+            if (unique.stream().noneMatch((existing) -> existing.equalsIgnoreCase(lower))) {
+                unique.add(term);
+            }
+            if (unique.size() >= maxTerms) {
+                break;
+            }
+        }
+
+        return String.join(", ", unique);
+    }
+
+    private static String sanitizeText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        return text.replaceAll("[^\\x20-\\x7E]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private static String buildTopicPhrase(List<String> topics) {
+        if (topics == null || topics.isEmpty()) {
+            return "core topics";
+        }
+        if (topics.size() == 1) {
+            return topics.get(0);
+        }
+        if (topics.size() == 2) {
+            return topics.get(0) + " and " + topics.get(1);
+        }
+        StringJoiner joiner = new StringJoiner(", ");
+        for (int i = 0; i < topics.size() - 1; i += 1) {
+            joiner.add(topics.get(i));
+        }
+        return joiner + ", and " + topics.get(topics.size() - 1);
+    }
+
+    private void notifyLibrariansForBookRequest(BookRequest2 request, User requester) {
+        String requesterLabel = requester == null
+            ? "A user"
+            : requester.getFullName() + " (" + requester.getUsername() + ")";
+        String message = requesterLabel + " submitted a new book request for \"" + request.getTitle() + "\".";
+        for (User librarian : librarianService.listUsersForManagement("", "librarian", "active")) {
+            if (librarian.getRole() != Role.LIBRARIAN) {
+                continue;
+            }
+            notificationService.addNotification(
+                    librarian.getUsername(),
+                    "New Book Request",
+                    message,
+                    NotificationPriority.NORMAL,
+                    null,
+                    Map.of("type", "submission", "requestId", request.getId())
+            );
+        }
     }
 
     private String extractJsonField(String json, String fieldName) {
@@ -6147,6 +7227,47 @@ public class LibraryApiHandlers {
             throw new IOException("Request failed. Status: " + response.statusCode());
         }
         return response.body();
+    }
+
+    private String httpGetArchive(String url) throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        // Use a more realistic browser User-Agent for Archive.org to avoid 403 blocks
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .GET()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Referer", "https://archive.org/")
+                .build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        int status = response.statusCode();
+        if (status == 403) {
+            throw new IOException("Access Forbidden (403) from Internet Archive. You may be rate-limited or the service may be temporarily blocking requests.");
+        }
+        if (status < 200 || status >= 300) {
+            throw new IOException("Internet Archive request failed. Status: " + status);
+        }
+        return response.body();
+    }
+
+    private static String bulkDeleteResultToJson(AuthorService2.BulkDeleteResult result) {
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"deletedIds\":[");
+        for (int i = 0; i < result.deletedIds().size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(JsonUtil.escape(result.deletedIds().get(i))).append("\"");
+        }
+        sb.append("],\"skipped\":[");
+        int idx = 0;
+        for (Map.Entry<String, String> entry : result.skippedIdToReason().entrySet()) {
+            if (idx++ > 0) sb.append(",");
+            sb.append("{\"id\":\"").append(JsonUtil.escape(entry.getKey())).append("\",")
+              .append("\"reason\":\"").append(JsonUtil.escape(entry.getValue())).append("\"}");
+        }
+        sb.append("],\"deletedCount\":").append(result.deletedIds().size());
+        sb.append(",\"skippedCount\":").append(result.skippedIdToReason().size());
+        sb.append("}");
+        return sb.toString();
     }
 
     private static String authorSubmissionsToJson(List<BookSubmission2> submissions) {

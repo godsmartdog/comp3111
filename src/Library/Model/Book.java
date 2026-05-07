@@ -1,12 +1,14 @@
 package Library.Model; // imported in BookRepository for interface
 
+import java.io.Serializable;
 import java.time.LocalDate; // local system date for reference (just the date such as YYYYMMDD)
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID; // universial unique object identifier
 
 // Class for book - already held by librarian - past book submission accepted
-public class Book {
+public class Book implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables
     private final String id; // immutable 

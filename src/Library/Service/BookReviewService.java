@@ -2,14 +2,17 @@ package Library.Service;
 
 import Library.Exception.BusinessException;
 import Library.Exception.NotFoundException;
+import Library.Model.NotificationPriority;
 import Library.Service.NotificationService;
 import Library.Model.Book;
 import Library.Model.BookReview;
 import Library.Repository.BookReviewRepository;
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class BookReviewService {
@@ -20,6 +23,13 @@ public class BookReviewService {
     private final BookService bookService;
     private final BorrowService borrowService;
     private final NotificationService notificationService;
+
+        private static final Set<String> POSITIVE_SENTIMENT_KEYWORDS = Set.of(
+            "excellent", "great", "good", "helpful", "clear", "enjoyable", "useful", "amazing", "recommend", "loved"
+        );
+        private static final Set<String> NEGATIVE_SENTIMENT_KEYWORDS = Set.of(
+            "bad", "poor", "confusing", "boring", "difficult", "unclear", "useless", "terrible", "hate", "disappointed"
+        );
 
     public BookReviewService(BookReviewRepository reviewRepository,
                              BookService bookService,
@@ -63,8 +73,36 @@ public class BookReviewService {
                 })
                 .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText, anonymousFlag));
 
+        String sentiment = classifySentiment(review.getReviewText());
+        if (sentiment != null && !sentiment.isBlank()) {
+            review.setSentiment(sentiment);
+        }
+
         reviewRepository.save(review);
         return review;
+    }
+
+    private static String classifySentiment(String text) {
+        if (text == null || text.isBlank()) {
+            return "neutral";
+        }
+        int score = 0;
+        String normalized = text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ");
+        for (String token : normalized.split("\\s+")) {
+            if (POSITIVE_SENTIMENT_KEYWORDS.contains(token)) {
+                score++;
+            }
+            if (NEGATIVE_SENTIMENT_KEYWORDS.contains(token)) {
+                score--;
+            }
+        }
+        if (score > 0) {
+            return "positive";
+        }
+        if (score < 0) {
+            return "negative";
+        }
+        return "neutral";
     }
 
     public List<BookReview> listReviewsForBook(String bookId) {
@@ -82,10 +120,33 @@ public class BookReviewService {
     }
 
     public List<BookReview> listReviewsByUser(String username) {
+        return listReviewsByUser(username, "recent");
+    }
+
+    public List<BookReview> listReviewsByUser(String username, String sort) {
         String normalizedUsername = normalize(username);
         return reviewRepository.findByUsername(normalizedUsername).stream()
-                .sorted(reviewComparator())
+                .sorted(reviewComparatorForSort(sort))
                 .collect(Collectors.toList());
+    }
+
+    public BookReview markHelpful(String username, String reviewId) {
+        String normalizedUsername = normalize(username);
+        String normalizedReviewId = normalize(reviewId);
+        if (normalizedUsername.isEmpty()) {
+            throw new BusinessException("Username cannot be empty.");
+        }
+        BookReview review = reviewRepository.findById(normalizedReviewId)
+                .orElseThrow(() -> new NotFoundException("Review not found."));
+        if (normalizedUsername.equals(review.getUsername())) {
+            throw new BusinessException("You cannot mark your own review as helpful.");
+        }
+        boolean added = review.markHelpful(normalizedUsername);
+        if (!added) {
+            throw new BusinessException("You already marked this review as helpful.");
+        }
+        reviewRepository.save(review);
+        return review;
     }
 
     public List<BookReview> listReviewsForAuthor(String authorUsername) {
@@ -115,18 +176,19 @@ public class BookReviewService {
         if (notificationService != null) {
             Book book = bookService.findBookById(review.getBookId())
                     .orElseThrow(() -> new NotFoundException("Book not found."));
-            notificationService.addNotification(
+                notificationService.addNotification(
                     review.getUsername(),
                     "Reply to your review",
                     "Author replied to your review for \"" + book.getTitle() + "\": " + normalizedReply,
+                    NotificationPriority.NORMAL,
                     null,
                     Map.of(
-                            "type", "review-reply",
-                            "bookId", book.getId(),
-                            "reviewId", review.getId(),
-                            "authorUsername", normalize(authorUsername)
+                        "type", "review",
+                        "bookId", book.getId(),
+                        "reviewId", review.getId(),
+                        "authorUsername", normalize(authorUsername)
                     )
-            );
+                );
         }
 
         return review;
@@ -196,6 +258,11 @@ public class BookReviewService {
                         .thenComparing(BookReview::getId);
             case "lowest":
                 return Comparator.comparingInt(BookReview::getRating)
+                        .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                        .thenComparing(BookReview::getId);
+            case "helpful":
+            case "most-helpful":
+                return Comparator.comparingInt(BookReview::getHelpfulCount).reversed()
                         .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
                         .thenComparing(BookReview::getId);
             case "recent":
