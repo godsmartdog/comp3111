@@ -113,9 +113,6 @@ public class LibraryApiHandlers {
     private static final int PDF_SEARCH_MAX_SOURCE_PAGES = 12;
     private static final int PDF_SEARCH_CACHE_MAX_AGE_MINUTES = 15;
     private static final int PDF_SEARCH_CACHE_MAX_RESULTS = 60;
-    private static final String PDF_RERANKER_PROVIDER_ENV = "PDF_RERANKER_PROVIDER";
-    private static final String PDF_RERANKER_URL_ENV = "PDF_RERANKER_URL";
-    private static final String PDF_RERANKER_MODEL_ENV = "PDF_RERANKER_MODEL";
     private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
 
     private final AuthService authService;
@@ -5556,164 +5553,18 @@ public class LibraryApiHandlers {
             return filtered;
         }
 
-        if (isExactPdfSearchMode(searchMode)) {
-            filtered.sort((left, right) -> {
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-            return filtered;
-        }
-
-        List<String> rerankedIds = rerankPdfResultsWithLocalModel(filtered, title, authorName, searchMode);
-        if (!rerankedIds.isEmpty()) {
-            Map<String, Integer> order = new LinkedHashMap<>();
-            for (int index = 0; index < rerankedIds.size(); index += 1) {
-                order.put(rerankedIds.get(index), index);
+        String normalizedTitle = normalizeSearchTerm(title);
+        String normalizedAuthor = normalizeSearchTerm(authorName);
+        filtered.sort((left, right) -> {
+            int leftScore = scorePdfResult(left, normalizedTitle, normalizedAuthor);
+            int rightScore = scorePdfResult(right, normalizedTitle, normalizedAuthor);
+            if (leftScore != rightScore) {
+                return Integer.compare(rightScore, leftScore);
             }
-            filtered.sort((left, right) -> {
-                Integer leftIndex = order.get(left.identifier());
-                Integer rightIndex = order.get(right.identifier());
-                if (leftIndex != null || rightIndex != null) {
-                    if (leftIndex == null) {
-                        return 1;
-                    }
-                    if (rightIndex == null) {
-                        return -1;
-                    }
-                    if (!leftIndex.equals(rightIndex)) {
-                        return Integer.compare(leftIndex, rightIndex);
-                    }
-                }
-
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-        } else {
-            filtered.sort((left, right) -> {
-                int leftScore = scorePdfResult(left, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                int rightScore = scorePdfResult(right, normalizeSearchTerm(title), normalizeSearchTerm(authorName));
-                if (leftScore != rightScore) {
-                    return Integer.compare(rightScore, leftScore);
-                }
-                return left.title().compareToIgnoreCase(right.title());
-            });
-        }
+            return left.title().compareToIgnoreCase(right.title());
+        });
 
         return filtered;
-    }
-
-    private List<String> rerankPdfResultsWithLocalModel(List<PdfSearchResult> candidates,
-                                                        String title,
-                                                        String authorName,
-                                                        String searchMode) {
-        String provider = nullToEmpty(System.getenv(PDF_RERANKER_PROVIDER_ENV)).trim().toLowerCase(Locale.ROOT);
-        if (provider.isBlank() || provider.equals("none") || provider.equals("off") || provider.equals("heuristic")) {
-            return List.of();
-        }
-
-        try {
-            if (provider.equals("ollama")) {
-                return rerankPdfResultsWithOllama(candidates, title, authorName, searchMode);
-            }
-            if (provider.equals("openai")) {
-                return rerankPdfResultsWithOpenAiCompatibleApi(candidates, title, authorName, searchMode);
-            }
-        } catch (Exception ignored) {
-            // Fall back to heuristic ranking when the local model endpoint is unavailable.
-        }
-
-        return List.of();
-    }
-
-    private List<String> rerankPdfResultsWithOllama(List<PdfSearchResult> candidates,
-                                                    String title,
-                                                    String authorName,
-                                                    String searchMode) throws IOException, InterruptedException {
-        String baseUrl = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
-        if (baseUrl.isBlank()) {
-            baseUrl = "http://localhost:11434";
-        }
-        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
-        if (model.isBlank()) {
-            model = "llama3.1";
-        }
-
-        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"prompt\":\"" + JsonUtil.escape(prompt) + "\"," +
-                "\"stream\":false," +
-                "\"format\":\"json\"," +
-                "\"options\":{" +
-                "\"temperature\":0" +
-                "}" +
-                "}";
-        String response = httpPostJson(baseUrl + "/api/generate", payload, Map.of("Content-Type", "application/json"));
-            String modelJson = extractJsonStringField(response, "response");
-            String rankingJson = modelJson.isBlank() ? response : modelJson;
-        return extractJsonStringArray(rankingJson, "rankedIds");
-    }
-
-    private List<String> rerankPdfResultsWithOpenAiCompatibleApi(List<PdfSearchResult> candidates,
-                                                                 String title,
-                                                                 String authorName,
-                                                                 String searchMode) throws IOException, InterruptedException {
-        String endpoint = nullToEmpty(System.getenv(PDF_RERANKER_URL_ENV)).trim();
-        if (endpoint.isBlank()) {
-            return List.of();
-        }
-        String model = nullToEmpty(System.getenv(PDF_RERANKER_MODEL_ENV)).trim();
-        if (model.isBlank()) {
-            model = "local-model";
-        }
-
-        String prompt = buildPdfRerankPrompt(title, authorName, searchMode, candidates);
-        String payload = "{" +
-                "\"model\":\"" + JsonUtil.escape(model) + "\"," +
-                "\"temperature\":0," +
-                "\"messages\":[{" +
-                "\"role\":\"system\",\"content\":\"You rank librarian PDF search results. Return only JSON.\"},{" +
-                "\"role\":\"user\",\"content\":\"" + JsonUtil.escape(prompt) + "\"}" +
-                "]}";
-        String response = httpPostJson(endpoint, payload, Map.of("Content-Type", "application/json"));
-        List<String> rankedIds = new ArrayList<>();
-        for (String choice : extractJsonObjectsFromArray(response, "choices")) {
-            String message = extractJsonBlock(choice, "message");
-            String parsed = extractJsonStringField(message, "content");
-            rankedIds = extractJsonStringArray(parsed, "rankedIds");
-            if (!rankedIds.isEmpty()) {
-                break;
-            }
-        }
-        return rankedIds;
-    }
-
-    private String buildPdfRerankPrompt(String title, String authorName, String searchMode, List<PdfSearchResult> candidates) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("Rank PDF search candidates for a librarian.\n");
-        prompt.append("Return only JSON in the form {\"rankedIds\":[...]} .\n");
-        prompt.append("Exclude unrelated items entirely.\n");
-        prompt.append("Search mode: ").append(searchMode).append("\n");
-        prompt.append("Query title: ").append(title == null ? "" : title.trim()).append("\n");
-        prompt.append("Query author: ").append(authorName == null ? "" : authorName.trim()).append("\n");
-        prompt.append("Candidates:\n");
-        for (PdfSearchResult candidate : candidates) {
-            prompt.append("- id: ").append(candidate.identifier())
-                    .append(" | title: ").append(candidate.title())
-                    .append(" | authors: ").append(String.join(", ", candidate.authors()))
-                    .append(" | source: ").append(candidate.source())
-                    .append('\n');
-        }
-        prompt.append("Rank by title/author fit first, then overall semantic closeness.");
-        return prompt.toString();
     }
 
     private boolean matchesStrictPdfQuery(PdfSearchResult candidate, String title, String authorName) {
@@ -5786,25 +5637,6 @@ public class LibraryApiHandlers {
                 + normalizeSearchTerm(title) + "|"
                 + normalizeSearchTerm(authorName) + "|"
                 + normalizePdfSearchMode(searchMode);
-    }
-
-    private String httpPostJson(String url, String body, Map<String, String> headers) throws IOException, InterruptedException {
-        HttpClient client = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
-                .timeout(java.time.Duration.ofSeconds(20))
-                .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                builder.header(entry.getKey(), entry.getValue());
-            }
-        }
-        HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Request failed. Status: " + response.statusCode());
-        }
-        return response.body();
     }
 
     private List<PdfSearchResult> searchPublicDomainPdfSources(String title, String authorName, int limit, int page, String searchMode, PdfSearchStats stats)
