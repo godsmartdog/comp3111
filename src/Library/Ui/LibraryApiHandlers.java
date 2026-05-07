@@ -1392,9 +1392,11 @@ public class LibraryApiHandlers {
                             null,
                             Map.of("type", "submission", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                     );
+                            int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Requested book uploaded to the library.\"," +
-                            "\"request\":" + bookRequestToJson(uploaded) +
+                                "\"request\":" + bookRequestToJson(uploaded) + "," +
+                                "\"notificationsSent\":" + notificationsSent +
                             "}");
                 } else {
                     sendText(exchange, 400, "Action must be approve, reject, or upload.");
@@ -1538,10 +1540,12 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                 );
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book downloaded and uploaded.\"," +
-                        "\"request\":" + bookRequestToJson(uploaded) +
+                        "\"request\":" + bookRequestToJson(uploaded) + "," +
+                        "\"notificationsSent\":" + notificationsSent +
                         "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -1613,10 +1617,12 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "other", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                 );
+                int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
 
                 sendJson(exchange, 200, "{" +
                         "\"message\":\"Requested book uploaded to the library.\"," +
-                        "\"request\":" + bookRequestToJson(uploaded) +
+                        "\"request\":" + bookRequestToJson(uploaded) + "," +
+                        "\"notificationsSent\":" + notificationsSent +
                         "}");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -3174,6 +3180,7 @@ public class LibraryApiHandlers {
                         null,
                         Map.of("type", "submission", "bookId", book.getId())
                 );
+                notifyRequestersForAvailableBook(book);
                 sendText(exchange, 200, "Published book added successfully.");
             } catch (ApiAuthException e) {
                 sendText(exchange, 401, e.getMessage());
@@ -5147,6 +5154,57 @@ public class LibraryApiHandlers {
             values.add(bookRequestToJson(request));
         }
         return "[" + String.join(",", values) + "]";
+    }
+
+    private int notifyRequestersForAvailableBook(String bookId) {
+        if (bookId == null || bookId.isBlank()) {
+            return 0;
+        }
+        return bookService.findBookById(bookId.trim())
+                .map(this::notifyRequestersForAvailableBook)
+                .orElse(0);
+    }
+
+    private int notifyRequestersForAvailableBook(Book book) {
+        int sent = 0;
+        if (book == null) {
+            return sent;
+        }
+        for (BookRequestService.RequestBookMatch match : bookRequestService.findSimilarOpenRequestsForBook(book)) {
+            BookRequest2 request = match.request();
+            String requester = nullToEmpty(request.getRequesterUsername()).trim();
+            if (requester.isEmpty()) {
+                continue;
+            }
+            if (notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId())) {
+                continue;
+            }
+
+            boolean exactTitle = match.exactTitleMatch();
+            String title = exactTitle
+                    ? "Requested book is now available"
+                    : "Similar requested book is now available";
+            String message = exactTitle
+                    ? "Your requested book \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + "."
+                    : "A book similar to your request \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + ".";
+            notificationService.addNotification(
+                    requester,
+                    title,
+                    message,
+                    exactTitle ? NotificationPriority.HIGH : NotificationPriority.NORMAL,
+                    null,
+                    Map.of(
+                            "type", "request-fulfilled",
+                            "requestId", request.getId(),
+                            "bookId", book.getId(),
+                            "matchedTitle", book.getTitle(),
+                            "score", Integer.toString(match.score()),
+                            "reasons", String.join(", ", match.reasons())
+                    )
+            );
+            sent++;
+        }
+        return sent;
     }
 
     private String requestStatsToJson(BookRequestService.RequestStats stats) {

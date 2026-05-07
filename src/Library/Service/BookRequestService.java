@@ -11,13 +11,16 @@ import Library.Repository.BookRequestRepository2;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class BookRequestService {
+    private static final Set<String> TINY_STOPWORDS = Set.of("a", "an", "the", "of", "and", "or", "to", "in");
     private final BookRequestRepository2 requestRepository;
     private final BookRepository bookRepository;
 
@@ -27,6 +30,8 @@ public class BookRequestService {
                                List<CountItem> topGenres,
                                List<CountItem> topAuthors,
                                Map<String, Integer> totalByStatus) {}
+
+    public record RequestBookMatch(BookRequest2 request, int score, boolean exactTitleMatch, List<String> reasons) {}
 
     private record CounterEntry(String displayName, int count) {}
 
@@ -115,6 +120,27 @@ public class BookRequestService {
                 topCountItems(authorCounts, authorLabels, 10),
                 statusCounts
         );
+    }
+
+    public List<RequestBookMatch> findSimilarOpenRequestsForBook(Book book) {
+        if (book == null || !book.isApproved() || !book.isAvailable()) {
+            return List.of();
+        }
+        List<RequestBookMatch> matches = new ArrayList<>();
+        for (BookRequest2 request : requestRepository.findAll()) {
+            if (!shouldConsiderForAvailableBook(request, book)) {
+                continue;
+            }
+            RequestBookMatch match = scoreRequestBookMatch(request, book);
+            if (match.exactTitleMatch() || match.score() >= 40) {
+                matches.add(match);
+            }
+        }
+        matches.sort(Comparator
+                .comparingInt(RequestBookMatch::score).reversed()
+                .thenComparing(match -> match.request().getTitle(), String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(match -> match.request().getId()));
+        return matches;
     }
 
     private static Comparator<BookRequest2> prioritySortComparator() {
@@ -235,6 +261,107 @@ public class BookRequestService {
 
     private static String normalizeDuplicateKey(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private static boolean shouldConsiderForAvailableBook(BookRequest2 request, Book book) {
+        if (request == null || request.getStatus() == BookRequestStatus.REJECTED) {
+            return false;
+        }
+        if (request.getStatus() == BookRequestStatus.UPLOADED) {
+            return book.getId().equals(request.getBookId());
+        }
+        return request.getStatus() == BookRequestStatus.PENDING
+                || request.getStatus() == BookRequestStatus.APPROVED;
+    }
+
+    private static RequestBookMatch scoreRequestBookMatch(BookRequest2 request, Book book) {
+        int score = 0;
+        boolean exactTitle = false;
+        List<String> reasons = new ArrayList<>();
+
+        String requestTitle = normalizeDuplicateKey(request.getTitle());
+        String bookTitle = normalizeDuplicateKey(book.getTitle());
+        if (!requestTitle.isEmpty() && requestTitle.equals(bookTitle)) {
+            score += 80;
+            exactTitle = true;
+            addReason(reasons, "Exact title match");
+        } else if (!requestTitle.isEmpty() && !bookTitle.isEmpty()
+                && (requestTitle.contains(bookTitle) || bookTitle.contains(requestTitle))) {
+            score += 50;
+            addReason(reasons, "Similar title");
+        }
+
+        int sharedTitleTokens = countSharedTokens(tokenize(request.getTitle()), tokenize(book.getTitle()));
+        if (sharedTitleTokens > 0) {
+            score += 20 * sharedTitleTokens;
+            addReason(reasons, "Similar title");
+        }
+
+        String requestAuthor = normalizeDuplicateKey(request.getAuthorName());
+        String bookAuthor = normalizeDuplicateKey(book.getAuthorFullName());
+        if (!requestAuthor.isEmpty() && requestAuthor.equals(bookAuthor)) {
+            score += 35;
+            addReason(reasons, "Same author");
+        } else if (!requestAuthor.isEmpty() && !bookAuthor.isEmpty()
+                && (requestAuthor.contains(bookAuthor)
+                || bookAuthor.contains(requestAuthor)
+                || countSharedTokens(tokenize(request.getAuthorName()), tokenize(book.getAuthorFullName())) > 0)) {
+            score += 15;
+            addReason(reasons, "Similar author");
+        }
+
+        Set<String> requestGenres = normalizeGenreSet(request.getGenres());
+        for (String genre : book.getGenres()) {
+            if (requestGenres.contains(normalizeDuplicateKey(genre))) {
+                score += 20;
+                addReason(reasons, "Shared genre: " + genre);
+            }
+        }
+
+        return new RequestBookMatch(request, score, exactTitle, reasons);
+    }
+
+    private static Set<String> tokenize(String value) {
+        Set<String> tokens = new HashSet<>();
+        if (value == null || value.isBlank()) {
+            return tokens;
+        }
+        for (String part : value.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+            if (!part.isBlank() && !TINY_STOPWORDS.contains(part)) {
+                tokens.add(part);
+            }
+        }
+        return tokens;
+    }
+
+    private static Set<String> normalizeGenreSet(List<String> genres) {
+        Set<String> normalized = new HashSet<>();
+        if (genres == null) {
+            return normalized;
+        }
+        for (String genre : genres) {
+            String value = normalizeDuplicateKey(genre);
+            if (!value.isEmpty()) {
+                normalized.add(value);
+            }
+        }
+        return normalized;
+    }
+
+    private static int countSharedTokens(Set<String> left, Set<String> right) {
+        int shared = 0;
+        for (String token : left) {
+            if (right.contains(token)) {
+                shared++;
+            }
+        }
+        return shared;
+    }
+
+    private static void addReason(List<String> reasons, String reason) {
+        if (!reasons.contains(reason)) {
+            reasons.add(reason);
+        }
     }
 
     private static void incrementCounter(Map<String, Integer> counts,
