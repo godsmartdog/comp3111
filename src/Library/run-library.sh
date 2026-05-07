@@ -43,23 +43,37 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Runtime environment — mirrors Run-Library.ps1 (Windows) so Phase 3 features
-# 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS.
-# Each variable is only set if not already exported, so a user can override
-# any of these by exporting them before invoking this script.
+# Runtime environment — mirrors Run-Library.ps1 so Phase 3 features
+# 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS/Linux.
 # ---------------------------------------------------------------------------
-: "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
-: "${GGUF_MODEL_PATH:=$SCRIPT_DIR/SmolLM2-135M-Instruct-Q3_K_XL.gguf}"
-: "${LLAMA_JAR:=$SCRIPT_DIR/third-party/llama/llama-4.1.0.jar}"
-export GOOGLE_BOOKS_API_KEY GGUF_MODEL_PATH LLAMA_JAR
-
-if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
-    echo "Google Books API key: set"
-else
-    echo "Google Books API key: (empty)"
+if [[ -z "${JAVA_HOME:-}" ]]; then
+    if [[ -d "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home"
+    elif [[ -d "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+    elif [[ -d "/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" ]]; then
+        export JAVA_HOME="/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+    fi
 fi
-echo "GGUF model path:      $GGUF_MODEL_PATH"
-echo "Llama jar:            $LLAMA_JAR"
+
+export GOOGLE_BOOKS_API_KEY="AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
+export GGUF_MODEL_PATH="$(cd "$SCRIPT_DIR" && pwd)/Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"
+LLAMA_JAR="$(cd "$SCRIPT_DIR/third-party/llama" && pwd)/llama-4.1.0.jar"
+export LLAMA_JAR
+
+if [[ ! -f "$GGUF_MODEL_PATH" ]]; then
+    echo "ERROR: Meta-Llama model not found at: $GGUF_MODEL_PATH" >&2
+    exit 1
+fi
+
+JAVAFX_LIB="/Library/Java/JavaVirtualMachines/javafx-sdk-21.0.10/lib"
+JAVAFX_MODULES="javafx.controls,javafx.fxml"
+
+echo "JAVA_HOME set to: ${JAVA_HOME:-}"
+echo "Google Books API key set."
+echo "GGUF model path (ABSOLUTE): $GGUF_MODEL_PATH"
+echo "JavaFX path: $JAVAFX_LIB"
+echo "Llama jar: $LLAMA_JAR"
 
 # ---------------------------------------------------------------------------
 # Resolve java / javac
@@ -77,7 +91,7 @@ resolve_tool() {
         echo "$tool"
         return
     fi
-    echo "Cannot find $tool. Set JAVA_HOME or add it to PATH." >&2
+    echo "Cannot find $tool." >&2
     exit 1
 }
 
@@ -123,12 +137,10 @@ if $MODE_TESTS; then
     TEST_SOURCES="$(make_source_list \
         Library/Exception \
         Library/Model \
-        Library/Persistence \
         Library/Repository \
         Library/Security \
         Library/Service \
-        Library/Test \
-        Library/Ui)"
+        Library/Test)"
 
     mkdir -p "$TEST_OUTPUT"
 
