@@ -64,10 +64,12 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -5170,15 +5172,14 @@ public class LibraryApiHandlers {
         if (book == null) {
             return sent;
         }
+        Set<String> sentKeys = new HashSet<>();
         for (BookRequestService.RequestBookMatch match : bookRequestService.findSimilarOpenRequestsForBook(book)) {
             BookRequest2 request = match.request();
             String requester = nullToEmpty(request.getRequesterUsername()).trim();
             if (requester.isEmpty()) {
                 continue;
             }
-            if (notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId())) {
-                continue;
-            }
+            String key = requester.toLowerCase(Locale.ROOT) + "|" + request.getId() + "|" + book.getId();
 
             boolean exactTitle = match.exactTitleMatch();
             String title = exactTitle
@@ -5187,6 +5188,10 @@ public class LibraryApiHandlers {
             String message = exactTitle
                     ? "Your requested book \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + "."
                     : "A book similar to your request \"" + request.getTitle() + "\" is now available: \"" + book.getTitle() + "\" by " + book.getAuthorFullName() + ".";
+                    if (!sentKeys.add(key)
+                        || notificationService.requestFulfillmentNotificationExists(requester, request.getId(), book.getId(), title, message)) {
+                    continue;
+                    }
             notificationService.addNotification(
                     requester,
                     title,

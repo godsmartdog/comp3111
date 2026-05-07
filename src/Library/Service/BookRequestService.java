@@ -20,7 +20,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class BookRequestService {
-    private static final Set<String> TINY_STOPWORDS = Set.of("a", "an", "the", "of", "and", "or", "to", "in");
+    private static final Set<String> TINY_STOPWORDS = Set.of(
+            "a", "an", "the", "of", "and", "or", "to", "in",
+            "test", "manual", "smoke", "analytics", "duplicate", "guard", "book", "request", "section", "author"
+    );
     private final BookRequestRepository2 requestRepository;
     private final BookRepository bookRepository;
 
@@ -31,7 +34,11 @@ public class BookRequestService {
                                List<CountItem> topAuthors,
                                Map<String, Integer> totalByStatus) {}
 
-    public record RequestBookMatch(BookRequest2 request, int score, boolean exactTitleMatch, List<String> reasons) {}
+    public record RequestBookMatch(BookRequest2 request,
+                                   int score,
+                                   boolean exactTitleMatch,
+                                   boolean eligible,
+                                   List<String> reasons) {}
 
     private record CounterEntry(String displayName, int count) {}
 
@@ -132,7 +139,7 @@ public class BookRequestService {
                 continue;
             }
             RequestBookMatch match = scoreRequestBookMatch(request, book);
-            if (match.exactTitleMatch() || match.score() >= 40) {
+            if (match.eligible()) {
                 matches.add(match);
             }
         }
@@ -277,48 +284,63 @@ public class BookRequestService {
     private static RequestBookMatch scoreRequestBookMatch(BookRequest2 request, Book book) {
         int score = 0;
         boolean exactTitle = false;
+        boolean titleSubstring = false;
         List<String> reasons = new ArrayList<>();
 
         String requestTitle = normalizeDuplicateKey(request.getTitle());
         String bookTitle = normalizeDuplicateKey(book.getTitle());
+        Set<String> requestTitleTokens = tokenize(request.getTitle());
+        Set<String> bookTitleTokens = tokenize(book.getTitle());
+        int meaningfulSharedTitleTokens = countSharedTokens(requestTitleTokens, bookTitleTokens);
         if (!requestTitle.isEmpty() && requestTitle.equals(bookTitle)) {
             score += 80;
             exactTitle = true;
             addReason(reasons, "Exact title match");
         } else if (!requestTitle.isEmpty() && !bookTitle.isEmpty()
-                && (requestTitle.contains(bookTitle) || bookTitle.contains(requestTitle))) {
+                && (requestTitle.contains(bookTitle) || bookTitle.contains(requestTitle))
+                && hasMeaningfulTitleSubstring(requestTitleTokens, bookTitleTokens, meaningfulSharedTitleTokens)) {
             score += 50;
+            titleSubstring = true;
             addReason(reasons, "Similar title");
         }
 
-        int sharedTitleTokens = countSharedTokens(tokenize(request.getTitle()), tokenize(book.getTitle()));
-        if (sharedTitleTokens > 0) {
-            score += 20 * sharedTitleTokens;
+        if (meaningfulSharedTitleTokens > 0) {
+            score += 20 * meaningfulSharedTitleTokens;
             addReason(reasons, "Similar title");
         }
 
+        boolean authorMatch = false;
         String requestAuthor = normalizeDuplicateKey(request.getAuthorName());
         String bookAuthor = normalizeDuplicateKey(book.getAuthorFullName());
         if (!requestAuthor.isEmpty() && requestAuthor.equals(bookAuthor)) {
             score += 35;
+            authorMatch = true;
             addReason(reasons, "Same author");
         } else if (!requestAuthor.isEmpty() && !bookAuthor.isEmpty()
                 && (requestAuthor.contains(bookAuthor)
                 || bookAuthor.contains(requestAuthor)
                 || countSharedTokens(tokenize(request.getAuthorName()), tokenize(book.getAuthorFullName())) > 0)) {
             score += 15;
+            authorMatch = true;
             addReason(reasons, "Similar author");
         }
 
+        int sharedGenres = 0;
         Set<String> requestGenres = normalizeGenreSet(request.getGenres());
         for (String genre : book.getGenres()) {
             if (requestGenres.contains(normalizeDuplicateKey(genre))) {
+                sharedGenres++;
                 score += 20;
                 addReason(reasons, "Shared genre: " + genre);
             }
         }
 
-        return new RequestBookMatch(request, score, exactTitle, reasons);
+        boolean strongTitleMatch = titleSubstring || meaningfulSharedTitleTokens >= 2;
+        boolean eligible = exactTitle
+                || strongTitleMatch
+                || (authorMatch && (sharedGenres > 0 || meaningfulSharedTitleTokens > 0));
+
+        return new RequestBookMatch(request, score, exactTitle, eligible, reasons);
     }
 
     private static Set<String> tokenize(String value) {
@@ -327,11 +349,31 @@ public class BookRequestService {
             return tokens;
         }
         for (String part : value.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
-            if (!part.isBlank() && !TINY_STOPWORDS.contains(part)) {
+            if (isMeaningfulToken(part)) {
                 tokens.add(part);
             }
         }
         return tokens;
+    }
+
+    private static boolean isMeaningfulToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        if (token.length() <= 2) {
+            return false;
+        }
+        if (token.matches("\\d+")) {
+            return false;
+        }
+        return !TINY_STOPWORDS.contains(token);
+    }
+
+    private static boolean hasMeaningfulTitleSubstring(Set<String> leftTokens, Set<String> rightTokens, int sharedCount) {
+        if (sharedCount <= 0 || leftTokens.isEmpty() || rightTokens.isEmpty()) {
+            return false;
+        }
+        return sharedCount >= Math.min(leftTokens.size(), rightTokens.size());
     }
 
     private static Set<String> normalizeGenreSet(List<String> genres) {

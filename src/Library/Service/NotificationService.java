@@ -251,7 +251,11 @@ public class NotificationService {
         return false;
     }
 
-    public boolean requestFulfillmentNotificationExists(String username, String requestId, String bookId) {
+    public boolean requestFulfillmentNotificationExists(String username,
+                                                        String requestId,
+                                                        String bookId,
+                                                        String title,
+                                                        String message) {
         if (username == null || requestId == null || bookId == null) {
             return false;
         }
@@ -260,6 +264,9 @@ public class NotificationService {
             if ("request-fulfilled".equals(metadata.getOrDefault("type", ""))
                     && requestId.equals(metadata.getOrDefault("requestId", ""))
                     && bookId.equals(metadata.getOrDefault("bookId", ""))) {
+                return true;
+            }
+            if (safeTitle(title).equals(item.getTitle()) && safeMessage(message).equals(item.getMessage())) {
                 return true;
             }
         }
