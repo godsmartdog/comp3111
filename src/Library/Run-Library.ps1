@@ -11,6 +11,18 @@ $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
 $env:INFERENCE_BASE_URL = "http://127.0.0.1:1234/v1"
 $env:INFERENCE_API_KEY = ""
 $env:INFERENCE_MODEL = "local-model"
+$env:S3_ENDPOINT = "https://s3.us.archive.org"
+$env:S3_REGION = "us-east-1"
+$env:S3_ACCESS_KEY = ""
+$env:S3_SECRET_KEY = ""
+$env:IA_ACCESS_KEY = ""
+$env:IA_SECRET_KEY = ""
+
+# Load local overrides (not tracked by git)
+$localOverrides = Join-Path $PSScriptRoot "Run-Library.local.ps1"
+if (Test-Path $localOverrides) {
+    . $localOverrides
+}
 
 # Define JavaFX path
 $javafxLib = "C:\Program Files\Java\javafx-sdk-21.0.10\lib"
@@ -21,6 +33,12 @@ Write-Host "Google Books API key set." -ForegroundColor Green
 Write-Host "Inference base URL: $env:INFERENCE_BASE_URL" -ForegroundColor Green
 Write-Host "Inference model: $env:INFERENCE_MODEL" -ForegroundColor Green
 Write-Host "JavaFX path: $javafxLib" -ForegroundColor Green
+Write-Host "S3 endpoint: $env:S3_ENDPOINT" -ForegroundColor Green
+Write-Host "S3 region: $env:S3_REGION" -ForegroundColor Green
+Write-Host "S3 access key set: $([bool]$env:S3_ACCESS_KEY) (length: $($env:S3_ACCESS_KEY.Length))" -ForegroundColor Green
+Write-Host "S3 secret key set: $([bool]$env:S3_SECRET_KEY) (length: $($env:S3_SECRET_KEY.Length))" -ForegroundColor Green
+Write-Host "IA access key set: $([bool]$env:IA_ACCESS_KEY) (length: $($env:IA_ACCESS_KEY.Length))" -ForegroundColor Green
+Write-Host "IA secret key set: $([bool]$env:IA_SECRET_KEY) (length: $($env:IA_SECRET_KEY.Length))" -ForegroundColor Green
 function Resolve-ToolPath {
     param(
         [string[]]$Candidates,
