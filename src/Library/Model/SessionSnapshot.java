@@ -1,8 +1,11 @@
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
-public class SessionSnapshot {
+public class SessionSnapshot implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String sessionId;
     private final String username;
     private final Role role;

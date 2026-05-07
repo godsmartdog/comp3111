@@ -14,6 +14,7 @@ let editSelectedFile = null;
 let editSelectedCoverImage = null;
 let addSelectedFile = null;
 let addSelectedCoverImage = null;
+const PENDING_PUBLISHED_BOOK_PREFILL_KEY = "pendingPublishedBookPrefill";
 
 function getSelectedGenres(selectId) {
     const select = document.getElementById(selectId);
@@ -251,6 +252,51 @@ function clearAddForm() {
     if (addCoverInput) {
         addCoverInput.value = "";
     }
+}
+
+function consumePendingPublishedBookPrefill() {
+    let raw = "";
+    try {
+        raw = sessionStorage.getItem(PENDING_PUBLISHED_BOOK_PREFILL_KEY) || "";
+        if (!raw) {
+            return;
+        }
+        sessionStorage.removeItem(PENDING_PUBLISHED_BOOK_PREFILL_KEY);
+    } catch (error) {
+        return;
+    }
+
+    let prefill = null;
+    try {
+        prefill = JSON.parse(raw);
+    } catch (error) {
+        return;
+    }
+    if (!prefill || typeof prefill !== "object") {
+        return;
+    }
+
+    if (prefill.title) {
+        document.getElementById("addTitle").value = prefill.title;
+    }
+    if (prefill.authorNames) {
+        document.getElementById("addAuthorNames").value = prefill.authorNames;
+    }
+    if (prefill.genres) {
+        setSelectedGenres("addGenres", String(prefill.genres).split(","));
+    }
+    if (prefill.description) {
+        document.getElementById("addDescription").value = prefill.description;
+    }
+    if (prefill.coverImagePath) {
+        document.getElementById("addCoverImagePath").value = prefill.coverImagePath;
+    }
+
+    const addSection = document.getElementById("addPublishedBookSection");
+    addSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast(prefill.sourcePdfUrl
+        ? "Prefilled Add New Published Book from request. Choose a local book file before saving."
+        : "Prefilled Add New Published Book from request.", false);
 }
 
 function filterBooksByKeyword(items, keyword) {
@@ -571,4 +617,5 @@ if (currentUser) {
         }
         showToast(error.message, true);
     });
+    consumePendingPublishedBookPrefill();
 }

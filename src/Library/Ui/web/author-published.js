@@ -1,5 +1,7 @@
 const currentUser = requireRole("AUTHOR");
+const selectedPublishedBookIds = new Set();
 let serverPreviewObjectUrl = null;
+let publishedBooksCache = [];
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -148,14 +150,13 @@ async function renderServerFilePreview(payload, heading) {
     }
 }
 
-async function refreshPublishedBooks() {
+function renderPublishedBooks(items) {
     const status = document.getElementById("publishedStatus");
     const body = document.getElementById("publishedBooksBody");
     if (!status || !body) {
         return;
     }
 
-    const items = await api("/api/author/published-books");
     body.innerHTML = "";
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -165,18 +166,38 @@ async function refreshPublishedBooks() {
 
     status.textContent = `Found ${items.length} published book(s).`;
 
+    const visibleIds = new Set(items.map((item) => item.id));
+    Array.from(selectedPublishedBookIds).forEach((id) => {
+        if (!visibleIds.has(id)) selectedPublishedBookIds.delete(id);
+    });
+
     items.forEach((item) => {
         const row = document.createElement("tr");
         const actionCell = document.createElement("td");
+        const descriptionStyle = document.getElementById("authorPublishedSummaryStyle")?.value || "detailed";
+        const displayDescription = formatSummaryByStyle(item.description || item.summary || "", descriptionStyle);
         row.innerHTML = `
             <td>${item.id}</td>
             <td>${item.title}</td>
             <td>${Array.isArray(item.genres) ? item.genres.join(", ") : ""}</td>
-            <td>${item.description || item.summary || ""}</td>
+            <td>${escapeHtml(displayDescription)}</td>
             <td>${formatDateOnly(item.publishDate || "")}</td>
             <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
         `;
+
+        const selectCell = document.createElement("td");
+        const selectInput = document.createElement("input");
+        selectInput.type = "checkbox";
+        selectInput.dataset.bookId = item.id;
+        selectInput.checked = selectedPublishedBookIds.has(item.id);
+        selectInput.addEventListener("change", () => {
+            if (selectInput.checked) selectedPublishedBookIds.add(item.id);
+            else selectedPublishedBookIds.delete(item.id);
+            updateBulkDeletePublishedButton();
+        });
+        selectCell.appendChild(selectInput);
+        row.insertBefore(selectCell, row.firstChild);
 
         const editBtn = document.createElement("button");
         editBtn.className = "secondary";
@@ -184,23 +205,32 @@ async function refreshPublishedBooks() {
         editBtn.textContent = "Edit";
         editBtn.addEventListener("click", async () => {
             try {
-                const newTitle = prompt("Update title:", item.title || "");
-                if (newTitle === null) {
+                const proceed = confirm(
+                    `Edit "${item.title}"?\n\n` +
+                    "You will be asked for each editable field one at a time:\n" +
+                    "  Step 1 of 3 — Title\n" +
+                    "  Step 2 of 3 — Genres (comma-separated)\n" +
+                    "  Step 3 of 3 — Description\n\n" +
+                    "Press Cancel on any step to abort the edit; nothing is saved until all 3 steps are completed."
+                );
+                if (!proceed) {
                     return;
                 }
+
+                const newTitle = prompt("Step 1 of 3 — Update title:", item.title || "");
+                if (newTitle === null) { return; }
 
                 const newGenres = prompt(
-                    "Update genres (comma separated):",
+                    "Step 2 of 3 — Update genres (comma separated):",
                     Array.isArray(item.genres) ? item.genres.join(", ") : ""
                 );
-                if (newGenres === null) {
-                    return;
-                }
+                if (newGenres === null) { return; }
 
-                const newDescription = prompt("Update description:", item.description || item.summary || "");
-                if (newDescription === null) {
-                    return;
-                }
+                const newDescription = prompt(
+                    "Step 3 of 3 — Update description:",
+                    item.description || item.summary || ""
+                );
+                if (newDescription === null) { return; }
 
                 const text = await api("/api/author/published-book/update", {
                     method: "POST",
@@ -266,7 +296,71 @@ async function refreshPublishedBooks() {
         row.appendChild(actionCell);
         body.appendChild(row);
     });
+    updateBulkDeletePublishedButton();
+    const selectAll = document.getElementById("publishedSelectAll");
+    if (selectAll) selectAll.checked = false;
 }
+
+async function refreshPublishedBooks() {
+    publishedBooksCache = await api("/api/author/published-books");
+    renderPublishedBooks(publishedBooksCache);
+}
+
+function updateBulkDeletePublishedButton() {
+    const btn = document.getElementById("bulkDeletePublishedBtn");
+    if (!btn) return;
+    btn.textContent = `Delete Selected (${selectedPublishedBookIds.size})`;
+    btn.disabled = selectedPublishedBookIds.size === 0;
+}
+
+document.getElementById("publishedSelectAll")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    document
+        .querySelectorAll("#publishedBooksBody input[type=checkbox][data-book-id]")
+        .forEach((cb) => {
+            cb.checked = checked;
+            const id = cb.dataset.bookId;
+            if (checked) selectedPublishedBookIds.add(id);
+            else selectedPublishedBookIds.delete(id);
+        });
+    updateBulkDeletePublishedButton();
+});
+
+document.getElementById("bulkDeletePublishedBtn")?.addEventListener("click", async () => {
+    if (selectedPublishedBookIds.size === 0) return;
+    const ids = Array.from(selectedPublishedBookIds);
+    const titles = ids.map((id) => {
+        const cb = document.querySelector(`#publishedBooksBody input[data-book-id="${id}"]`);
+        // Row order: [select][ID][Title][...]; title is index 2 of row.children.
+        const titleCell = cb?.parentElement?.parentElement?.children?.[2];
+        return titleCell ? titleCell.textContent : id;
+    });
+    const summary = titles.length > 6
+        ? titles.slice(0, 6).join(", ") + `, … (+${titles.length - 6} more)`
+        : titles.join(", ");
+    if (!confirm(`Delete ${ids.length} published book(s)?\n\n${summary}\n\nThis cannot be undone. Books with active borrows will be skipped with a reason.`)) {
+        return;
+    }
+    try {
+        const result = await api("/api/author/published-book/bulk-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ bookIds: ids.join(",") })
+        });
+        const deleted = Number(result?.deletedCount || 0);
+        const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+        let msg = `Deleted ${deleted} published book(s).`;
+        if (skipped.length > 0) {
+            msg += ` Skipped ${skipped.length}: ` + skipped.slice(0, 3).map((s) => `${s.id} (${s.reason})`).join("; ");
+            if (skipped.length > 3) msg += `; …`;
+        }
+        showToast(msg, skipped.length > 0);
+        selectedPublishedBookIds.clear();
+        await refreshPublishedBooks();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
     refreshPublishedBooks().catch((e) => {
@@ -276,6 +370,10 @@ document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
         }
         showToast(e.message, true);
     });
+});
+
+document.getElementById("authorPublishedSummaryStyle")?.addEventListener("change", () => {
+    renderPublishedBooks(publishedBooksCache);
 });
 
 if (currentUser) {

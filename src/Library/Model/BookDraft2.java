@@ -3,12 +3,14 @@
 
 package Library.Model; // imported in BookRepository for interface
 
+import java.io.Serializable;
 import java.time.LocalDateTime; // local system date and time for reference (both the day such as YYYYMMDD and the time HHMMSS)
 import java.util.ArrayList; // generic class (similar to C++ template class "array")
 import java.util.List; // generic class (similar to C++ template class "list")
 
 // Class for BookDraft - meant for work in progress books (author is still typing content)
-public class BookDraft2 {
+public class BookDraft2 implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables
     private final String authorUsername;

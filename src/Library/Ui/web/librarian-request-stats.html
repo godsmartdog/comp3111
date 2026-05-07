@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Request Analytics</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Request Analytics</h1>
+        <p id="requestStatsWelcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="librarian-book-requests.html">Book Requests</a>
+        <button id="requestStatsLogoutBtn" class="secondary" type="button">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <div class="stats-toolbar">
+            <h2>Request Demand Overview</h2>
+            <div>
+                <button id="refreshRequestStatsBtn" class="secondary" type="button">Refresh Analytics</button>
+            </div>
+        </div>
+        <p id="requestStatsStatus">Loading request analytics...</p>
+
+        <div class="stats-grid">
+            <article class="metric-card">
+                <h3>Total Requests</h3>
+                <p id="totalRequestsMetric">--</p>
+            </article>
+        </div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Requests by Status</h2>
+        <div id="statusStatsTable"></div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Most Requested Genres</h2>
+        <div id="topGenresTable"></div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Most Requested Authors</h2>
+        <div id="topAuthorsTable"></div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-request-stats.js"></script>
+</body>
+</html>

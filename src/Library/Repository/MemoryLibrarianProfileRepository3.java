@@ -1,13 +1,16 @@
 package Library.Repository;
 //class used
 import Library.Model.LibrarianProfile3;
+import java.io.Serializable;
 //way to store
 import java.util.HashMap;
 import java.util.Map;
 //safe return
 import java.util.Optional;
 
-public class MemoryLibrarianProfileRepository3 implements LibrarianProfileRepository3 {
+public class MemoryLibrarianProfileRepository3 implements LibrarianProfileRepository3, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final Map<String, LibrarianProfile3> map = new HashMap<>();
     //we use username as key
     @Override

@@ -117,14 +117,33 @@
         <p id="selectedBook">Selected book: none</p>
         <div id="selectedBookSummaryBox" class="panel-subtle">
             <h4>Reading Summary</h4>
+            <div class="inline-row" style="margin-top:6px;">
+                <label for="selectedBookSummaryStyle">Summary Style</label>
+                <select id="selectedBookSummaryStyle">
+                    <option value="short">Short</option>
+                    <option value="medium">Medium</option>
+                    <option value="detailed" selected>Detailed</option>
+                </select>
+            </div>
+            <p class="hint">Choose short, medium, or detailed summary display. Short and medium summaries are derived from the existing book description.</p>
             <img id="selectedBookCover" alt="Book cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
             <p id="selectedBookDescription" class="hint">Select a book to view description.</p>
             <div id="selectedBookFilePreview" style="display:none;gap:10px;flex-direction:column;margin-bottom:8px;"></div>
             <pre id="selectedBookPreview" style="white-space:pre-wrap;background:#f8f8f8;padding:10px;border-radius:8px;">First 2-page preview will appear here if available.</pre>
-            <h4>Reviews</h4>
-            <p id="selectedBookRatingSummary" class="hint">Average rating: -</p>
-            <div class="reader-scroll-block" style="max-height:220px;">
-                <ul id="selectedBookReviews" class="muted"></ul>
+            <div class="panel-subtle" style="margin-top:14px; padding:12px; border:1px solid rgba(0,0,0,0.12); border-radius:10px;">
+                <h4 style="margin-top:0;">Reviews</h4>
+                <p id="selectedBookRatingSummary" class="hint">Average rating: -</p>
+                <div class="inline-row" style="margin-top:6px;">
+                    <label for="reviewSort">Sort reviews</label>
+                    <select id="reviewSort">
+                        <option value="recent" selected>Most Recent</option>
+                        <option value="helpful">Most Helpful</option>
+                    </select>
+                </div>
+                <p class="hint" style="margin-top:4px;">Use Most Helpful to rank reviews by helpful votes. Some seeded demo records may be read-only.</p>
+                <div class="reader-scroll-block" style="max-height:220px; margin-top:10px; padding:10px; background:rgba(255,255,255,0.55); border-radius:8px;">
+                    <ul id="selectedBookReviews" class="muted" style="margin:0; padding-left:18px;"></ul>
+                </div>
             </div>
         </div>
         <div class="toolbar">

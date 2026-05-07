@@ -1,6 +1,8 @@
 package Library.Ui;
 
 import Library.Model.Book;
+import Library.Persistence.LibraryDatabase;
+import Library.Persistence.LibraryDatabaseService;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
 import Library.Repository.MemoryBookRequestRepository2;
@@ -9,7 +11,9 @@ import Library.Repository.MemoryBookReviewRepository;
 import Library.Repository.MemoryBookSubmissionRepository2;
 import Library.Repository.MemoryBorrowRepository;
 import Library.Repository.MemoryLibrarianProfileRepository3;
+import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryReadingProgressRepository;
+import Library.Repository.MemorySessionSnapshotRepository;
 import Library.Repository.MemoryUserRepository;
 import Library.Service.AuthService;
 import Library.Service.AuthorDraftService;
@@ -20,12 +24,18 @@ import Library.Service.BookReviewService;
 import Library.Service.BorrowService;
 import Library.Service.FileService;
 import Library.Service.LibrarianService3;
+import Library.Service.NotificationService;
 import Library.Service.ReadingProgressService;
 import Library.Service.RecommendationService;
+import Library.Service.SessionSnapshotService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class LibraryManagementApp {
     private static final int WEB_PORT = 8080;
@@ -45,8 +55,12 @@ public class LibraryManagementApp {
                     context.authorDraftService,
                     context.fileService,
                     context.librarianService,
+                    context.notificationService,
+                    context.readingProgressService,
+                    context.sessionSnapshotService,
                     WEB_PORT
             );
+            startAutosave(context.database);
             webServer.start();
 
             if (containsArg(args, "--smoke-test")) {
@@ -72,25 +86,30 @@ public class LibraryManagementApp {
         return false;
     }
 
-    // Helper method to set up in-memory repositories and seed demo data
-    // In a real application, this would connect to a database and not include demo seeding
-    // This method is intentionally verbose for clarity and educational purposes
+    // Helper method to set up persistent repositories and seed demo data on first run.
     private static AppContext createContext() throws Exception {
-        MemoryBookRepository bookRepository = new MemoryBookRepository();
-        MemoryBorrowRepository borrowRepository = new MemoryBorrowRepository();
-        MemoryBookReviewRepository bookReviewRepository = new MemoryBookReviewRepository();
-        MemoryBookRequestRepository2 bookRequestRepository = new MemoryBookRequestRepository2();
-        MemoryUserRepository userRepository = new MemoryUserRepository();
-        MemoryAuthorProfileRepository2 authorProfileRepository = new MemoryAuthorProfileRepository2();
-        MemoryBookSubmissionRepository2 submissionRepository = new MemoryBookSubmissionRepository2();
-        MemoryBookDraftRepository2 draftRepository = new MemoryBookDraftRepository2();
-        MemoryLibrarianProfileRepository3 librarianProfileRepository = new MemoryLibrarianProfileRepository3();
+        DatabaseStartupState startupState = loadDatabase();
+        LibraryDatabase database = startupState.database;
+        MemoryBookRepository bookRepository = database.bookRepository;
+        MemoryBorrowRepository borrowRepository = database.borrowRepository;
+        MemoryBookReviewRepository bookReviewRepository = database.bookReviewRepository;
+        MemoryBookRequestRepository2 bookRequestRepository = database.bookRequestRepository;
+        MemoryUserRepository userRepository = database.userRepository;
+        MemoryAuthorProfileRepository2 authorProfileRepository = database.authorProfileRepository;
+        MemoryBookSubmissionRepository2 submissionRepository = database.submissionRepository;
+        MemoryBookDraftRepository2 draftRepository = database.draftRepository;
+        MemoryLibrarianProfileRepository3 librarianProfileRepository = database.librarianProfileRepository;
+        MemoryReadingProgressRepository readingProgressRepository = database.readingProgressRepository;
+        MemoryNotificationRepository notificationRepository = database.notificationRepository;
+        MemorySessionSnapshotRepository sessionSnapshotRepository = database.sessionSnapshotRepository;
 
         AuthService authService = new AuthService(userRepository);
         BookService bookService = new BookService(bookRepository);
-        ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
-        BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
-        BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
+        ReadingProgressService readingProgressService = new ReadingProgressService(readingProgressRepository);
+        NotificationService notificationService = new NotificationService(notificationRepository);
+        SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(sessionSnapshotRepository);
+        BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService, notificationService);
+        BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService, notificationService);
         BookRequestService bookRequestService = new BookRequestService(bookRequestRepository, bookRepository);
         RecommendationService recommendationService = new RecommendationService(bookRepository, borrowRepository);
         FileService fileService = new FileService();
@@ -111,6 +130,47 @@ public class LibraryManagementApp {
             bookRepository
         );
 
+        if (startupState.seedRequired) {
+            seedDemoData(authService, authorService, librarianService, bookRepository, borrowService);
+            saveDatabase(database, false);
+            System.out.println("Created new persistent library database at " + LibraryDatabaseService.DEFAULT_DB_PATH);
+        }
+
+        return new AppContext(
+                database,
+                authService,
+                bookService,
+                borrowService,
+                bookReviewService,
+                bookRequestService,
+                recommendationService,
+                authorService,
+                authorDraftService,
+                fileService,
+                librarianService,
+                notificationService,
+                readingProgressService,
+                sessionSnapshotService
+        );
+    }
+
+    private static DatabaseStartupState loadDatabase() {
+        Path path = LibraryDatabaseService.DEFAULT_DB_PATH;
+        if (LibraryDatabaseService.exists(path)) {
+            Optional<LibraryDatabase> database = LibraryDatabaseService.load(path);
+            if (database.isPresent()) {
+                System.out.println("Loaded persistent library database from " + path);
+                return new DatabaseStartupState(database.get(), false);
+            }
+        }
+        return new DatabaseStartupState(new LibraryDatabase(), true);
+    }
+
+    private static void seedDemoData(AuthService authService,
+                                     AuthorService2 authorService,
+                                     LibrarianService3 librarianService,
+                                     MemoryBookRepository bookRepository,
+                                     BorrowService borrowService) throws Exception {
         authService.registerStudentOrStaff("student1", "Student Demo", "Password1!", Library.Model.Role.STUDENT);
         authorService.registerAuthor("author1", "Author Demo", "Password1!", "Writes demo content.");
         librarianService.registerLibrarian("librarian1", "Librarian Demo", "Password1!", "EMP-DEMO");
@@ -166,23 +226,34 @@ public class LibraryManagementApp {
                 "A pending submission seeded for the librarian tab.",
                 pendingSubmissionFile.toString()
         );
+    }
 
-        return new AppContext(
-                authService,
-                bookService,
-                borrowService,
-                bookReviewService,
-                bookRequestService,
-                recommendationService,
-                authorService,
-                authorDraftService,
-                fileService,
-                librarianService
-        );
+    private static void startAutosave(LibraryDatabase database) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> saveDatabase(database, true), "library-database-shutdown-save"));
+        ScheduledExecutorService autosave = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "library-database-autosave");
+            thread.setDaemon(true);
+            return thread;
+        });
+        autosave.scheduleAtFixedRate(() -> saveDatabase(database, false), 2, 2, TimeUnit.SECONDS);
+    }
+
+    private static void saveDatabase(LibraryDatabase database, boolean logSuccess) {
+        try {
+            LibraryDatabaseService.save(LibraryDatabaseService.DEFAULT_DB_PATH, database);
+            if (logSuccess) {
+                System.out.println("Library database autosaved.");
+            }
+        } catch (RuntimeException e) {
+            System.err.println("Warning: failed to save persistent library database: " + e.getMessage());
+        }
     }
 
     // Using record for simple immutable context holder
+    private record DatabaseStartupState(LibraryDatabase database, boolean seedRequired) {}
+
     private record AppContext(
+            LibraryDatabase database,
             AuthService authService,
             BookService bookService,
             BorrowService borrowService,
@@ -192,6 +263,9 @@ public class LibraryManagementApp {
             AuthorService2 authorService,
             AuthorDraftService authorDraftService,
             FileService fileService,
-            LibrarianService3 librarianService
+            LibrarianService3 librarianService,
+            NotificationService notificationService,
+            ReadingProgressService readingProgressService,
+            SessionSnapshotService sessionSnapshotService
     ) {}
 }

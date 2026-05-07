@@ -1,11 +1,14 @@
 package Library.Repository;
 
 import Library.Model.ReadingProgress;
+import java.io.Serializable;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class MemoryReadingProgressRepository implements ReadingProgressRepository {
+public class MemoryReadingProgressRepository implements ReadingProgressRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final Map<String, ReadingProgress> data = new ConcurrentHashMap<>();
 
     private static String keyOf(String username, String bookId) {

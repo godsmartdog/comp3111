@@ -15,6 +15,11 @@ async function refreshBorrows() {
         return;
     }
 
+    const selectAll = document.getElementById("selectAllBorrows");
+    if (selectAll) {
+        selectAll.checked = false;
+    }
+
     const params = new URLSearchParams();
     const status = document.getElementById("borrowStatusFilter")?.value || "active";
     const sortBy = document.getElementById("borrowSortBy")?.value || "";
@@ -66,6 +71,7 @@ async function refreshBorrows() {
 
         li.innerHTML = `
             <div class="borrow-item-row">
+                <input type="checkbox" class="borrow-select-box" data-book-id="${item.bookId}" data-book-title="${escapeHtml(item.bookTitle)}" aria-label="Select ${escapeHtml(item.bookTitle)}">
                 <span>${item.bookTitle} (borrowed ${formatDateOnly(item.borrowDate || "")}, due ${formatDateOnly(item.dueDate || "")})${warningLabel ? ` [${warningLabel}]` : ""}</span>
                 <div class="borrow-item-actions">
                     <a class="link-btn" href="staff-reader.html?bookId=${encodeURIComponent(item.bookId)}">Read</a>
@@ -73,6 +79,8 @@ async function refreshBorrows() {
                 </div>
             </div>
         `;
+
+        li.querySelector(".borrow-select-box")?.addEventListener("change", updateReturnSelectedButton);
 
         li.querySelector("button")?.addEventListener("click", async () => {
             try {
@@ -93,7 +101,54 @@ async function refreshBorrows() {
 
         list.appendChild(li);
     });
+
+    updateReturnSelectedButton();
 }
+
+function getBorrowSelectBoxes() {
+    return Array.from(document.querySelectorAll(".borrow-select-box"));
+}
+
+function updateReturnSelectedButton() {
+    const button = document.getElementById("returnSelectedBtn");
+    if (!button) {
+        return;
+    }
+    const selected = getBorrowSelectBoxes().filter((cb) => cb.checked);
+    button.textContent = `Return Selected (${selected.length})`;
+    button.disabled = selected.length === 0;
+}
+
+document.getElementById("selectAllBorrows")?.addEventListener("change", (event) => {
+    const checked = event.target.checked === true;
+    getBorrowSelectBoxes().forEach((cb) => { cb.checked = checked; });
+    updateReturnSelectedButton();
+});
+
+document.getElementById("returnSelectedBtn")?.addEventListener("click", async () => {
+    const ids = getBorrowSelectBoxes().filter((cb) => cb.checked).map((cb) => cb.dataset.bookId);
+    if (ids.length === 0) {
+        return;
+    }
+    if (!confirm(`Confirm return ${ids.length} selected book(s)?`)) {
+        return;
+    }
+    try {
+        const payload = await api("/api/return-bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: formBody({ bookIds: ids.join(",") })
+        });
+        const failedCount = Array.isArray(payload.failed) ? payload.failed.length : 0;
+        showToast(`Returned ${payload.succeeded || 0} book(s)${failedCount ? `; ${failedCount} failed` : ""}.`, failedCount > 0);
+        if (failedCount) {
+            console.warn("Bulk return failures:", payload.failed);
+        }
+        await refreshBorrows();
+    } catch (error) {
+        showToast(error.message, true);
+    }
+});
 
 document.getElementById("applyBorrowFiltersBtn")?.addEventListener("click", () => {
     refreshBorrows().catch((e) => showToast(e.message, true));

@@ -1,6 +1,10 @@
 package Library.Model;
 
-public class NotificationAction {
+import java.io.Serializable;
+
+public class NotificationAction implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String type;
     private final String label;
     private final String target;

@@ -4,7 +4,7 @@ param(
     [switch]$SmokeTest,
     [switch]$CompileOnly
 )
-//powershell -ExecutionPolicy Bypass -File "Run-Library.ps1"
+# powershell -ExecutionPolicy Bypass -File "Run-Library.ps1"
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
@@ -17,6 +17,7 @@ $env:S3_ACCESS_KEY = ""
 $env:S3_SECRET_KEY = ""
 $env:IA_ACCESS_KEY = ""
 $env:IA_SECRET_KEY = ""
+$env:GGUF_MODEL_PATH = (Join-Path $PSScriptRoot "SmolLM2-135M-Instruct-Q3_K_XL.gguf")
 
 # Load local overrides (not tracked by git)
 $localOverrides = Join-Path $PSScriptRoot "Run-Library.local.ps1"
@@ -30,8 +31,7 @@ $javafxModules = "javafx.controls,javafx.fxml"
 
 Write-Host "JAVA_HOME set to: $env:JAVA_HOME" -ForegroundColor Green
 Write-Host "Google Books API key set." -ForegroundColor Green
-Write-Host "Inference base URL: $env:INFERENCE_BASE_URL" -ForegroundColor Green
-Write-Host "Inference model: $env:INFERENCE_MODEL" -ForegroundColor Green
+Write-Host "GGUF model path: $env:GGUF_MODEL_PATH" -ForegroundColor Green
 Write-Host "JavaFX path: $javafxLib" -ForegroundColor Green
 Write-Host "S3 endpoint: $env:S3_ENDPOINT" -ForegroundColor Green
 Write-Host "S3 region: $env:S3_REGION" -ForegroundColor Green
@@ -85,6 +85,8 @@ $workspaceRoot = Resolve-Path $PSScriptRoot
 $sourceRoot = Resolve-Path (Join-Path $workspaceRoot "..")
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $projectRoot = Resolve-Path (Join-Path $scriptDir "..\..")  # Goes up 2 levels to project root
+$llamaJar = Join-Path $sourceRoot "Library\third-party\llama\llama-4.1.0.jar"
+Write-Host "Llama jar: $llamaJar" -ForegroundColor Green
 
 $javaCandidates = @(
     (Join-Path $env:JAVA_HOME "bin\java.exe"),
@@ -126,14 +128,14 @@ try {
         Ensure-Directory -Path $testOutput
 
         Write-Host "Compiling integration tests..."
-        & $javac -encoding UTF-8 -d $testOutput "@$testSources"
+        & $javac -encoding UTF-8 -cp $llamaJar -d $testOutput "@$testSources"
         if ($LASTEXITCODE -ne 0) {
             throw "Integration test compilation failed."
         }
 
         if (!$CompileOnly) {
             Write-Host "Running integration tests..."
-            & $java -cp $testOutput Library.Test.LibraryIntegrationTest
+            & $java -cp "$testOutput;$llamaJar" Library.Test.LibraryIntegrationTest
             if ($LASTEXITCODE -ne 0) {
                 throw "Integration tests failed."
             }
@@ -150,14 +152,14 @@ try {
         Ensure-Directory -Path $fxOutput
 
         Write-Host "Compiling application (web UI + services)..."
-        & $javac -encoding UTF-8 -d $fxOutput "@$fxSources"
+        & $javac -encoding UTF-8 -cp $llamaJar -d $fxOutput "@$fxSources"
         if ($LASTEXITCODE -ne 0) {
             throw "Application compilation failed."
         }
 
         if (!$CompileOnly) {
             $appArgs = @(
-                "-cp", $fxOutput,
+                "-cp", "$fxOutput;$llamaJar",
                 "Library.Ui.LibraryManagementApp"
             )
 

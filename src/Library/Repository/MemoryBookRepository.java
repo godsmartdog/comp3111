@@ -4,9 +4,12 @@
 package Library.Repository;
 //import class of book
 import Library.Model.Book;
+import java.io.Serializable;
 import java.util.*;
 
-public class MemoryBookRepository implements BookRepository {
+public class MemoryBookRepository implements BookRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final Map<String, Book> books = new HashMap<>();
 //we use id as key to store book in map
     @Override

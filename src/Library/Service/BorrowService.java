@@ -4,6 +4,7 @@ import Library.Exception.BusinessException;
 import Library.Exception.NotFoundException;
 import Library.Model.Book;
 import Library.Model.BorrowRecord;
+import Library.Model.NotificationPriority;
 import Library.Repository.BookRepository;
 import Library.Repository.BorrowRepository;
 import Library.Security.SecurityConfig;
@@ -11,7 +12,9 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -37,18 +40,34 @@ public class BorrowService {
     private final BookRepository bookRepository;
     private final BorrowRepository borrowRepository;
     private final ReadingProgressService readingProgressService;
+    private NotificationService notificationService;
 
     // Constructor to initialize the BorrowService with the required BookRepository and BorrowRepository, allowing for dependency injection and better separation of concerns.
     public BorrowService(BookRepository bookRepository, BorrowRepository borrowRepository) {
-        this(bookRepository, borrowRepository, null);
+        this(bookRepository, borrowRepository, null, null);
     }
 
     public BorrowService(BookRepository bookRepository,
                          BorrowRepository borrowRepository,
                          ReadingProgressService readingProgressService) {
+        this(bookRepository, borrowRepository, readingProgressService, null);
+    }
+
+    public BorrowService(BookRepository bookRepository,
+                         BorrowRepository borrowRepository,
+                         ReadingProgressService readingProgressService,
+                         NotificationService notificationService) {
         this.bookRepository = bookRepository;
         this.borrowRepository = borrowRepository;
         this.readingProgressService = readingProgressService;
+        this.notificationService = notificationService;
+    }
+
+    // Optional post-construction wiring for the notification dependency. Used by
+    // composition roots (LibraryApiHandlers, TestContext) where NotificationService
+    // is created after BorrowService.
+    public void setNotificationService(NotificationService notificationService) {
+        this.notificationService = notificationService;
     }
 
     // Method to borrow a book for a user, with an optional parameter for the number of days to borrow, validating the book's availability and the user's borrowing limits before creating a borrow record and updating the book's availability status.
@@ -165,8 +184,38 @@ public class BorrowService {
         for (BorrowRecord record : overdue) {
             record.markReturned(today, true);
             bookRepository.findById(record.getBookId()).ifPresent(Book::markReturnedCopy);
+            sendAutoReturnNotification(record, today);
         }
         return overdue.size();
+    }
+
+    private void sendAutoReturnNotification(BorrowRecord record, LocalDate today) {
+        if (notificationService == null) {
+            return;
+        }
+        if (notificationService.autoReturnNotificationExists(record.getUsername(), record.getId())) {
+            return;
+        }
+        String bookTitle = bookRepository.findById(record.getBookId())
+                .map(Book::getTitle)
+                .orElse(record.getBookId());
+        String title = "Book auto-returned";
+        String message = "Your borrow of \"" + bookTitle + "\" was auto-returned on " + today
+                + " because its due date (" + record.getDueDate() + ") has passed.";
+        Map<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("type", "auto-return");
+        metadata.put("borrowRecordId", record.getId());
+        metadata.put("bookId", record.getBookId());
+        metadata.put("dueDate", record.getDueDate().toString());
+        metadata.put("returnedDate", today.toString());
+        notificationService.addNotification(
+                record.getUsername(),
+                title,
+                message,
+                NotificationPriority.HIGH,
+                null,
+                metadata
+        );
     }
 
     public BorrowRecord requireActiveBorrow(String username, String bookId) {

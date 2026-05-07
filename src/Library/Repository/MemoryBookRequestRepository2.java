@@ -3,13 +3,16 @@ package Library.Repository;
 import Library.Model.BookRequest2;
 import Library.Model.BookRequestStatus;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
-public class MemoryBookRequestRepository2 implements BookRequestRepository2 {
+public class MemoryBookRequestRepository2 implements BookRequestRepository2, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final List<BookRequest2> data = new CopyOnWriteArrayList<>();
 
     @Override

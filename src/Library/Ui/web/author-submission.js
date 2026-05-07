@@ -64,6 +64,66 @@ function clearCoverPreviewUrl() {
     }
 }
 
+function limitWords(text, maxWords) {
+    if (!text) {
+        return "";
+    }
+    const parts = text.trim().split(/\s+/);
+    if (parts.length <= maxWords) {
+        return text.trim();
+    }
+    return `${parts.slice(0, maxWords).join(" ")}...`;
+}
+
+function summaryLevelToWordLimit(level) {
+    const normalized = String(level || "").trim().toLowerCase();
+    if (normalized === "short") {
+        return 50;
+    }
+    if (normalized === "detail" || normalized === "detailed") {
+        return 150;
+    }
+    return 100;
+}
+
+async function extractPdfTextWithWordLimit(file, maxWords) {
+    if (!file) {
+        return "";
+    }
+    if (typeof pdfjsLib === "undefined") {
+        throw new Error("PDF text extraction dependency is missing.");
+    }
+
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    }
+
+    const bytes = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const totalPages = Number(pdf.numPages || 0);
+    const words = [];
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const text = Array.isArray(textContent?.items)
+            ? textContent.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim()
+            : "";
+        if (!text) {
+            continue;
+        }
+        const pageWords = text.split(/\s+/).filter(Boolean);
+        for (const word of pageWords) {
+            words.push(word);
+            if (words.length >= maxWords) {
+                return words.join(" ").trim();
+            }
+        }
+    }
+
+    return words.join(" ").trim();
+}
+
 async function renderPdfPagesFromFile(file) {
     if (!filePreview || typeof pdfjsLib === "undefined") {
         if (filePreview) {
@@ -277,10 +337,16 @@ document.getElementById("loadDraftsBtn")?.addEventListener("click", () => {
 });
 
 document.getElementById("generateSummaryBtn")?.addEventListener("click", async () => {
+    const button = document.getElementById("generateSummaryBtn");
+    const loading = document.getElementById("generateSummaryLoading");
+    const summaryLengthSelect = document.getElementById("summaryLengthSelect");
     try {
         const title = document.getElementById("authorTitle")?.value.trim() || "";
         const genres = parseGenres(getSelectedGenres());
         const description = document.getElementById("authorDescription");
+        let content = "";
+        const summaryLevel = summaryLengthSelect?.value || "medium";
+        const wordLimit = summaryLevelToWordLimit(summaryLevel);
 
         if (!title) {
             showToast("Enter a title before generating a summary.", true);
@@ -291,13 +357,34 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", async (
             return;
         }
 
+        if (selectedFile) {
+            const fileName = selectedFile.name.toLowerCase();
+            const isPdf = fileName.endsWith(".pdf") || selectedFile.type === "application/pdf";
+            if (isPdf) {
+                try {
+                    content = await extractPdfTextWithWordLimit(selectedFile, wordLimit);
+                } catch (error) {
+                    showToast("Could not extract readable text from the PDF.", true);
+                }
+            }
+        }
+
+        if (button) {
+            button.disabled = true;
+        }
+        if (loading) {
+            loading.style.display = "inline-flex";
+        }
+
         const response = await api("/api/author/submit/generate-summary", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: formBody({
                 title,
                 genres,
-                note: ""
+                note: "",
+                content,
+                summaryLevel
             })
         });
 
@@ -307,6 +394,13 @@ document.getElementById("generateSummaryBtn")?.addEventListener("click", async (
         showToast(response?.message || "Summary generated. You can now submit!", false);
     } catch (error) {
         showToast(error.message, true);
+    } finally {
+        if (button) {
+            button.disabled = false;
+        }
+        if (loading) {
+            loading.style.display = "none";
+        }
     }
 });
 

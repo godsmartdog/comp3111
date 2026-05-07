@@ -3,13 +3,15 @@
 
 package Library.Model;
 
+import java.io.Serializable;
 import java.time.LocalDate; // local system date for reference (just the day such as YYYYMMDD)
 import java.util.ArrayList; // generic class (similar to C++ template class "array")
 import java.util.List; // generic class (similar to C++ template class "list")
 import java.util.UUID; // universial unique object identifier
 
 // BookSubmission is a finished draft, but still before publishing a book
-public class BookSubmission2 {
+public class BookSubmission2 implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     // Member variables
     private final String id;
