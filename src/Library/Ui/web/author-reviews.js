@@ -30,10 +30,10 @@ function classifySentiment(text) {
 }
 
 function sentimentBadgeHtml(item) {
-    // Prefer backend AI sentiment classification if available
+    // Prefer backend deterministic sentiment classification if available.
     let s = (item.sentiment || "").toLowerCase().trim();
     if (!s || !["positive", "neutral", "negative"].includes(s)) {
-        // Fallback to client-side classification using keywords
+        // Fallback to client-side keyword classification.
         s = classifySentiment(item.reviewText || "");
     }
     const label = s.charAt(0).toUpperCase() + s.slice(1);
@@ -67,7 +67,7 @@ function renderFeedbackAnalytics(items) {
 
     const counts = { positive: 0, neutral: 0, negative: 0 };
     items.forEach((it) => {
-        // Use backend sentiment if available, otherwise fall back to client-side classification
+        // Use backend deterministic sentiment if available, otherwise fall back to client-side classification.
         let sentiment = (it.sentiment || "").toLowerCase().trim();
         if (!sentiment || !["positive", "neutral", "negative"].includes(sentiment)) {
             sentiment = classifySentiment(it.reviewText || "");

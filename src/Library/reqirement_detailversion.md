@@ -58,7 +58,7 @@
 **增强功能（Nice to have）**：
 - 阅读摘要：点击可弹出窗口显示完整摘要
 - 借阅数量限制：每个用户最多同时借阅5本书
-- 图书推荐：基于借阅历史推荐（统计借阅次数）或使用LLM基于内容推荐
+- 图书推荐：基于借阅历史、借阅次数、流行度、类型相似度、评分信号或关键词/TF-IDF相似度推荐，不使用LLM推荐
 - 图书标记：可用书籍用黑色显示，已借出用红色显示
 
 ---
@@ -572,8 +572,8 @@ public class RecommendationService {
     // 基于类型的推荐
     public List<Book> recommendByGenre(String genre, int excludeBookId, int limit)
     
-    // LLM集成预留（如需调用外部API）
-    public List<Book> recommendByLLM(int userId, int limit)
+    // 非LLM推荐：可基于借阅次数、流行度、类型相似度、评分信号或关键词/TF-IDF相似度
+    public List<Book> recommendByDeterministicSignals(int userId, int limit)
 }
 ```
 

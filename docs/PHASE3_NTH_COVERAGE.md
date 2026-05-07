@@ -36,7 +36,7 @@ carryover rows reflect features that landed before this branch existed.
 | 2.8 | Trend Analysis: borrows-over-time chart with weekly/monthly toggle | 4 | `10cd02a` | `LibraryApiHandlers.java`, `author-stats.{html,js}` |
 | 2.8 | Customizable Dashboard: per-section visibility persisted in localStorage | 4 | `10cd02a` | `author-stats.{html,js}`, `style.css` |
 | 2.8 | Download Report: `/api/author/stats-export` → multi-section CSV | 4 | `10cd02a` | `LibraryApiHandlers.java`, `author-stats.js` |
-| 2.9 | Sentiment Analysis: positive / neutral / negative badge per review | 5 | `437936e` | `author-reviews.{html,js}`, `style.css` |
+| 2.9 | Sentiment Analysis: Classify reviews as positive, neutral, or negative using keyword, lexicon, and/or TF-IDF based scoring rather than LLM generation. | 5 | `437936e` | `BookReviewService.java`, `author-reviews.{html,js}`, `style.css` |
 | 2.9 | Reply Templates dropdown that appends to reply textarea | 5 | `437936e` | `author-reviews.{html,js}` |
 | 2.9 | Feedback Analytics: sentiment doughnut + rating-distribution bar chart | 5 | `437936e` | `author-reviews.{html,js}`, `style.css` |
 | 3.8 | Bulk Operations: select-all + delete-selected with partial-success reporting | 6 | `49cb72c` | `LibraryApiHandlers.java`, `librarian-manage-published.{html,js}` |
@@ -79,7 +79,9 @@ introduced by Phase 3 NTH work. See
 
 During the final demo sprint, remaining nice-to-have slices are verified by compile-only checks plus focused manual browser/API smoke tests unless an integration test is cheap and isolated.
 
-Avoid adding or running default integration tests that trigger slow sentiment/LLM/PDF/network paths. In particular, the optional Section 1.9 helpful-review sorting integration test is not run by default because review submission can invoke sentiment inference.
+LLM is used only for book summary generation. Sentiment analysis uses deterministic keyword and lexicon scoring; recommendations use borrow counts, popularity, genre similarity, rating signals, or keyword/TF-IDF similarity; similar-book matching uses deterministic title, author, and genre overlap scoring with stopword/generic-token filtering; analytics use aggregate counts, trends, rankings, filters, and deterministic scoring.
+
+Avoid adding or running default integration tests that trigger slow summary-generation LLM, PDF, or network paths. Review sentiment and analytics paths are deterministic and should not load local model files.
 
 ## Not Yet Implemented (12 bullets)
 

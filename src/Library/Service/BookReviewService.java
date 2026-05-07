@@ -8,25 +8,12 @@ import Library.Model.Book;
 import Library.Model.BookReview;
 import Library.Repository.BookReviewRepository;
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
-import de.kherud.llama.InferenceParameters;
-import de.kherud.llama.LlamaModel;
-import de.kherud.llama.ModelParameters;
 
 public class BookReviewService {
     public record RatingSummary(double averageRating, int reviewCount) {
@@ -37,10 +24,12 @@ public class BookReviewService {
     private final BorrowService borrowService;
     private final NotificationService notificationService;
 
-    // Singleton LlamaModel for sentiment analysis - loaded once, reused for all calls
-    private static volatile LlamaModel singletonLlamaModel = null;
-    private static final Object llamaModelLock = new Object();
-    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
+        private static final Set<String> POSITIVE_SENTIMENT_KEYWORDS = Set.of(
+            "excellent", "great", "good", "helpful", "clear", "enjoyable", "useful", "amazing", "recommend", "loved"
+        );
+        private static final Set<String> NEGATIVE_SENTIMENT_KEYWORDS = Set.of(
+            "bad", "poor", "confusing", "boring", "difficult", "unclear", "useless", "terrible", "hate", "disappointed"
+        );
 
     public BookReviewService(BookReviewRepository reviewRepository,
                              BookService bookService,
@@ -84,111 +73,36 @@ public class BookReviewService {
                 })
                 .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText, anonymousFlag));
 
-        // Classify sentiment of the review text using local GGUF model if available.
-        try {
-            String sentiment = classifySentiment(review.getReviewText());
-            if (sentiment != null && !sentiment.isBlank()) {
-                review.setSentiment(sentiment);
-            }
-        } catch (Exception e) {
-            // Don't fail review submission if sentiment inference fails; log and continue.
-            System.err.println("[Sentiment] Classification failed: " + e.getMessage());
+        String sentiment = classifySentiment(review.getReviewText());
+        if (sentiment != null && !sentiment.isBlank()) {
+            review.setSentiment(sentiment);
         }
 
         reviewRepository.save(review);
         return review;
     }
 
-    private String resolveGgufModelPath() throws IOException {
-        String configured = System.getenv(GGUF_MODEL_PATH_ENV);
-        if (configured != null && !configured.isBlank()) {
-            String trimmed = configured.trim();
-            System.out.println("[AI] BookReviewService: Using env var GGUF_MODEL_PATH = " + trimmed);
-            // Verify path exists
-            if (!Files.exists(Paths.get(trimmed))) {
-                throw new IOException("[AI] GGUF model file does not exist at env var path: " + trimmed);
+    private static String classifySentiment(String text) {
+        if (text == null || text.isBlank()) {
+            return "neutral";
+        }
+        int score = 0;
+        String normalized = text.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ");
+        for (String token : normalized.split("\\s+")) {
+            if (POSITIVE_SENTIMENT_KEYWORDS.contains(token)) {
+                score++;
             }
-            // Verify it's NOT SmolLM2
-            if (trimmed.contains("SmolLM2")) {
-                throw new IOException("[AI] FATAL: Attempted to load SmolLM2 instead of Meta-Llama! Check GGUF_MODEL_PATH env var.");
+            if (NEGATIVE_SENTIMENT_KEYWORDS.contains(token)) {
+                score--;
             }
-            return trimmed;
         }
-        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf");
-        if (Files.exists(defaultPath)) {
-            System.out.println("[AI] BookReviewService: Using default path " + defaultPath);
-            return defaultPath.toString();
+        if (score > 0) {
+            return "positive";
         }
-        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
-    }
-
-    /**
-     * Get or initialize the singleton LlamaModel for sentiment analysis.
-     * The model is loaded only once at first use, then reused for all calls.
-     */
-    private LlamaModel getSingletonLlamaModel() throws IOException {
-        if (singletonLlamaModel != null) {
-            return singletonLlamaModel;
+        if (score < 0) {
+            return "negative";
         }
-
-        synchronized (llamaModelLock) {
-            // Double-check pattern
-            if (singletonLlamaModel != null) {
-                return singletonLlamaModel;
-            }
-
-            String modelPath = resolveGgufModelPath();
-            System.out.println("[AI] BookReviewService: Initializing singleton LlamaModel from: " + modelPath);
-            ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
-            
-            long startMs = System.currentTimeMillis();
-            LlamaModel model = new LlamaModel(modelParameters);
-            long initTimeMs = System.currentTimeMillis() - startMs;
-            System.out.println("[AI] BookReviewService: Singleton LlamaModel initialized in " + initTimeMs + "ms");
-            
-            singletonLlamaModel = model;
-            return singletonLlamaModel;
-        }
-    }
-
-    private String classifySentiment(String text) throws Exception {
-        if (text == null || text.isBlank()) return "";
-        String prompt = "\"" + text.trim() + "\" is this sentence positive, neutral or negative? Return only one word: positive, neutral, or negative.";
-        LlamaModel model = getSingletonLlamaModel();
-        InferenceParameters inferParams = new InferenceParameters(prompt)
-                .setTemperature(0.0f)
-                .setTopP(0.3f)
-                .setTopK(10)
-            .setNPredict(4)
-                .setRepeatPenalty(1.1f)
-                .setStopStrings("\n", "\n\n");
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<String> future = executor.submit(() -> {
-            try {
-                return model.complete(inferParams);
-            } catch (Exception e) {
-                throw e;
-            }
-        });
-
-        try {
-            String result = future.get(20000, TimeUnit.MILLISECONDS);
-            if (result == null) return "";
-            String normalized = result.trim().toLowerCase();
-            if (normalized.contains("positive")) return "positive";
-            if (normalized.contains("neutral")) return "neutral";
-            if (normalized.contains("negative")) return "negative";
-            // fallback: try first token
-            String first = normalized.split("\\s+")[0].replaceAll("[^a-z]", "");
-            if (first.equals("positive") || first.equals("neutral") || first.equals("negative")) return first;
-            return "";
-        } catch (TimeoutException | InterruptedException | ExecutionException e) {
-            future.cancel(true);
-            throw e;
-        } finally {
-            executor.shutdownNow();
-        }
+        return "neutral";
     }
 
     public List<BookReview> listReviewsForBook(String bookId) {

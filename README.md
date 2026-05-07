@@ -11,12 +11,18 @@ This project is a multi-role library management system built around a shared web
 
 The system combines borrowing workflows, content submission and review, notifications, account security controls, and integration-tested backend behavior in a single Java codebase.
 
+## LLM Scope
+
+LLM is used only for book summary generation. Sentiment analysis, recommendations, similar-book matching, and analytics use deterministic approaches such as keyword detection, lexicon-based scoring, TF-IDF/cosine-style similarity where applicable, aggregate counts, trends, rankings, filters, and rule-based classification.
+
 ## Core Features
 
 - Authentication and role-based access control for student, staff, author, and librarian workflows
 - Student and staff borrowing and return flows with active/returned/overdue borrow views
 - Approved-book discovery with search and filtering support
 - Multi-book borrowing with duration validation and borrowing limits
+- Review sentiment classification based on keyword and lexicon scoring, not LLM generation
+- Recommendations based on borrow counts, popularity, genre similarity, rating signals, or keyword similarity
 - Author draft saving, submission publishing, and published-book management
 - Librarian submission review workflows, including approve, reject, and queue filtering/sorting
 - Notification system with priority levels, mark-read, delete, archive/unarchive, keyword search, filtering, and sorting
