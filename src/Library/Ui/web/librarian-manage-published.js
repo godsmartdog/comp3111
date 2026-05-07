@@ -71,7 +71,7 @@ function renderPublishedBooks(items) {
         const row = document.createElement("tr");
         row.innerHTML = '<td colspan="7" class="muted">No published books found.</td>';
         body.appendChild(row);
-        updateBulkDeleteState();
+        updateBulkSelectionState();
         return;
     }
 
@@ -91,14 +91,14 @@ function renderPublishedBooks(items) {
         row.querySelector("button")?.addEventListener("click", () => {
             loadBookForEdit(item.id);
         });
-        row.querySelector(".bulk-row-checkbox")?.addEventListener("change", updateBulkDeleteState);
+        row.querySelector(".bulk-row-checkbox")?.addEventListener("change", updateBulkSelectionState);
         body.appendChild(row);
     });
     const selectAll = document.getElementById("bulkSelectAll");
     if (selectAll) {
         selectAll.checked = false;
     }
-    updateBulkDeleteState();
+    updateBulkSelectionState();
 }
 
 function getSelectedBookIds() {
@@ -114,6 +114,26 @@ function updateBulkDeleteState() {
     const count = getSelectedBookIds().length;
     btn.disabled = count === 0;
     btn.textContent = count > 0 ? `Delete Selected (${count})` : "Delete Selected";
+}
+
+function updateBulkEditStatus() {
+    const status = document.getElementById("bulkEditStatus");
+    if (!status) return;
+    const ids = getSelectedBookIds();
+    if (ids.length === 0) {
+        status.textContent = "No published books selected.";
+        return;
+    }
+    const titles = ids
+        .map((id) => publishedBooks.find((book) => book.id === id)?.title || id)
+        .slice(0, 5);
+    const suffix = ids.length > 5 ? `, and ${ids.length - 5} more` : "";
+    status.textContent = `Selected ${ids.length} published book(s): ${titles.join(", ")}${suffix}.`;
+}
+
+function updateBulkSelectionState() {
+    updateBulkDeleteState();
+    updateBulkEditStatus();
 }
 
 async function bulkDeleteSelected() {
@@ -136,6 +156,98 @@ async function bulkDeleteSelected() {
     }
     await refreshBooks();
     refreshAdminStats().catch(() => {});
+}
+
+function renderBulkEditResult(result) {
+    const box = document.getElementById("bulkEditResult");
+    if (!box) return;
+    const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+    if (skipped.length === 0) {
+        box.style.display = "none";
+        box.innerHTML = "";
+        return;
+    }
+    box.style.display = "block";
+    box.innerHTML = `
+        <strong>Skipped books</strong>
+        <ul>
+            ${skipped.map((item) => `<li>${escapeHtml(item.id || "")}: ${escapeHtml(item.reason || "Failed")}</li>`).join("")}
+        </ul>
+    `;
+}
+
+function clearBulkEditForm() {
+    ["bulkApplyDescription", "bulkApplyGenres", "bulkApplyTotalCopies"].forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) input.checked = false;
+    });
+    const description = document.getElementById("bulkDescription");
+    const totalCopies = document.getElementById("bulkTotalCopies");
+    if (description) description.value = "";
+    if (totalCopies) totalCopies.value = "";
+    setSelectedGenres("bulkGenres", []);
+    const result = document.getElementById("bulkEditResult");
+    if (result) {
+        result.style.display = "none";
+        result.innerHTML = "";
+    }
+}
+
+async function bulkEditSelected() {
+    const ids = getSelectedBookIds();
+    if (ids.length === 0) {
+        throw new Error("Select at least one published book to bulk edit.");
+    }
+
+    const applyDescription = Boolean(document.getElementById("bulkApplyDescription")?.checked);
+    const applyGenres = Boolean(document.getElementById("bulkApplyGenres")?.checked);
+    const applyTotalCopies = Boolean(document.getElementById("bulkApplyTotalCopies")?.checked);
+    if (!applyDescription && !applyGenres && !applyTotalCopies) {
+        throw new Error("Select at least one field to update.");
+    }
+
+    const description = document.getElementById("bulkDescription")?.value.trim() || "";
+    const genres = getSelectedGenres("bulkGenres");
+    const totalCopies = document.getElementById("bulkTotalCopies")?.value.trim() || "";
+    if (applyDescription && !description) {
+        throw new Error("Description is required when updating description.");
+    }
+    if (applyGenres && !genres) {
+        throw new Error("At least one genre is required when updating genres.");
+    }
+    const totalCopiesValue = Number(totalCopies);
+    if (applyTotalCopies && (!totalCopies || !Number.isInteger(totalCopiesValue) || totalCopiesValue < 1)) {
+        throw new Error("Total copies must be at least 1 when updating total copies.");
+    }
+
+    if (!confirm(`Apply selected bulk edits to ${ids.length} published book(s)?`)) {
+        return;
+    }
+
+    const result = await api("/api/librarian/published-books-bulk-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody({
+            bookIds: ids.join(","),
+            applyDescription: applyDescription ? "true" : "false",
+            applyGenres: applyGenres ? "true" : "false",
+            applyTotalCopies: applyTotalCopies ? "true" : "false",
+            description,
+            genres,
+            totalCopies
+        })
+    });
+
+    const updatedCount = Number(result?.updatedCount || 0);
+    const skippedCount = Number(result?.skippedCount || 0);
+    const message = result?.message || `Bulk edit complete. Updated ${updatedCount} book(s)${skippedCount > 0 ? `, skipped ${skippedCount}.` : "."}`;
+    showToast(message, skippedCount > 0);
+    renderBulkEditResult(result);
+    await refreshBooks();
+    refreshAdminStats().catch(() => {});
+    if (selectedEditBookId) {
+        refreshVersionHistory(selectedEditBookId).catch(() => {});
+    }
 }
 
 async function refreshAdminStats() {
@@ -597,10 +709,16 @@ if (currentUser) {
     document.getElementById("bulkSelectAll")?.addEventListener("change", (event) => {
         const checked = !!event.target.checked;
         document.querySelectorAll(".bulk-row-checkbox").forEach((cb) => { cb.checked = checked; });
-        updateBulkDeleteState();
+        updateBulkSelectionState();
     });
     document.getElementById("bulkDeleteBtn")?.addEventListener("click", () => {
         bulkDeleteSelected().catch((error) => showToast(error.message, true));
+    });
+    document.getElementById("bulkEditBtn")?.addEventListener("click", () => {
+        bulkEditSelected().catch((error) => showToast(error.message, true));
+    });
+    document.getElementById("clearBulkEditBtn")?.addEventListener("click", () => {
+        clearBulkEditForm();
     });
     const vhSection = document.getElementById("versionHistorySection");
     vhSection?.addEventListener("toggle", () => {

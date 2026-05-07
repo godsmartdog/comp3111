@@ -3347,6 +3347,90 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/published-books-bulk-edit", exchange -> {
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+            try {
+                User user = requireRole(exchange, Role.LIBRARIAN);
+                Map<String, String> form = readForm(exchange);
+                List<String> bookIds = RequestFilters.parseCsv(form, "bookIds");
+                if (bookIds.isEmpty()) {
+                    throw new IllegalArgumentException("bookIds is required.");
+                }
+
+                boolean applyDescription = parseBooleanFlag(form.get("applyDescription"));
+                boolean applyGenres = parseBooleanFlag(form.get("applyGenres"));
+                boolean applyTotalCopies = parseBooleanFlag(form.get("applyTotalCopies"));
+                if (!applyDescription && !applyGenres && !applyTotalCopies) {
+                    throw new IllegalArgumentException("Select at least one field to update.");
+                }
+
+                String description = RequestFilters.getTrimmed(form, "description", "");
+                if (applyDescription && description.isEmpty()) {
+                    throw new IllegalArgumentException("Description is required when updating description.");
+                }
+
+                List<String> genres = List.of();
+                if (applyGenres) {
+                    genres = validateSupportedGenres(RequestFilters.parseCsv(form, "genres"));
+                }
+
+                int totalCopies = 0;
+                if (applyTotalCopies) {
+                    totalCopies = RequestFilters.parseIntInRange(form, "totalCopies", 1, 1, 1000);
+                }
+
+                List<String> updatedIds = new ArrayList<>();
+                List<String> skippedItems = new ArrayList<>();
+                for (String bookId : bookIds) {
+                    try {
+                        Book existing = bookService.findBookById(bookId)
+                                .orElseThrow(() -> new IllegalArgumentException("Book not found."));
+                        if (!existing.isApproved()) {
+                            throw new IllegalArgumentException("Only approved books can be edited.");
+                        }
+
+                        String oldDescription = nullToEmpty(existing.getSummary());
+                        String oldGenresCsv = existing.getGenres() == null ? "" : String.join(",", existing.getGenres());
+                        String oldTotalCopies = Integer.toString(existing.getTotalCopies());
+
+                        if (applyTotalCopies) {
+                            existing.setTotalCopies(totalCopies);
+                        }
+
+                        String nextDescription = applyDescription ? description : existing.getSummary();
+                        List<String> nextGenres = applyGenres ? genres : existing.getGenres();
+                        existing.updateMetadata(existing.getTitle(), nextGenres, nextDescription);
+                        bookService.getBookRepository().save(existing);
+
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "description", oldDescription, nullToEmpty(existing.getSummary()));
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "genres", oldGenresCsv, existing.getGenres() == null ? "" : String.join(",", existing.getGenres()));
+                        recordBookVersionIfChanged(existing.getId(), user.getUsername(), "totalCopies", oldTotalCopies, Integer.toString(existing.getTotalCopies()));
+                        updatedIds.add(bookId);
+                    } catch (Exception ex) {
+                        skippedItems.add("{\"id\":\"" + JsonUtil.escape(bookId) + "\",\"reason\":\"" + JsonUtil.escape(ex.getMessage() == null ? "Failed" : ex.getMessage()) + "\"}");
+                    }
+                }
+
+                String message = "Bulk edit complete. Updated " + updatedIds.size() + " book(s)" +
+                        (skippedItems.isEmpty() ? "." : ", skipped " + skippedItems.size() + ".");
+                String payload = "{" +
+                        "\"updatedIds\":" + stringListToJson(updatedIds) + "," +
+                        "\"skipped\":[" + String.join(",", skippedItems) + "]," +
+                        "\"updatedCount\":" + updatedIds.size() + "," +
+                        "\"skippedCount\":" + skippedItems.size() + "," +
+                        "\"message\":\"" + JsonUtil.escape(message) + "\"" +
+                        "}";
+                sendJson(exchange, 200, payload);
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         // Slice 6: version history per published book (3.8 NTH Version History).
         server.createContext("/api/librarian/published-book-history", exchange -> {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
