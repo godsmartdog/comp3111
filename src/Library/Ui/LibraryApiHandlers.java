@@ -1311,6 +1311,22 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/request-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                sendJson(exchange, 200, requestStatsToJson(bookRequestService.getRequestStats()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/book-request/review", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -5120,6 +5136,30 @@ public class LibraryApiHandlers {
         List<String> values = new ArrayList<>();
         for (BookRequest2 request : requests) {
             values.add(bookRequestToJson(request));
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String requestStatsToJson(BookRequestService.RequestStats stats) {
+        List<String> statusValues = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : stats.totalByStatus().entrySet()) {
+            statusValues.add("\"" + JsonUtil.escape(entry.getKey()) + "\":" + entry.getValue());
+        }
+        return "{" +
+                "\"totalRequests\":" + stats.totalRequests() + "," +
+                "\"topGenres\":" + countItemsToJson(stats.topGenres()) + "," +
+                "\"topAuthors\":" + countItemsToJson(stats.topAuthors()) + "," +
+                "\"totalByStatus\":{" + String.join(",", statusValues) + "}" +
+                "}";
+    }
+
+    private String countItemsToJson(List<BookRequestService.CountItem> items) {
+        List<String> values = new ArrayList<>();
+        for (BookRequestService.CountItem item : items) {
+            values.add("{" +
+                    "\"name\":\"" + JsonUtil.escape(item.name()) + "\"," +
+                    "\"count\":" + item.count() +
+                    "}");
         }
         return "[" + String.join(",", values) + "]";
     }

@@ -11,12 +11,24 @@ import Library.Repository.BookRequestRepository2;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class BookRequestService {
     private final BookRequestRepository2 requestRepository;
     private final BookRepository bookRepository;
+
+    public record CountItem(String name, int count) {}
+
+    public record RequestStats(int totalRequests,
+                               List<CountItem> topGenres,
+                               List<CountItem> topAuthors,
+                               Map<String, Integer> totalByStatus) {}
+
+    private record CounterEntry(String displayName, int count) {}
 
     public BookRequestService(BookRequestRepository2 requestRepository, BookRepository bookRepository) {
         this.requestRepository = requestRepository;
@@ -91,6 +103,36 @@ public class BookRequestService {
         return requestRepository.findByStatus(status).stream()
                 .sorted(prioritySortComparator())
                 .collect(Collectors.toList());
+    }
+
+    public RequestStats getRequestStats() {
+        List<BookRequest2> requests = requestRepository.findAll();
+        Map<String, Integer> genreCounts = new LinkedHashMap<>();
+        Map<String, String> genreLabels = new LinkedHashMap<>();
+        Map<String, Integer> authorCounts = new LinkedHashMap<>();
+        Map<String, String> authorLabels = new LinkedHashMap<>();
+        Map<String, Integer> statusCounts = new LinkedHashMap<>();
+
+        for (BookRequestStatus status : BookRequestStatus.values()) {
+            statusCounts.put(status.name(), 0);
+        }
+
+        for (BookRequest2 request : requests) {
+            String status = request.getStatus() == null ? "UNKNOWN" : request.getStatus().name();
+            statusCounts.put(status, statusCounts.getOrDefault(status, 0) + 1);
+
+            for (String genre : request.getGenres()) {
+                incrementCounter(genreCounts, genreLabels, genre);
+            }
+            incrementCounter(authorCounts, authorLabels, request.getAuthorName());
+        }
+
+        return new RequestStats(
+                requests.size(),
+                topCountItems(genreCounts, genreLabels, 10),
+                topCountItems(authorCounts, authorLabels, 10),
+                statusCounts
+        );
     }
 
     private static Comparator<BookRequest2> prioritySortComparator() {
@@ -183,5 +225,30 @@ public class BookRequestService {
             }
         }
         return genres;
+    }
+
+    private static void incrementCounter(Map<String, Integer> counts,
+                                         Map<String, String> labels,
+                                         String rawName) {
+        String displayName = rawName == null ? "" : rawName.trim();
+        if (displayName.isEmpty()) {
+            return;
+        }
+        String key = displayName.toLowerCase(Locale.ROOT);
+        labels.putIfAbsent(key, displayName);
+        counts.put(key, counts.getOrDefault(key, 0) + 1);
+    }
+
+    private static List<CountItem> topCountItems(Map<String, Integer> counts,
+                                                Map<String, String> labels,
+                                                int limit) {
+        return counts.entrySet().stream()
+                .map(entry -> new CounterEntry(labels.getOrDefault(entry.getKey(), entry.getKey()), entry.getValue()))
+                .sorted(Comparator
+                        .comparingInt(CounterEntry::count).reversed()
+                        .thenComparing(CounterEntry::displayName, String.CASE_INSENSITIVE_ORDER))
+                .limit(limit)
+                .map(entry -> new CountItem(entry.displayName(), entry.count()))
+                .collect(Collectors.toList());
     }
 }
