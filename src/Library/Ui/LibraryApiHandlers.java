@@ -1392,11 +1392,11 @@ public class LibraryApiHandlers {
                             null,
                             Map.of("type", "submission", "requestId", uploaded.getId(), "bookId", uploaded.getBookId(), "status", uploaded.getStatus().name())
                     );
-                            int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
+                        int notificationsSent = notifyRequestersForAvailableBook(uploaded.getBookId());
                     sendJson(exchange, 200, "{" +
                             "\"message\":\"Requested book uploaded to the library.\"," +
-                                "\"request\":" + bookRequestToJson(uploaded) + "," +
-                                "\"notificationsSent\":" + notificationsSent +
+                            "\"request\":" + bookRequestToJson(uploaded) + "," +
+                            "\"notificationsSent\":" + notificationsSent +
                             "}");
                 } else {
                     sendText(exchange, 400, "Action must be approve, reject, or upload.");
@@ -6670,7 +6670,6 @@ public class LibraryApiHandlers {
             inputStream.transferTo(outputStream);
         } finally {
             exchange.close();
-        }
         }
     }
 
