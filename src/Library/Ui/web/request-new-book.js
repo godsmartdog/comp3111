@@ -228,10 +228,13 @@ async function submitRequest(event) {
         resetRequestForm();
         await loadRequests();
     } catch (error) {
+        const message = String(error.message || "").includes("already submitted a request")
+            ? "You already submitted a request for this book."
+            : error.message;
         if (status) {
-            status.textContent = error.message;
+            status.textContent = message;
         }
-        showToast(error.message, true);
+        showToast(message, true);
     }
 }
 

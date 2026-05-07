@@ -98,7 +98,8 @@ function renderRequestStats(stats) {
     renderCountTable("topAuthorsTable", stats?.topAuthors || [], "No requested authors yet.");
 }
 
-async function loadRequestStats() {
+async function loadRequestStats(options = {}) {
+    const manual = Boolean(options.manual);
     const status = document.getElementById("requestStatsStatus");
     if (status) {
         status.textContent = "Loading request analytics...";
@@ -112,6 +113,9 @@ async function loadRequestStats() {
                 ? "Request analytics loaded."
                 : "No request analytics available yet.";
         }
+        if (manual) {
+            showToast("Request analytics refreshed.", false);
+        }
     } catch (error) {
         if (status) {
             status.textContent = error.message;
@@ -121,7 +125,7 @@ async function loadRequestStats() {
 }
 
 document.getElementById("refreshRequestStatsBtn")?.addEventListener("click", () => {
-    loadRequestStats().catch((error) => showToast(error.message, true));
+    loadRequestStats({ manual: true }).catch((error) => showToast(error.message, true));
 });
 
 if (currentUser) {

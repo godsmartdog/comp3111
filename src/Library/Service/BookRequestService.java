@@ -48,6 +48,7 @@ public class BookRequestService {
         if (normalizedGenres.isEmpty()) {
             throw new ValidationException("Genre cannot be empty.");
         }
+        ensureNoDuplicateActiveRequest(requesterUsername, normalizedTitle, normalizedAuthorName);
 
         BookRequest2 request = new BookRequest2(
                 normalizedTitle,
@@ -57,25 +58,6 @@ public class BookRequestService {
                 normalizedGenres,
                 normalizedReason
         );
-        for (BookRequest2 existing : requestRepository.findAll()) {
-            // dup-check: compare username case-insensitively in case stored value
-            // differs from the raw input (trimmed/lowercased elsewhere)
-            String existingRequester = existing.getRequesterUsername() == null
-                    ? "" : existing.getRequesterUsername().trim();
-            String incomingRequester = requesterUsername == null ? "" : requesterUsername.trim();
-            if (!existingRequester.equalsIgnoreCase(incomingRequester)) {
-                continue;
-            }
-            if (existing.getStatus() != BookRequestStatus.PENDING
-                    && existing.getStatus() != BookRequestStatus.APPROVED) {
-                continue;
-            }
-            String existingTitle = existing.getTitle() == null ? "" : existing.getTitle().trim();
-            if (existingTitle.equalsIgnoreCase(normalizedTitle)) {
-                throw new ValidationException(
-                        "You already have a request for this title (status: " + existing.getStatus() + ").");
-            }
-        }
         requestRepository.save(request);
         return request;
     }
@@ -225,6 +207,34 @@ public class BookRequestService {
             }
         }
         return genres;
+    }
+
+    private void ensureNoDuplicateActiveRequest(String requesterUsername, String title, String authorName) {
+        String requestedTitle = normalizeDuplicateKey(title);
+        String requestedAuthor = normalizeDuplicateKey(authorName);
+        String incomingRequester = normalizeDuplicateKey(requesterUsername);
+        for (BookRequest2 existing : requestRepository.findAll()) {
+            if (!incomingRequester.equals(normalizeDuplicateKey(existing.getRequesterUsername()))) {
+                continue;
+            }
+            if (!isActiveDuplicateStatus(existing.getStatus())) {
+                continue;
+            }
+            if (requestedTitle.equals(normalizeDuplicateKey(existing.getTitle()))
+                    && requestedAuthor.equals(normalizeDuplicateKey(existing.getAuthorName()))) {
+                throw new ValidationException("You already submitted a request for this book.");
+            }
+        }
+    }
+
+    private static boolean isActiveDuplicateStatus(BookRequestStatus status) {
+        return status == BookRequestStatus.PENDING
+                || status == BookRequestStatus.APPROVED
+                || status == BookRequestStatus.UPLOADED;
+    }
+
+    private static String normalizeDuplicateKey(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private static void incrementCounter(Map<String, Integer> counts,
