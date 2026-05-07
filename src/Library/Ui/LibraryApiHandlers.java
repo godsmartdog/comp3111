@@ -1338,6 +1338,22 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/librarian/download-stats", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.LIBRARIAN);
+                sendJson(exchange, 200, downloadStatsToJson(bookRequestService.getDownloadStats()));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/librarian/book-request/review", exchange -> {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendText(exchange, 405, "Method not allowed.");
@@ -5227,6 +5243,57 @@ public class LibraryApiHandlers {
                 "\"topAuthors\":" + countItemsToJson(stats.topAuthors()) + "," +
                 "\"totalByStatus\":{" + String.join(",", statusValues) + "}" +
                 "}";
+    }
+
+    private String downloadStatsToJson(BookRequestService.DownloadStats stats) {
+        BookRequestService.DownloadStatsSummary summary = stats.summary();
+        List<String> bookValues = new ArrayList<>();
+        for (BookRequestService.DownloadedBookStatsItem book : stats.books()) {
+            String uploadedDate = book.uploadedDate() == null ? "" : book.uploadedDate().toString();
+            bookValues.add("{" +
+                    "\"bookId\":\"" + JsonUtil.escape(book.bookId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.title()) + "\"," +
+                    "\"author\":\"" + JsonUtil.escape(book.author()) + "\"," +
+                    "\"genres\":" + stringListToJson(book.genres()) + "," +
+                    "\"downloadCount\":" + book.downloadCount() + "," +
+                    "\"requestCount\":" + book.requestCount() + "," +
+                    "\"uploadedDate\":\"" + JsonUtil.escape(uploadedDate) + "\"," +
+                    "\"requesters\":" + stringListToJson(book.requesters()) +
+                    "}");
+        }
+
+        return "{" +
+                "\"summary\":{" +
+                "\"totalDownloadedBooks\":" + summary.totalDownloadedBooks() + "," +
+                "\"uniqueBooks\":" + summary.uniqueBooks() + "," +
+                "\"uniqueRequesters\":" + summary.uniqueRequesters() + "," +
+                "\"topGenre\":\"" + JsonUtil.escape(summary.topGenre()) + "\"," +
+                "\"topAuthor\":\"" + JsonUtil.escape(summary.topAuthor()) + "\"" +
+                "}," +
+                "\"books\":[" + String.join(",", bookValues) + "]," +
+                "\"topGenres\":" + countItemsToJson(stats.topGenres()) + "," +
+                "\"topAuthors\":" + countItemsToJson(stats.topAuthors()) + "," +
+                "\"trend\":" + trendItemsToJson(stats.trend()) +
+                "}";
+    }
+
+    private String trendItemsToJson(List<BookRequestService.CountItem> items) {
+        List<String> values = new ArrayList<>();
+        for (BookRequestService.CountItem item : items) {
+            values.add("{" +
+                    "\"date\":\"" + JsonUtil.escape(item.name()) + "\"," +
+                    "\"count\":" + item.count() +
+                    "}");
+        }
+        return "[" + String.join(",", values) + "]";
+    }
+
+    private String stringListToJson(List<String> items) {
+        List<String> values = new ArrayList<>();
+        for (String item : items) {
+            values.add("\"" + JsonUtil.escape(item == null ? "" : item) + "\"");
+        }
+        return "[" + String.join(",", values) + "]";
     }
 
     private String countItemsToJson(List<BookRequestService.CountItem> items) {
