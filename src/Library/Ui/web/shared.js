@@ -496,10 +496,14 @@ function formatReviewDisplayHtml(item) {
     const flagLine = flagged
         ? `<div class="muted" style="margin-top:6px;">Reported${flaggedAt ? ` (${flaggedAt})` : ""}${flagReason ? `: ${flagReason}` : ""}</div>`
         : "";
+    const sentiment = String(item?.sentiment || "").trim().toLowerCase();
+    const sentimentBadge = sentiment
+        ? `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:12px;background:${sentiment.includes("positive") ? "#d4f5d4" : sentiment.includes("negative") ? "#ffdada" : "#f0f0f0"};color:${sentiment.includes("positive") ? "#165a16" : sentiment.includes("negative") ? "#6a0b0b" : "#444"};font-weight:600;font-size:12px;">${escapeHtml(sentiment)}</span>`
+        : "";
 
     return `
         <div style="white-space:pre-wrap;">
-            <strong>${reviewer}: ${rating} - ${reviewText}</strong>
+            <strong>${reviewer}: ${rating} - ${reviewText}${sentimentBadge}</strong>
             <div class="muted" style="margin-top:4px;">Helpful: ${helpfulCount}</div>
             ${replyLine}
             ${flagLine}
