@@ -4,9 +4,9 @@
 # Usage:
 #   chmod +x run-library.sh   # make executable once
 #   ./run-library.sh              # defaults to --web
-#   ./run-library.sh --tests
-#   ./run-library.sh --smoke-test
-#   ./run-library.sh --compile-only
+#   ./run-library.sh --tests      # equivalent to Run-Library.ps1 -Tests
+#   ./run-library.sh --web        # equivalent to Run-Library.ps1 -Web
+#   ./run-library.sh --smoke-test # equivalent to Run-Library.ps1 -SmokeTest
 #   ./run-library.sh --compile-only --tests
 
 set -euo pipefail
@@ -21,13 +21,14 @@ COMPILE_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --tests)        MODE_TESTS=true ;;
-        --web)          MODE_WEB=true ;;
-        --smoke-test)   MODE_SMOKE=true ;;
-        --compile-only) COMPILE_ONLY=true ;;
+        --tests|-Tests|-tests)                       MODE_TESTS=true ;;
+        --web|-Web|-web)                             MODE_WEB=true ;;
+        --smoke-test|--smoketest|-SmokeTest|-smoketest) MODE_SMOKE=true ;;
+        --compile-only|--compileonly|-CompileOnly|-compileonly) COMPILE_ONLY=true ;;
         *)
             echo "Unknown option: $arg" >&2
             echo "Usage: $0 [--tests|--web|--smoke-test] [--compile-only]" >&2
+            echo "PowerShell-style switches are also accepted: -Tests -Web -SmokeTest -CompileOnly" >&2
             exit 1
             ;;
     esac
@@ -40,7 +41,7 @@ if ! $MODE_TESTS && ! $MODE_WEB && ! $MODE_SMOKE; then
 fi
 
 # Resolve script directory for default model path
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
 # Runtime environment — mirrors Run-Library.ps1 so Phase 3 features
@@ -57,6 +58,15 @@ if [[ -z "${JAVA_HOME:-}" ]]; then
 fi
 
 export GOOGLE_BOOKS_API_KEY="AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
+export INFERENCE_BASE_URL="http://127.0.0.1:1234/v1"
+export INFERENCE_API_KEY=""
+export INFERENCE_MODEL="local-model"
+export S3_ENDPOINT="https://s3.us.archive.org/"
+export S3_REGION="us-east-1"
+export S3_ACCESS_KEY="yvYHv4GfeuJ7Kqut"
+export S3_SECRET_KEY="ElDaSOgwK30QTEag"
+export IA_ACCESS_KEY="yvYHv4GfeuJ7Kqut"
+export IA_SECRET_KEY="ElDaSOgwK30QTEag"
 export GGUF_MODEL_PATH="$(cd "$SCRIPT_DIR" && pwd)/Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"
 LLAMA_JAR="$(cd "$SCRIPT_DIR/third-party/llama" && pwd)/llama-4.1.0.jar"
 export LLAMA_JAR
@@ -123,7 +133,7 @@ make_source_list() {
     local tmp_file
     tmp_file="$(mktemp)"
     # Remaining args are directories to search
-    find "$@" -name "*.java" | sort > "$tmp_file"
+    find "$@" -type f -name "*.java" | sort > "$tmp_file"
     echo "$tmp_file"
 }
 
