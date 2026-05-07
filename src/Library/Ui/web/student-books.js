@@ -18,6 +18,7 @@ const pageSize = 5;
 const MAX_BORROW_LIMIT = 5;
 let selectedBookCoverObjectUrl = null;
 let selectedBookPreviewObjectUrl = null;
+let selectedBookFullSummary = "";
 
 function formatAverageRating(book) {
     const rating = Number(book?.averageRating);
@@ -178,6 +179,7 @@ function resetSelectedBookSummary() {
     const preview = document.getElementById("selectedBookPreview");
     const cover = document.getElementById("selectedBookCover");
     const filePreview = document.getElementById("selectedBookFilePreview");
+    selectedBookFullSummary = "";
     if (description) {
         description.textContent = "Select a book to view description.";
     }
@@ -199,6 +201,14 @@ function resetSelectedBookSummary() {
     }
 }
 
+function renderSelectedBookSummary() {
+    const description = document.getElementById("selectedBookDescription");
+    const style = document.getElementById("selectedBookSummaryStyle")?.value || "detailed";
+    if (description) {
+        description.textContent = formatSummaryByStyle(selectedBookFullSummary, style) || "No description available for this book.";
+    }
+}
+
 async function loadSelectedBookSummary(bookId) {
     const description = document.getElementById("selectedBookDescription");
     const preview = document.getElementById("selectedBookPreview");
@@ -209,7 +219,8 @@ async function loadSelectedBookSummary(bookId) {
     }
 
     const payload = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
-    description.textContent = payload.summary || "No description available for this book.";
+    selectedBookFullSummary = payload.summary || payload.description || "";
+    renderSelectedBookSummary();
 
     if (cover) {
         cover.style.display = "none";
@@ -574,6 +585,8 @@ document.getElementById("reviewSort")?.addEventListener("change", () => {
         loadSelectedBookReviews(selectedBookId).catch((error) => showToast(error.message, true));
     }
 });
+
+document.getElementById("selectedBookSummaryStyle")?.addEventListener("change", renderSelectedBookSummary);
 
 document.getElementById("prevPageBtn")?.addEventListener("click", () => {
     if (currentPage > 1) {

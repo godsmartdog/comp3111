@@ -1,6 +1,7 @@
 const currentUser = requireRole("AUTHOR");
 const selectedPublishedBookIds = new Set();
 let serverPreviewObjectUrl = null;
+let publishedBooksCache = [];
 
 if (currentUser) {
     const welcomeLine = document.getElementById("welcomeLine");
@@ -149,14 +150,13 @@ async function renderServerFilePreview(payload, heading) {
     }
 }
 
-async function refreshPublishedBooks() {
+function renderPublishedBooks(items) {
     const status = document.getElementById("publishedStatus");
     const body = document.getElementById("publishedBooksBody");
     if (!status || !body) {
         return;
     }
 
-    const items = await api("/api/author/published-books");
     body.innerHTML = "";
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -174,11 +174,13 @@ async function refreshPublishedBooks() {
     items.forEach((item) => {
         const row = document.createElement("tr");
         const actionCell = document.createElement("td");
+        const descriptionStyle = document.getElementById("authorPublishedSummaryStyle")?.value || "detailed";
+        const displayDescription = formatSummaryByStyle(item.description || item.summary || "", descriptionStyle);
         row.innerHTML = `
             <td>${item.id}</td>
             <td>${item.title}</td>
             <td>${Array.isArray(item.genres) ? item.genres.join(", ") : ""}</td>
-            <td>${item.description || item.summary || ""}</td>
+            <td>${escapeHtml(displayDescription)}</td>
             <td>${formatDateOnly(item.publishDate || "")}</td>
             <td>${formatAverageRating(item)}</td>
             <td>${item.status}</td>
@@ -299,6 +301,11 @@ async function refreshPublishedBooks() {
     if (selectAll) selectAll.checked = false;
 }
 
+async function refreshPublishedBooks() {
+    publishedBooksCache = await api("/api/author/published-books");
+    renderPublishedBooks(publishedBooksCache);
+}
+
 function updateBulkDeletePublishedButton() {
     const btn = document.getElementById("bulkDeletePublishedBtn");
     if (!btn) return;
@@ -363,6 +370,10 @@ document.getElementById("loadPublishedBtn")?.addEventListener("click", () => {
         }
         showToast(e.message, true);
     });
+});
+
+document.getElementById("authorPublishedSummaryStyle")?.addEventListener("change", () => {
+    renderPublishedBooks(publishedBooksCache);
 });
 
 if (currentUser) {
