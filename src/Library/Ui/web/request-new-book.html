@@ -70,6 +70,16 @@
         <p id="requestStatus" aria-live="polite"></p>
     </section>
 
+    <section class="panel glass-panel" id="alternativeBooksPanel">
+        <h2>Similar Available Books</h2>
+        <p class="hint">If your requested book is unavailable, these approved titles may be useful alternatives.</p>
+        <div class="toolbar">
+            <button id="findAlternativesBtn" class="secondary" type="button">Find Alternatives</button>
+        </div>
+        <p id="alternativesStatus" class="hint" aria-live="polite">Enter a title, author, or genres to see suggestions.</p>
+        <div id="alternativesList"></div>
+    </section>
+
     <section class="panel glass-panel">
         <h2>My Requests</h2>
         <div class="toolbar">
