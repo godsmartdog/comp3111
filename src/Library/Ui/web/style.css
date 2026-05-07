@@ -361,8 +361,11 @@ label:has(> input.book-multi-select) {
 button {
     cursor: pointer;
     border: none;
+    border-radius: 8px;
     color: #fff;
     font-weight: 600;
+    font-size: 0.92rem;
+    padding: 7px 9px;
     background: var(--primary-color);
     transition: transform 120ms ease, background 120ms ease, filter 120ms ease;
 }
@@ -400,7 +403,7 @@ button.danger:hover {
 }
 
 .toolbar > * {
-    flex: 1 1 130px;
+    flex: 1 1 112px;
 }
 
 .inline-row {
@@ -426,9 +429,9 @@ button.danger:hover {
 }
 
 .pager-btn {
-    width: 38px;
-    min-width: 38px;
-    padding: 8px;
+    width: 32px;
+    min-width: 32px;
+    padding: 6px;
 }
 
 table {
@@ -466,7 +469,7 @@ th {
 }
 
 .book-select-btn {
-    min-width: 104px;
+    min-width: 88px;
 }
 
 .book-select-btn.is-selected {
@@ -538,8 +541,8 @@ ul {
 
 .notification-actions button {
     width: auto;
-    min-width: 110px;
-    padding: 8px 10px;
+    min-width: 94px;
+    padding: 6px 8px;
 }
 
 #borrows li {
@@ -568,8 +571,8 @@ ul {
 
 .borrow-item-actions button {
     width: auto;
-    min-width: 84px;
-    padding: 8px 12px;
+    min-width: 72px;
+    padding: 6px 9px;
 }
 
 pre {
@@ -592,7 +595,7 @@ pre {
 
 .file-btn {
     width: auto;
-    min-width: 100px;
+    min-width: 86px;
 }
 
 .file-preview {
@@ -629,8 +632,8 @@ pre {
 }
 
 .big-btn {
-    padding: 12px 14px;
-    font-size: 1rem;
+    padding: 9px 11px;
+    font-size: 0.94rem;
 }
 
 .quick-links {
@@ -713,9 +716,10 @@ pre {
     color: #fff;
     background: #556980;
     text-decoration: none;
-    border-radius: 9px;
-    padding: 10px 14px;
+    border-radius: 8px;
+    padding: 7px 10px;
     font-weight: 600;
+    font-size: 0.92rem;
 }
 
 .link-btn:hover {
@@ -856,7 +860,7 @@ pre {
     margin-top: 8px;
 }
 .tab-btn {
-    padding: 6px 14px;
+    padding: 4px 10px;
     border: 1px solid #ccc;
     background: #f5f5f5;
     color: #333;

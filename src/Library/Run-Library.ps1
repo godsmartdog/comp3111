@@ -9,6 +9,16 @@ param(
 $ErrorActionPreference = "Stop"
 $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
 $env:GOOGLE_BOOKS_API_KEY = "AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk"
+$env:INFERENCE_BASE_URL = "http://127.0.0.1:1234/v1"
+$env:INFERENCE_API_KEY = ""
+$env:INFERENCE_MODEL = "local-model"
+$env:S3_ENDPOINT = "https://s3.us.archive.org/"
+$env:S3_REGION = "us-east-1"
+$env:S3_ACCESS_KEY = "yvYHv4GfeuJ7Kqut"
+$env:S3_SECRET_KEY = "ElDaSOgwK30QTEag"
+$env:IA_ACCESS_KEY = "yvYHv4GfeuJ7Kqut"
+$env:IA_SECRET_KEY = "ElDaSOgwK30QTEag"
+$env:GGUF_MODEL_PATH = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "Meta-Llama-3.1-8B-Instruct_Q4_K_S.gguf"))
 
 # Ensure absolute path to Meta-Llama model - NEVER use SmolLM2
 $metaLlamaModel = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf"))
