@@ -14,6 +14,7 @@ let readerFileObjectUrl = null;
 let currentPdfPageCount = 0;
 let activeReaderType = "text";
 let readerCoverObjectUrl = null;
+let readerFullSummary = "";
 const PDF_DRAWING_PREFIX = "__PDF_DRAWING__=";
 let drawModeEnabled = false;
 let pdfDrawingStrokes = [];
@@ -500,6 +501,14 @@ function clearReaderCoverObjectUrl() {
     }
 }
 
+function renderReaderBookSummary() {
+    const summary = document.getElementById("readerBookSummary");
+    const style = document.getElementById("readerSummaryStyle")?.value || "detailed";
+    if (summary) {
+        summary.textContent = formatSummaryByStyle(readerFullSummary, style) || "No summary available for this book.";
+    }
+}
+
 async function loadBookCover(bookId) {
     const coverImage = document.getElementById("readerCoverImage");
     if (!coverImage) {
@@ -512,6 +521,8 @@ async function loadBookCover(bookId) {
 
     try {
         const summary = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
+        readerFullSummary = summary.summary || summary.description || "";
+        renderReaderBookSummary();
         if (!summary.coverImageUrl) {
             return;
         }
@@ -521,6 +532,8 @@ async function loadBookCover(bookId) {
         coverImage.src = readerCoverObjectUrl;
         coverImage.style.display = "block";
     } catch (_) {
+        readerFullSummary = "";
+        renderReaderBookSummary();
         coverImage.style.display = "none";
         coverImage.src = "";
     }
@@ -717,6 +730,11 @@ function resetReaderUi(statusText) {
         readerText.textContent = "";
     }
     activeReaderType = "text";
+    readerFullSummary = "";
+    const readerSummary = document.getElementById("readerBookSummary");
+    if (readerSummary) {
+        readerSummary.textContent = "Select a borrowed book to view summary.";
+    }
     clearReaderCoverObjectUrl();
     const coverImage = document.getElementById("readerCoverImage");
     if (coverImage) {
@@ -951,6 +969,8 @@ document.getElementById("reviewSort")?.addEventListener("change", async () => {
         await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
     }
 });
+
+document.getElementById("readerSummaryStyle")?.addEventListener("change", renderReaderBookSummary);
 
 document.getElementById("saveProgressBtn")?.addEventListener("click", async () => {
     try {

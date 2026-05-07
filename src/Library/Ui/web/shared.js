@@ -134,6 +134,37 @@ function formBody(payload) {
     return params;
 }
 
+function normalizeSummaryText(value) {
+    return String(value || "").trim();
+}
+
+function truncateSummaryText(text, maxChars) {
+    const normalized = normalizeSummaryText(text);
+    if (normalized.length <= maxChars) {
+        return normalized;
+    }
+
+    const sliced = normalized.slice(0, maxChars).trimEnd();
+    const lastSpace = sliced.lastIndexOf(" ");
+    const safe = lastSpace > Math.floor(maxChars * 0.75)
+        ? sliced.slice(0, lastSpace).trimEnd()
+        : sliced;
+    return `${safe}…`;
+}
+
+function formatSummaryByStyle(text, style) {
+    const normalized = normalizeSummaryText(text);
+    switch (String(style || "detailed").toLowerCase()) {
+        case "short":
+            return truncateSummaryText(normalized, 200);
+        case "medium":
+            return truncateSummaryText(normalized, 500);
+        case "detailed":
+        default:
+            return normalized;
+    }
+}
+
 function parseGenres(raw) {
     return raw
         .split(",")
