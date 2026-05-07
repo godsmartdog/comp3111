@@ -1200,6 +1200,37 @@ public class LibraryApiHandlers {
             }
         });
 
+        server.createContext("/api/book-requests/alternatives", exchange -> {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendText(exchange, 405, "Method not allowed.");
+                return;
+            }
+
+            try {
+                requireRole(exchange, Role.STUDENT, Role.STAFF);
+                Map<String, String> query = readQuery(exchange.getRequestURI());
+                String title = RequestFilters.getTrimmed(query, "title", "");
+                String authorName = RequestFilters.getTrimmed(query, "author", "");
+                if (authorName.isEmpty()) {
+                    authorName = RequestFilters.getTrimmed(query, "authorName", "");
+                }
+                List<String> genres = RequestFilters.parseCsv(query, "genres");
+                int limit = RequestFilters.parseIntInRange(query, "limit", 5, 1, 10);
+
+                if (title.isEmpty() && authorName.isEmpty() && genres.isEmpty()) {
+                    sendJson(exchange, 200, "[]");
+                    return;
+                }
+
+                sendJson(exchange, 200, alternativeBookSuggestionsToJson(
+                        bookService.suggestAlternativeBooks(title, authorName, genres, limit)));
+            } catch (ApiAuthException e) {
+                sendText(exchange, 401, e.getMessage());
+            } catch (Exception e) {
+                sendText(exchange, 400, e.getMessage());
+            }
+        });
+
         server.createContext("/api/book-requests", exchange -> {
             if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 try {
@@ -4209,6 +4240,35 @@ public class LibraryApiHandlers {
                     "\"available\":" + book.isAvailable() + "," +
                     "\"totalCopies\":" + book.getTotalCopies() + "," +
                     "\"availableCopies\":" + book.getAvailableCopies() +
+                    "}");
+        }
+        return "[" + String.join(",", items) + "]";
+    }
+
+    private String alternativeBookSuggestionsToJson(List<BookService.AlternativeBookSuggestion> suggestions) {
+        List<String> items = new ArrayList<>();
+        for (BookService.AlternativeBookSuggestion suggestion : suggestions) {
+            Book book = suggestion.book();
+            List<String> genreValues = new ArrayList<>();
+            for (String genre : book.getGenres()) {
+                genreValues.add("\"" + JsonUtil.escape(genre) + "\"");
+            }
+            List<String> reasonValues = new ArrayList<>();
+            for (String reason : suggestion.reasons()) {
+                reasonValues.add("\"" + JsonUtil.escape(reason) + "\"");
+            }
+            String availability = book.isAvailable()
+                    ? "Available (" + book.getAvailableCopies() + " copy/copies)"
+                    : "Unavailable";
+            items.add("{" +
+                    "\"bookId\":\"" + JsonUtil.escape(book.getId()) + "\"," +
+                    "\"title\":\"" + JsonUtil.escape(book.getTitle()) + "\"," +
+                    "\"author\":\"" + JsonUtil.escape(book.getAuthorFullName()) + "\"," +
+                    "\"genres\":[" + String.join(",", genreValues) + "]," +
+                    "\"available\":" + book.isAvailable() + "," +
+                    "\"availability\":\"" + JsonUtil.escape(availability) + "\"," +
+                    "\"score\":" + suggestion.score() + "," +
+                    "\"reasons\":[" + String.join(",", reasonValues) + "]" +
                     "}");
         }
         return "[" + String.join(",", items) + "]";
