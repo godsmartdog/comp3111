@@ -35,6 +35,27 @@ public class BookRequestService {
                                List<CountItem> topAuthors,
                                Map<String, Integer> totalByStatus) {}
 
+    public record DownloadStats(DownloadStatsSummary summary,
+                                List<DownloadedBookStatsItem> books,
+                                List<CountItem> topGenres,
+                                List<CountItem> topAuthors,
+                                List<CountItem> trend) {}
+
+    public record DownloadStatsSummary(int totalDownloadedBooks,
+                                       int uniqueBooks,
+                                       int uniqueRequesters,
+                                       String topGenre,
+                                       String topAuthor) {}
+
+    public record DownloadedBookStatsItem(String bookId,
+                                          String title,
+                                          String author,
+                                          List<String> genres,
+                                          int downloadCount,
+                                          int requestCount,
+                                          LocalDate uploadedDate,
+                                          List<String> requesters) {}
+
     public record RequestBookMatch(BookRequest2 request,
                                    int score,
                                    boolean exactTitleMatch,
@@ -42,6 +63,24 @@ public class BookRequestService {
                                    List<String> reasons) {}
 
     private record CounterEntry(String displayName, int count) {}
+
+    private static final class DownloadStatsAccumulator {
+        private final String bookId;
+        private String title;
+        private String author;
+        private List<String> genres;
+        private int downloadCount;
+        private int requestCount;
+        private LocalDate uploadedDate;
+        private final Set<String> requesters = new HashSet<>();
+
+        private DownloadStatsAccumulator(String bookId, String title, String author, List<String> genres) {
+            this.bookId = bookId;
+            this.title = title == null ? "" : title.trim();
+            this.author = author == null ? "" : author.trim();
+            this.genres = genres == null ? new ArrayList<>() : new ArrayList<>(genres);
+        }
+    }
 
     public BookRequestService(BookRequestRepository2 requestRepository, BookRepository bookRepository) {
         this.requestRepository = requestRepository;
@@ -128,6 +167,92 @@ public class BookRequestService {
                 topCountItems(authorCounts, authorLabels, 10),
                 statusCounts
         );
+    }
+
+    public DownloadStats getDownloadStats() {
+        Map<String, DownloadStatsAccumulator> byBook = new LinkedHashMap<>();
+        Map<String, Integer> genreCounts = new LinkedHashMap<>();
+        Map<String, String> genreLabels = new LinkedHashMap<>();
+        Map<String, Integer> authorCounts = new LinkedHashMap<>();
+        Map<String, String> authorLabels = new LinkedHashMap<>();
+        Map<String, Integer> trendCounts = new LinkedHashMap<>();
+        Map<String, String> trendLabels = new LinkedHashMap<>();
+        Set<String> uniqueRequesters = new HashSet<>();
+        int totalDownloadedBooks = 0;
+
+        for (BookRequest2 request : requestRepository.findAll()) {
+            String bookId = request.getBookId() == null ? "" : request.getBookId().trim();
+            if (request.getStatus() != BookRequestStatus.UPLOADED || bookId.isEmpty()) {
+                continue;
+            }
+
+            Book resolvedBook = bookRepository.findById(bookId).orElse(null);
+            String title = resolvedBook == null ? request.getTitle() : resolvedBook.getTitle();
+            String author = resolvedBook == null ? request.getAuthorName() : resolvedBook.getAuthorFullName();
+            List<String> genres = resolvedBook == null ? request.getGenres() : resolvedBook.getGenres();
+
+            DownloadStatsAccumulator item = byBook.computeIfAbsent(
+                    bookId,
+                    id -> new DownloadStatsAccumulator(id, title, author, genres)
+            );
+            item.title = chooseDisplayValue(item.title, title);
+            item.author = chooseDisplayValue(item.author, author);
+            if (item.genres.isEmpty() && genres != null) {
+                item.genres = new ArrayList<>(genres);
+            }
+            item.downloadCount++;
+            item.requestCount++;
+            item.requesters.add(request.getRequesterUsername());
+            item.uploadedDate = latestDate(item.uploadedDate, request.getUploadedDate());
+
+            totalDownloadedBooks++;
+            if (request.getRequesterUsername() != null && !request.getRequesterUsername().isBlank()) {
+                uniqueRequesters.add(request.getRequesterUsername().trim());
+            }
+            incrementCounter(authorCounts, authorLabels, author);
+            for (String genre : genres) {
+                incrementCounter(genreCounts, genreLabels, genre);
+            }
+            String trendDate = request.getUploadedDate() == null ? "Unknown" : request.getUploadedDate().toString();
+            incrementCounter(trendCounts, trendLabels, trendDate);
+        }
+
+        List<DownloadedBookStatsItem> books = byBook.values().stream()
+                .map(item -> new DownloadedBookStatsItem(
+                        item.bookId,
+                        item.title,
+                        item.author,
+                        item.genres,
+                        item.downloadCount,
+                        item.requestCount,
+                        item.uploadedDate,
+                        item.requesters.stream()
+                                .filter(value -> value != null && !value.isBlank())
+                                .sorted(String.CASE_INSENSITIVE_ORDER)
+                                .collect(Collectors.toList())
+                ))
+                .sorted(Comparator
+                        .comparingInt(DownloadedBookStatsItem::downloadCount).reversed()
+                        .thenComparing(DownloadedBookStatsItem::uploadedDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(DownloadedBookStatsItem::title, String.CASE_INSENSITIVE_ORDER))
+                .collect(Collectors.toList());
+
+        List<CountItem> topGenres = topCountItems(genreCounts, genreLabels, 10);
+        List<CountItem> topAuthors = topCountItems(authorCounts, authorLabels, 10);
+        List<CountItem> trend = trendCounts.entrySet().stream()
+                .map(entry -> new CounterEntry(trendLabels.getOrDefault(entry.getKey(), entry.getKey()), entry.getValue()))
+                .sorted(Comparator.comparing(CounterEntry::displayName))
+                .map(entry -> new CountItem(entry.displayName(), entry.count()))
+                .collect(Collectors.toList());
+
+        DownloadStatsSummary summary = new DownloadStatsSummary(
+                totalDownloadedBooks,
+                books.size(),
+                uniqueRequesters.size(),
+                topGenres.isEmpty() ? "" : topGenres.get(0).name(),
+                topAuthors.isEmpty() ? "" : topAuthors.get(0).name()
+        );
+        return new DownloadStats(summary, books, topGenres, topAuthors, trend);
     }
 
     public List<RequestBookMatch> findSimilarOpenRequestsForBook(Book book) {
@@ -269,6 +394,21 @@ public class BookRequestService {
 
     private static String normalizeDuplicateKey(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private static String chooseDisplayValue(String current, String candidate) {
+        String normalizedCandidate = candidate == null ? "" : candidate.trim();
+        return normalizedCandidate.isEmpty() ? (current == null ? "" : current) : normalizedCandidate;
+    }
+
+    private static LocalDate latestDate(LocalDate current, LocalDate candidate) {
+        if (candidate == null) {
+            return current;
+        }
+        if (current == null || candidate.isAfter(current)) {
+            return candidate;
+        }
+        return current;
     }
 
     private static boolean shouldConsiderForAvailableBook(BookRequest2 request, Book book) {

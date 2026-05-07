@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Downloaded Book Stats</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+
+<header class="topbar page-top">
+    <div>
+        <h1>Downloaded Book Stats</h1>
+        <p id="downloadStatsWelcomeLine"></p>
+    </div>
+    <div class="top-actions">
+        <a class="link-btn" href="mainLibrarian.html">Librarian Main</a>
+        <a class="link-btn" href="librarian-book-requests.html">Book Requests</a>
+        <button id="downloadStatsLogoutBtn" class="secondary" type="button">Logout</button>
+    </div>
+</header>
+
+<main class="layout single-col" data-role="LIBRARIAN">
+    <section class="panel glass-panel">
+        <div class="stats-toolbar">
+            <div>
+                <h2>Downloaded Book Stats</h2>
+                <p class="muted">View statistics for books downloaded and uploaded through librarian requested-book workflows.</p>
+            </div>
+            <div>
+                <button id="refreshDownloadStatsBtn" class="secondary" type="button">Refresh Stats</button>
+            </div>
+        </div>
+        <p id="downloadStatsStatus">Loading downloaded book stats...</p>
+
+        <div class="stats-grid">
+            <article class="metric-card">
+                <h3>Total Downloaded Books</h3>
+                <p id="totalDownloadedBooksMetric">--</p>
+            </article>
+            <article class="metric-card">
+                <h3>Unique Books</h3>
+                <p id="uniqueBooksMetric">--</p>
+            </article>
+            <article class="metric-card">
+                <h3>Unique Requesters</h3>
+                <p id="uniqueRequestersMetric">--</p>
+            </article>
+            <article class="metric-card">
+                <h3>Top Genre</h3>
+                <p id="topGenreMetric">--</p>
+            </article>
+            <article class="metric-card">
+                <h3>Top Author</h3>
+                <p id="topAuthorMetric">--</p>
+            </article>
+        </div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Top Genres</h2>
+        <div id="topDownloadedGenresTable"></div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Top Authors</h2>
+        <div id="topDownloadedAuthorsTable"></div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Upload Trend</h2>
+        <div id="downloadTrendTable"></div>
+    </section>
+
+    <section class="panel glass-panel">
+        <h2>Per-Book Downloaded Stats</h2>
+        <div id="downloadedBooksTable"></div>
+    </section>
+</main>
+
+<div id="toast"></div>
+<script src="background-animation.js"></script>
+<script src="shared.js"></script>
+<script src="librarian-download-stats.js"></script>
+</body>
+</html>
