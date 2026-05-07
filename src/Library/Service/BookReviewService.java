@@ -2,6 +2,7 @@ package Library.Service;
 
 import Library.Exception.BusinessException;
 import Library.Exception.NotFoundException;
+import Library.Model.NotificationPriority;
 import Library.Service.NotificationService;
 import Library.Model.Book;
 import Library.Model.BookReview;
@@ -11,6 +12,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import de.kherud.llama.InferenceParameters;
+import de.kherud.llama.LlamaModel;
+import de.kherud.llama.ModelParameters;
 
 public class BookReviewService {
     public record RatingSummary(double averageRating, int reviewCount) {
@@ -63,8 +79,71 @@ public class BookReviewService {
                 })
                 .orElseGet(() -> new BookReview(normalizedUsername, normalizedBookId, rating, reviewText, anonymousFlag));
 
+        // Classify sentiment of the review text using local GGUF model if available.
+        try {
+            String sentiment = classifySentiment(review.getReviewText());
+            if (sentiment != null && !sentiment.isBlank()) {
+                review.setSentiment(sentiment);
+            }
+        } catch (Exception e) {
+            // Don't fail review submission if sentiment inference fails; log and continue.
+            System.err.println("[Sentiment] Classification failed: " + e.getMessage());
+        }
+
         reviewRepository.save(review);
         return review;
+    }
+
+    private static final String GGUF_MODEL_PATH_ENV = "GGUF_MODEL_PATH";
+
+    private String resolveGgufModelPath() throws IOException {
+        String configured = System.getenv(GGUF_MODEL_PATH_ENV);
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
+        }
+        Path defaultPath = Paths.get(System.getProperty("user.dir"), "Library", "SmolLM2-135M-Instruct-Q3_K_XL.gguf");
+        if (Files.exists(defaultPath)) {
+            return defaultPath.toString();
+        }
+        throw new IOException("GGUF model not found. Set " + GGUF_MODEL_PATH_ENV + " to the model path.");
+    }
+
+    private String classifySentiment(String text) throws Exception {
+        if (text == null || text.isBlank()) return "";
+        String prompt = "\"" + text.trim() + "\" is this sentence positive, neutral or negative? Return only one word: positive, neutral, or negative.";
+        String modelPath = resolveGgufModelPath();
+        ModelParameters modelParameters = new ModelParameters().setModel(modelPath);
+        InferenceParameters inferParams = new InferenceParameters(prompt)
+                .setTemperature(0.0f)
+                .setTopP(0.3f)
+                .setTopK(10)
+                .setRepeatPenalty(1.1f)
+                .setStopStrings("\n", "\n\n");
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try (LlamaModel model = new LlamaModel(modelParameters)) {
+                return model.complete(inferParams);
+            }
+        });
+
+        try {
+            String result = future.get(2500, TimeUnit.MILLISECONDS);
+            if (result == null) return "";
+            String normalized = result.trim().toLowerCase();
+            if (normalized.contains("positive")) return "positive";
+            if (normalized.contains("neutral")) return "neutral";
+            if (normalized.contains("negative")) return "negative";
+            // fallback: try first token
+            String first = normalized.split("\\s+")[0].replaceAll("[^a-z]", "");
+            if (first.equals("positive") || first.equals("neutral") || first.equals("negative")) return first;
+            return "";
+        } catch (TimeoutException | InterruptedException | ExecutionException e) {
+            future.cancel(true);
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     public List<BookReview> listReviewsForBook(String bookId) {
@@ -82,10 +161,33 @@ public class BookReviewService {
     }
 
     public List<BookReview> listReviewsByUser(String username) {
+        return listReviewsByUser(username, "recent");
+    }
+
+    public List<BookReview> listReviewsByUser(String username, String sort) {
         String normalizedUsername = normalize(username);
         return reviewRepository.findByUsername(normalizedUsername).stream()
-                .sorted(reviewComparator())
+                .sorted(reviewComparatorForSort(sort))
                 .collect(Collectors.toList());
+    }
+
+    public BookReview markHelpful(String username, String reviewId) {
+        String normalizedUsername = normalize(username);
+        String normalizedReviewId = normalize(reviewId);
+        if (normalizedUsername.isEmpty()) {
+            throw new BusinessException("Username cannot be empty.");
+        }
+        BookReview review = reviewRepository.findById(normalizedReviewId)
+                .orElseThrow(() -> new NotFoundException("Review not found."));
+        if (normalizedUsername.equals(review.getUsername())) {
+            throw new BusinessException("You cannot mark your own review as helpful.");
+        }
+        boolean added = review.markHelpful(normalizedUsername);
+        if (!added) {
+            throw new BusinessException("You already marked this review as helpful.");
+        }
+        reviewRepository.save(review);
+        return review;
     }
 
     public List<BookReview> listReviewsForAuthor(String authorUsername) {
@@ -115,18 +217,19 @@ public class BookReviewService {
         if (notificationService != null) {
             Book book = bookService.findBookById(review.getBookId())
                     .orElseThrow(() -> new NotFoundException("Book not found."));
-            notificationService.addNotification(
+                notificationService.addNotification(
                     review.getUsername(),
                     "Reply to your review",
                     "Author replied to your review for \"" + book.getTitle() + "\": " + normalizedReply,
+                    NotificationPriority.NORMAL,
                     null,
                     Map.of(
-                            "type", "review-reply",
-                            "bookId", book.getId(),
-                            "reviewId", review.getId(),
-                            "authorUsername", normalize(authorUsername)
+                        "type", "review",
+                        "bookId", book.getId(),
+                        "reviewId", review.getId(),
+                        "authorUsername", normalize(authorUsername)
                     )
-            );
+                );
         }
 
         return review;
@@ -196,6 +299,11 @@ public class BookReviewService {
                         .thenComparing(BookReview::getId);
             case "lowest":
                 return Comparator.comparingInt(BookReview::getRating)
+                        .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
+                        .thenComparing(BookReview::getId);
+            case "helpful":
+            case "most-helpful":
+                return Comparator.comparingInt(BookReview::getHelpfulCount).reversed()
                         .thenComparing(BookReview::getCreatedAt, Comparator.reverseOrder())
                         .thenComparing(BookReview::getId);
             case "recent":

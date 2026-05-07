@@ -232,6 +232,25 @@ public class NotificationService {
         return true;
     }
 
+    // Returns true when an auto-return notification already exists for the given
+    // (username, borrowRecordId) pair. Used by BorrowService.autoReturnOverdueBooks
+    // to avoid spamming the same auto-return event across the many call sites that
+    // trigger overdue auto-return (borrow, return, list-active, list-by-user,
+    // requireActiveBorrow, listBorrowRecordsByUser).
+    public boolean autoReturnNotificationExists(String username, String borrowRecordId) {
+        if (username == null || borrowRecordId == null) {
+            return false;
+        }
+        for (NotificationItem item : notificationRepository.findByUsername(username)) {
+            Map<String, String> metadata = item.getMetadata();
+            if ("auto-return".equals(metadata.getOrDefault("type", ""))
+                    && borrowRecordId.equals(metadata.getOrDefault("borrowRecordId", ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean matchesScope(NotificationItem item, NotificationScope scope) {
         return switch (scope) {
             case ACTIVE -> !item.isArchived();

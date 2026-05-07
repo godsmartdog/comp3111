@@ -5,6 +5,7 @@
 package Library.Repository;
 //import class
 import Library.Model.BookDraft2;
+import java.io.Serializable;
 //import map for storing
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,7 +16,9 @@ import java.util.Objects;
 //safe return
 import java.util.Optional;
 
-public class MemoryBookDraftRepository2 implements BookDraftRepository2 {
+public class MemoryBookDraftRepository2 implements BookDraftRepository2, Serializable {
+    private static final long serialVersionUID = 1L;
+
     //create map to store
     private final Map<String, Map<String, BookDraft2>> draftsByAuthor = new HashMap<>();
 

@@ -1,9 +1,12 @@
 package Library.Repository;
 //class
 import Library.Model.User;
+import java.io.Serializable;
 import java.util.*;
 
-public class MemoryUserRepository implements UserRepository {
+public class MemoryUserRepository implements UserRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final Map<String, User> users = new HashMap<>();
     //search by key
     @Override

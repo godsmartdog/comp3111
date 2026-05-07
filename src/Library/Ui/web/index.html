@@ -20,6 +20,16 @@
         <p>
             The system is built with role-based access, secure password policy, recommendation support, and complete submission review flow.
         </p>
+        <p class="hint" style="margin-top: 8px; font-style: italic; opacity: 0.85;">
+            Database note: this demo saves runtime data to <code>data/library-db.ser</code>.
+            First startup creates a new database; later startups load it. Delete
+            <code>src/data/library-db.ser</code> to reset back to seeded demo data.
+        </p>
+        <p class="hint" style="margin-top: 8px; font-style: italic; opacity: 0.85;">
+            Crash recovery demo: logged-in pages save your last screen and unsaved form fields.
+            Use the Crash Test button to simulate an abrupt crash, then restart the app to restore.
+            After crash, either the reopened tab or the refreshed previous tab restores the last session successfully.
+        </p>
 
         <div class="menu-row">
             <div class="menu-button">

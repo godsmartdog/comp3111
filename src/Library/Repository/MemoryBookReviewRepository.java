@@ -1,13 +1,16 @@
 package Library.Repository;
 
 import Library.Model.BookReview;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class MemoryBookReviewRepository implements BookReviewRepository {
+public class MemoryBookReviewRepository implements BookReviewRepository, Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final Map<String, BookReview> data = new ConcurrentHashMap<>();
 
     private static String keyOf(String username, String bookId) {

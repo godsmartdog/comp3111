@@ -14,6 +14,7 @@ let readerFileObjectUrl = null;
 let currentPdfPageCount = 0;
 let activeReaderType = "text";
 let readerCoverObjectUrl = null;
+let readerFullSummary = "";
 const PDF_DRAWING_PREFIX = "__PDF_DRAWING__=";
 let drawModeEnabled = false;
 let pdfDrawingStrokes = [];
@@ -21,6 +22,77 @@ let currentDrawingStroke = null;
 let pageDrawCanvasMap = new Map();
 let readingSessionStartedAtMs = 0;
 let readingSessionBookId = "";
+
+// Slice 11: reader expiry watchdog (auto-close reader when borrow period expires).
+let activeReaderBookId = null;
+let activeReaderDueDate = null;
+let readerExpiryWatchdogId = null;
+
+async function fetchActiveDueDateForBook(bookId) {
+    try {
+        const items = await api("/api/borrows?status=active");
+        if (!Array.isArray(items)) return null;
+        const match = items.find((r) => r.bookId === bookId && !r.returned);
+        return match?.dueDate || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function isBorrowExpiredAgainstToday(dueDateStr) {
+    if (!dueDateStr) return false;
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    return todayStr > String(dueDateStr).slice(0, 10);
+}
+
+function startReaderExpiryWatchdog() {
+    stopReaderExpiryWatchdog();
+    readerExpiryWatchdogId = setInterval(() => {
+        if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+            handleReaderExpiry();
+        }
+    }, 30 * 1000);
+}
+
+function stopReaderExpiryWatchdog() {
+    if (readerExpiryWatchdogId !== null) {
+        clearInterval(readerExpiryWatchdogId);
+        readerExpiryWatchdogId = null;
+    }
+}
+
+async function handleReaderExpiry() {
+    stopReaderExpiryWatchdog();
+    try {
+        // Hit /api/return so BorrowService.returnBook -> autoReturnOverdueBooks
+        // executes (this is the only workflow path Slice 9's notification hooks
+        // into; /api/borrows is read-only by design). The 400 BusinessException
+        // for "not currently borrowed" after auto-return is expected and ignored.
+        if (activeReaderBookId) {
+            await api("/api/return", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formBody({ bookId: activeReaderBookId })
+            }, false).catch(() => {});
+        }
+    } finally {
+        resetReaderUi("Borrowing period expired — book auto-returned.");
+        showToast("Borrowing period expired. Reader closed; book auto-returned.", true);
+        activeReaderBookId = null;
+        activeReaderDueDate = null;
+        if (window.location.pathname.endsWith("student-reader.html")) {
+            setTimeout(() => { window.location.href = "student-borrows.html"; }, 2000);
+        } else if (window.location.pathname.endsWith("staff-reader.html")) {
+            setTimeout(() => { window.location.href = "staff-borrows.html"; }, 2000);
+        } else {
+            if (typeof refreshBorrows === "function") refreshBorrows().catch(() => {});
+            if (typeof refreshBooks === "function") refreshBooks().catch(() => {});
+        }
+    }
+}
+
+window.addEventListener("beforeunload", stopReaderExpiryWatchdog);
 
 function formatAverageRatingFromReviews(reviews) {
     if (!Array.isArray(reviews) || reviews.length === 0) {
@@ -51,6 +123,11 @@ function renderReaderReviews(reviews) {
     reviews.forEach((item) => {
         const li = document.createElement("li");
         li.innerHTML = formatReviewDisplayHtml(item);
+        appendReviewHelpfulButton(li, item, async () => {
+            if (selectedBorrowedBookId) {
+                await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
+            }
+        });
         list.appendChild(li);
     });
 }
@@ -59,7 +136,7 @@ async function loadBookReviewsAndSyncInput(bookId) {
     try {
         const sortSelect = document.getElementById("reviewSort");
         const sort = sortSelect?.value || "recent";
-        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sort=${encodeURIComponent(sort)}`);
+        const reviews = await api(`/api/reviews?bookId=${encodeURIComponent(bookId)}&sortBy=${encodeURIComponent(sort)}`);
         renderReaderReviews(reviews);
 
         const currentReview = Array.isArray(reviews)
@@ -424,6 +501,14 @@ function clearReaderCoverObjectUrl() {
     }
 }
 
+function renderReaderBookSummary() {
+    const summary = document.getElementById("readerBookSummary");
+    const style = document.getElementById("readerSummaryStyle")?.value || "detailed";
+    if (summary) {
+        summary.textContent = formatSummaryByStyle(readerFullSummary, style) || "No summary available for this book.";
+    }
+}
+
 async function loadBookCover(bookId) {
     const coverImage = document.getElementById("readerCoverImage");
     if (!coverImage) {
@@ -436,6 +521,8 @@ async function loadBookCover(bookId) {
 
     try {
         const summary = await api(`/api/books/summary?bookId=${encodeURIComponent(bookId)}`);
+        readerFullSummary = summary.summary || summary.description || "";
+        renderReaderBookSummary();
         if (!summary.coverImageUrl) {
             return;
         }
@@ -445,6 +532,8 @@ async function loadBookCover(bookId) {
         coverImage.src = readerCoverObjectUrl;
         coverImage.style.display = "block";
     } catch (_) {
+        readerFullSummary = "";
+        renderReaderBookSummary();
         coverImage.style.display = "none";
         coverImage.src = "";
     }
@@ -616,6 +705,9 @@ async function renderPdfPagesFromBlob(blob) {
 }
 
 function resetReaderUi(statusText) {
+    stopReaderExpiryWatchdog();
+    activeReaderBookId = null;
+    activeReaderDueDate = null;
     const status = document.getElementById("readerStatus");
     const readerPdf = document.getElementById("readerPdf");
     const readerPdfPages = document.getElementById("readerPdfPages");
@@ -638,6 +730,11 @@ function resetReaderUi(statusText) {
         readerText.textContent = "";
     }
     activeReaderType = "text";
+    readerFullSummary = "";
+    const readerSummary = document.getElementById("readerBookSummary");
+    if (readerSummary) {
+        readerSummary.textContent = "Select a borrowed book to view summary.";
+    }
     clearReaderCoverObjectUrl();
     const coverImage = document.getElementById("readerCoverImage");
     if (coverImage) {
@@ -660,6 +757,13 @@ function resetReaderUi(statusText) {
 }
 
 async function loadBorrowedContent(bookId) {
+    activeReaderBookId = bookId;
+    activeReaderDueDate = await fetchActiveDueDateForBook(bookId);
+    if (isBorrowExpiredAgainstToday(activeReaderDueDate)) {
+        await handleReaderExpiry();
+        return;
+    }
+    startReaderExpiryWatchdog();
     const payload = await api(`/api/borrow/content?bookId=${encodeURIComponent(bookId)}`);
     const readerPdf = document.getElementById("readerPdf");
     const readerText = document.getElementById("readerText");
@@ -865,6 +969,8 @@ document.getElementById("reviewSort")?.addEventListener("change", async () => {
         await loadBookReviewsAndSyncInput(selectedBorrowedBookId);
     }
 });
+
+document.getElementById("readerSummaryStyle")?.addEventListener("change", renderReaderBookSummary);
 
 document.getElementById("saveProgressBtn")?.addEventListener("click", async () => {
     try {

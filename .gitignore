@@ -31,5 +31,10 @@ src/Library/Run-Library.local.ps1
 ### Java ###
 *.class
 
+# Local runtime database snapshots
+src/data/
+data/library-db.ser
+data/library-db.ser.tmp
+
 ### Mac OS ###
 .DS_Store

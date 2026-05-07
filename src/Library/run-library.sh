@@ -39,6 +39,9 @@ if ! $MODE_TESTS && ! $MODE_WEB && ! $MODE_SMOKE; then
     MODE_WEB=true
 fi
 
+# Resolve script directory for default model path
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # ---------------------------------------------------------------------------
 # Runtime environment — mirrors Run-Library.ps1 (Windows) so Phase 3 features
 # 2.7 (LLM summary) and 3.9 (Google Books download) behave the same on macOS.
@@ -46,18 +49,17 @@ fi
 # any of these by exporting them before invoking this script.
 # ---------------------------------------------------------------------------
 : "${GOOGLE_BOOKS_API_KEY:=AIzaSyBKMNFbGxR0Zj7ihJWsPqbj4SwCH0LprWk}"
-: "${INFERENCE_BASE_URL:=http://127.0.0.1:1234/v1}"
-: "${INFERENCE_API_KEY:=}"
-: "${INFERENCE_MODEL:=local-model}"
-export GOOGLE_BOOKS_API_KEY INFERENCE_BASE_URL INFERENCE_API_KEY INFERENCE_MODEL
+: "${GGUF_MODEL_PATH:=$SCRIPT_DIR/SmolLM2-135M-Instruct-Q3_K_XL.gguf}"
+: "${LLAMA_JAR:=$SCRIPT_DIR/third-party/llama/llama-4.1.0.jar}"
+export GOOGLE_BOOKS_API_KEY GGUF_MODEL_PATH LLAMA_JAR
 
 if [[ -n "${GOOGLE_BOOKS_API_KEY:-}" ]]; then
     echo "Google Books API key: set"
 else
     echo "Google Books API key: (empty)"
 fi
-echo "Inference base URL:   $INFERENCE_BASE_URL"
-echo "Inference model:      $INFERENCE_MODEL"
+echo "GGUF model path:      $GGUF_MODEL_PATH"
+echo "Llama jar:            $LLAMA_JAR"
 
 # ---------------------------------------------------------------------------
 # Resolve java / javac
@@ -88,7 +90,6 @@ echo "Using javac: $JAVAC"
 # ---------------------------------------------------------------------------
 # Change to src/ (parent of Library/) as the working directory
 # ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SOURCE_ROOT"
 echo "Working directory: $SOURCE_ROOT"
@@ -122,19 +123,21 @@ if $MODE_TESTS; then
     TEST_SOURCES="$(make_source_list \
         Library/Exception \
         Library/Model \
+        Library/Persistence \
         Library/Repository \
         Library/Security \
         Library/Service \
-        Library/Test)"
+        Library/Test \
+        Library/Ui)"
 
     mkdir -p "$TEST_OUTPUT"
 
     echo "Compiling integration tests..."
-    "$JAVAC" -encoding UTF-8 -d "$TEST_OUTPUT" @"$TEST_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$TEST_OUTPUT" @"$TEST_SOURCES"
 
     if ! $COMPILE_ONLY; then
         echo "Running integration tests..."
-        "$JAVA" -cp "$TEST_OUTPUT" Library.Test.LibraryIntegrationTest
+        "$JAVA" -cp "$TEST_OUTPUT:$LLAMA_JAR" Library.Test.LibraryIntegrationTest
     fi
 fi
 
@@ -150,15 +153,15 @@ if $MODE_WEB || $MODE_SMOKE; then
     mkdir -p "$FX_OUTPUT"
 
     echo "Compiling application (web UI + services)..."
-    "$JAVAC" -encoding UTF-8 -d "$FX_OUTPUT" @"$FX_SOURCES"
+    "$JAVAC" -encoding UTF-8 -cp "$LLAMA_JAR" -d "$FX_OUTPUT" @"$FX_SOURCES"
 
     if ! $COMPILE_ONLY; then
         if $MODE_SMOKE; then
             echo "Running web UI smoke test..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp --smoke-test
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp --smoke-test
         else
             echo "Starting web UI on http://localhost:8080 ..."
-            "$JAVA" -cp "$FX_OUTPUT" Library.Ui.LibraryManagementApp
+            "$JAVA" -cp "$FX_OUTPUT:$LLAMA_JAR" Library.Ui.LibraryManagementApp
         fi
     fi
 fi

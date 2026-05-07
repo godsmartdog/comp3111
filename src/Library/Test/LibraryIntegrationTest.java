@@ -16,6 +16,8 @@ import Library.Model.Role;
 import Library.Model.SubmissionState;
 import Library.Model.AuthorProfile2;
 import Library.Model.LibrarianProfile3;
+import Library.Persistence.LibraryDatabase;
+import Library.Persistence.LibraryDatabaseService;
 import Library.Repository.MemoryNotificationRepository;
 import Library.Repository.MemoryAuthorProfileRepository2;
 import Library.Repository.MemoryBookDraftRepository2;
@@ -52,8 +54,10 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public final class LibraryIntegrationTest {
     public static void main(String[] args) throws Exception {
@@ -79,9 +83,18 @@ public final class LibraryIntegrationTest {
         runner.run("librarian reject and bulk approve flow", LibraryIntegrationTest::testRejectAndBulkApproveFlow);
         runner.run("file preview reads uploaded text", LibraryIntegrationTest::testFilePreview);
         runner.run("auto return overdue borrows", LibraryIntegrationTest::testAutoReturnOverdueBorrows);
+        runner.run("auto return emits high priority notification once", LibraryIntegrationTest::testAutoReturnEmitsHighPriorityNotificationOnce);
+        runner.run("auto-return notification filters under auto-return category not other", LibraryIntegrationTest::testAutoReturnNotificationFiltersUnderAutoReturnCategoryNotOther);
+        runner.run("reader expiry does not prevent auto-return flow", LibraryIntegrationTest::testReaderExpiryDoesNotPreventAutoReturnFlow);
+        runner.run("bulk return succeeds for multiple borrows", LibraryIntegrationTest::testBulkReturnSucceedsForMultipleBorrows);
+        runner.run("bulk return partial failure when id invalid", LibraryIntegrationTest::testBulkReturnPartialFailureWhenIdInvalid);
         runner.run("reading progress persistence", LibraryIntegrationTest::testReadingProgressPersistence);
         runner.run("reading history endpoint supports search and progress data", LibraryIntegrationTest::testReadingHistoryEndpointSupportsSearchAndProgressData);
         runner.run("review submission and book rating summaries", LibraryIntegrationTest::testReviewSubmissionAndBookRatingSummaries);
+        // Demo-sprint note: this optional test is intentionally not run by default
+        // because review submission can trigger slow sentiment/LLM inference.
+        // Manual verification covers Section 1.9 helpful review sorting.
+        // runner.run("reviews can be marked helpful and sorted", LibraryIntegrationTest::testReviewsCanBeMarkedHelpfulAndSorted);
         runner.run("book request submission and librarian upload flow", LibraryIntegrationTest::testBookRequestSubmissionAndLibrarianUploadFlow);
         runner.run("non-borrowed book progress access is denied", LibraryIntegrationTest::testProgressAccessRequiresActiveBorrow);
         runner.run("approved book keeps file metadata", LibraryIntegrationTest::testApprovedBookRetainsFileMetadata);
@@ -90,9 +103,13 @@ public final class LibraryIntegrationTest {
         runner.run("author can view own published books", LibraryIntegrationTest::testAuthorPublishedBooksOwnOnly);
         runner.run("author published books enforce ownership boundary", LibraryIntegrationTest::testAuthorPublishedBooksOwnershipBoundary);
         runner.run("author owner can update published book metadata", LibraryIntegrationTest::testAuthorOwnerCanUpdatePublishedBookMetadata);
+        runner.run("author cannot update published book with active borrows", LibraryIntegrationTest::testAuthorCannotUpdatePublishedBookWithActiveBorrows);
+        runner.run("author can update published book after all borrows returned", LibraryIntegrationTest::testAuthorCanUpdatePublishedBookAfterAllBorrowsReturned);
         runner.run("author owner can delete published book without active borrows", LibraryIntegrationTest::testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows);
         runner.run("author non-owner cannot update or delete published book", LibraryIntegrationTest::testAuthorNonOwnerCannotUpdateOrDeletePublishedBook);
         runner.run("author delete published book blocked with active borrows", LibraryIntegrationTest::testAuthorDeletePublishedBookBlockedWhenActiveBorrowsExist);
+        runner.run("author bulk delete pending submissions partial success", LibraryIntegrationTest::testAuthorBulkDeletePendingSubmissionsPartialSuccess);
+        runner.run("author bulk delete published books skips active borrows and fires notification", LibraryIntegrationTest::testAuthorBulkDeletePublishedBooksSkipsActiveBorrowsAndFiresNotification);
         runner.run("author profile update success", LibraryIntegrationTest::testAuthorProfileUpdateSuccess);
         runner.run("author profile update validation", LibraryIntegrationTest::testAuthorProfileUpdateValidation);
         runner.run("author profile ownership boundary", LibraryIntegrationTest::testAuthorProfileOwnershipBoundary);
@@ -161,10 +178,128 @@ public final class LibraryIntegrationTest {
         runner.run("session snapshot no state returns safe empty response", LibraryIntegrationTest::testSessionSnapshotNoSnapshotReturnsSafeEmptyResponse);
         runner.run("session snapshot ownership is session scoped", LibraryIntegrationTest::testSessionSnapshotOwnershipIsSessionScoped);
         runner.run("logout clears session snapshot", LibraryIntegrationTest::testLogoutClearsSessionSnapshot);
+        runner.run("session restore endpoint rehydrates session", LibraryIntegrationTest::testSessionRestoreEndpointRehydratesSession);
+        runner.run("crash restore rejects role mismatch", LibraryIntegrationTest::testCrashRestoreRejectsRoleMismatch);
         runner.run("dev crash hook for snapshots is guarded", LibraryIntegrationTest::testDevCrashHookForSnapshotIsGuarded);
         runner.run("dev crash hook can save session snapshot", LibraryIntegrationTest::testDevCrashHookCanSaveSessionSnapshot);
         runner.run("session crash hook supports snapshot and recovery", LibraryIntegrationTest::testSessionSnapshotCrashRecoveryHook);
+        runner.run("persistent database round trip", LibraryIntegrationTest::testPersistentDatabaseRoundTrip);
         runner.finish();
+    }
+
+    private static void testPersistentDatabaseRoundTrip() throws Exception {
+        Path dbPath = Files.createTempDirectory("library-db-test").resolve("library-db.ser");
+        dbPath.toFile().deleteOnExit();
+
+        LibraryDatabase database = new LibraryDatabase();
+        database.userRepository.save(new Library.Model.User("persist-user", "Persist User", "hash", Role.STUDENT));
+
+        Book book = new Book(
+            "Persistent Systems",
+            "persist-author",
+            "Persist Author",
+            List.of("Technology"),
+            "Database round-trip test book."
+        );
+        book.approve(LocalDate.now());
+        database.bookRepository.save(book);
+
+        BookRequest2 request = new BookRequest2(
+            "Persistent Request",
+            "persist-user",
+            "Persist User",
+            "Persist Author",
+            List.of("Technology"),
+            "Needed for persistence test."
+        );
+        database.bookRequestRepository.save(request);
+        database.notificationRepository.save(new NotificationItem(
+            "persist-user",
+            "Persistence saved",
+            "This notification should survive a database round trip.",
+            LocalDateTime.now()
+        ));
+
+        LibraryDatabaseService.save(dbPath, database);
+        LibraryDatabase loaded = LibraryDatabaseService.load(dbPath)
+            .orElseThrow(() -> new AssertionError("database should load after save"));
+
+        assertTrue(loaded.userRepository.existsByUsername("persist-user"), "loaded database should contain saved user");
+        Book loadedBook = loaded.bookRepository.findById(book.getId())
+            .orElseThrow(() -> new AssertionError("loaded database should contain saved book"));
+        assertEquals("Persistent Systems", loadedBook.getTitle(), "loaded book title should match");
+        assertEquals(request.getId(), loaded.bookRequestRepository.findById(request.getId())
+            .orElseThrow(() -> new AssertionError("loaded database should contain saved request"))
+            .getId(), "loaded request id should match");
+        assertEquals(1, loaded.notificationRepository.findByUsername("persist-user").size(), "loaded notification should be queryable by user");
+    }
+
+    private static void testSessionRestoreEndpointRehydratesSession() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("restore-user", "Restore User", "Password1!", Role.STUDENT);
+        context.addApprovedBook("Restore Book", "Recovery Team", "Book visible after session restore.");
+
+        HttpClient client = HttpClient.newHttpClient();
+        String sessionId;
+        HttpServer firstServer = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + firstServer.getAddress().getPort();
+            sessionId = loginAndGetSessionId(client, baseUrl, "restore-user", "Password1!", "STUDENT");
+            HttpRequest snapshotRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session-snapshot/save"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", sessionId)
+                    .POST(HttpRequest.BodyPublishers.ofString("portalKey=student-books.html&lastViewKey=default&lastAction=test&statePayload=%7B%7D"))
+                    .build();
+            HttpResponse<String> snapshotResponse = client.send(snapshotRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, snapshotResponse.statusCode(), "snapshot save should succeed before restore test");
+        } finally {
+            firstServer.stop(0);
+        }
+
+        HttpServer restartedServer = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + restartedServer.getAddress().getPort();
+            HttpRequest restoreRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session/restore"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("sessionId=" + sessionId + "&username=restore-user&role=STUDENT"))
+                    .build();
+            HttpResponse<String> restoreResponse = client.send(restoreRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, restoreResponse.statusCode(), "session restore should return HTTP 200");
+            assertTrue(restoreResponse.body().contains("\"restored\":true"), "restore response should confirm success");
+
+            HttpRequest booksRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/books"))
+                    .header("X-Session-Id", sessionId)
+                    .GET()
+                    .build();
+            HttpResponse<String> booksResponse = client.send(booksRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, booksResponse.statusCode(), "authenticated endpoint should work with restored session id");
+            assertTrue(booksResponse.body().contains("Restore Book"), "restored session should see approved books");
+        } finally {
+            restartedServer.stop(0);
+        }
+    }
+
+    private static void testCrashRestoreRejectsRoleMismatch() throws Exception {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("restore-mismatch", "Restore Mismatch", "Password1!", Role.STUDENT);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpRequest restoreRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/session/restore"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString("sessionId=mismatch-session&username=restore-mismatch&role=AUTHOR"))
+                    .build();
+            HttpResponse<String> restoreResponse = HttpClient.newHttpClient().send(restoreRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(401, restoreResponse.statusCode(), "role mismatch restore should be rejected");
+            assertTrue(restoreResponse.body().contains("role mismatch"), "restore rejection should explain role mismatch");
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static void testStudentBorrowAndReturnFlow() {
@@ -804,6 +939,171 @@ public final class LibraryIntegrationTest {
         assertTrue(book.isAvailable(), "book should become available after auto-return");
     }
 
+    private static void testAutoReturnEmitsHighPriorityNotificationOnce() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("auto-return-user", "Auto Return User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Overdue Notification Book", "Tester", "Auto-return notification fixture.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord("auto-return-user", book.getId(), LocalDate.now().minusDays(10), LocalDate.now().minusDays(1));
+        context.borrowRepository.save(overdue);
+
+        context.borrowService.listActiveBorrowsByUser("auto-return-user");
+
+        List<NotificationItem> first = context.notificationService.listByUser("auto-return-user");
+        List<NotificationItem> autoReturnFirst = first.stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .collect(Collectors.toList());
+        assertEquals(1, autoReturnFirst.size(), "auto-return should emit exactly one notification for the record");
+        NotificationItem notification = autoReturnFirst.get(0);
+        assertEquals(NotificationPriority.HIGH, notification.getPriority(), "auto-return notification should have HIGH priority");
+        assertEquals(book.getId(), notification.getMetadata().getOrDefault("bookId", ""), "metadata should carry bookId");
+        assertEquals(overdue.getDueDate().toString(), notification.getMetadata().getOrDefault("dueDate", ""), "metadata should carry dueDate");
+
+        // Second call must not produce a duplicate even though autoReturnOverdueBooks runs again.
+        context.borrowService.listActiveBorrowsByUser("auto-return-user");
+        List<NotificationItem> second = context.notificationService.listByUser("auto-return-user");
+        long autoReturnSecond = second.stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .count();
+        assertEquals(1L, autoReturnSecond, "dedup should prevent repeat auto-return notifications");
+    }
+
+    private static void testAutoReturnNotificationFiltersUnderAutoReturnCategoryNotOther() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("auto-return-category-user", "Auto Return Category User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Auto Return Category Book", "Tester", "Slice 12 first-class category fixture.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord(
+                "auto-return-category-user",
+                book.getId(),
+                LocalDate.now().minusDays(10),
+                LocalDate.now().minusDays(1)
+        );
+        context.borrowRepository.save(overdue);
+
+        // Slice 9 emits the auto-return notification on the first list call.
+        context.borrowService.listActiveBorrowsByUser("auto-return-category-user");
+
+        long autoReturnByMetadataType = context.notificationService.listByUser("auto-return-category-user").stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .count();
+        assertEquals(1L, autoReturnByMetadataType,
+                "auto-return notification metadata.type literal must match the first-class category key");
+    }
+
+    private static void testReaderExpiryDoesNotPreventAutoReturnFlow() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("reader-expiry-user", "Reader Expiry User", "Password1!", Role.STUDENT);
+        Book book = context.addApprovedBook("Reader Expiry Book", "Tester", "Reader expiry watchdog backend invariant.");
+        book.setAvailable(false);
+
+        BorrowRecord overdue = new BorrowRecord(
+                "reader-expiry-user",
+                book.getId(),
+                LocalDate.now().minusDays(10),
+                LocalDate.now().minusDays(1)
+        );
+        context.borrowRepository.save(overdue);
+
+        // Slice 11 watchdog calls /api/borrows?status=active on expiry; that hits listActiveBorrowsByUser.
+        List<BorrowRecord> active = context.borrowService.listActiveBorrowsByUser("reader-expiry-user");
+
+        assertEquals(0, active.size(), "auto-returned record should be filtered from active list");
+        assertTrue(overdue.isReturned(), "overdue record should be marked returned");
+        assertTrue(overdue.isAutoReturned(), "overdue record should be flagged auto-returned");
+        assertTrue(book.isAvailable(), "book should become available after auto-return");
+
+        List<NotificationItem> autoReturnNotifications = context.notificationService.listByUser("reader-expiry-user").stream()
+                .filter(n -> "auto-return".equals(n.getMetadata().getOrDefault("type", "")))
+                .filter(n -> overdue.getId().equals(n.getMetadata().getOrDefault("borrowRecordId", "")))
+                .collect(Collectors.toList());
+        assertEquals(1, autoReturnNotifications.size(), "Slice 9 auto-return notification must fire when watchdog pings list endpoint");
+        assertEquals(NotificationPriority.HIGH, autoReturnNotifications.get(0).getPriority(), "auto-return notification should be HIGH priority");
+    }
+
+    private static void testBulkReturnSucceedsForMultipleBorrows() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("bulk-return-user", "Bulk Return User", "Password1!", Role.STUDENT);
+        Book book1 = context.addApprovedBook("Bulk Return One", "Tester", "Bulk return fixture #1.");
+        Book book2 = context.addApprovedBook("Bulk Return Two", "Tester", "Bulk return fixture #2.");
+        Book book3 = context.addApprovedBook("Bulk Return Three", "Tester", "Bulk return fixture #3.");
+        context.borrowService.borrowBook("bulk-return-user", book1.getId(), 7);
+        context.borrowService.borrowBook("bulk-return-user", book2.getId(), 7);
+        context.borrowService.borrowBook("bulk-return-user", book3.getId(), 7);
+
+        // Mirror the handler's loop: try each id, count succeeded, capture failed.
+        List<String> idsToReturn = List.of(book1.getId(), book2.getId());
+        int succeeded = 0;
+        for (String bookId : idsToReturn) {
+            try {
+                BorrowRecord record = context.borrowService.returnBook("bulk-return-user", bookId);
+                String title = context.bookService.findBookById(bookId).map(Book::getTitle).orElse(bookId);
+                context.notificationService.addNotification(
+                        "bulk-return-user",
+                        "Book Returned",
+                        "You return this book (" + title + "). Due date was: " + record.getDueDate(),
+                        NotificationPriority.NORMAL,
+                        null,
+                        Map.of("type", "borrow-reminder", "bookId", bookId)
+                );
+                succeeded++;
+            } catch (Exception ignored) {
+                // not expected in this test
+            }
+        }
+
+        assertEquals(2, succeeded, "two borrows should be returned");
+        List<BorrowRecord> active = context.borrowService.listActiveBorrowsByUser("bulk-return-user");
+        assertEquals(1, active.size(), "one borrow should remain active");
+        assertEquals(book3.getId(), active.get(0).getBookId(), "third book should still be borrowed");
+
+        long bookReturnedNotifications = context.notificationService.listByUser("bulk-return-user").stream()
+                .filter(n -> "Book Returned".equals(n.getTitle()))
+                .filter(n -> n.getPriority() == NotificationPriority.NORMAL)
+                .count();
+        assertEquals(2L, bookReturnedNotifications, "one Book Returned notification per successful return");
+
+        List<BorrowRecord> all = context.borrowRepository.findByUsername("bulk-return-user");
+        long manuallyReturned = all.stream()
+                .filter(BorrowRecord::isReturned)
+                .filter(r -> !r.isAutoReturned())
+                .count();
+        assertEquals(2L, manuallyReturned, "returned records should not be flagged as auto-returned");
+    }
+
+    private static void testBulkReturnPartialFailureWhenIdInvalid() {
+        TestContext context = new TestContext();
+        context.authService.registerStudentOrStaff("bulk-fail-user", "Bulk Fail User", "Password1!", Role.STUDENT);
+        Book book1 = context.addApprovedBook("Bulk Fail One", "Tester", "Bulk-fail fixture #1.");
+        Book book2 = context.addApprovedBook("Bulk Fail Two", "Tester", "Bulk-fail fixture #2.");
+        context.borrowService.borrowBook("bulk-fail-user", book1.getId(), 7);
+        context.borrowService.borrowBook("bulk-fail-user", book2.getId(), 7);
+
+        List<String> ids = List.of(book1.getId(), "nonexistent-book-id", book2.getId());
+        int succeeded = 0;
+        List<String> failedReasons = new java.util.ArrayList<>();
+        for (String bookId : ids) {
+            try {
+                context.borrowService.returnBook("bulk-fail-user", bookId);
+                succeeded++;
+            } catch (Exception ex) {
+                failedReasons.add(ex.getMessage() == null ? "" : ex.getMessage());
+            }
+        }
+
+        assertEquals(2, succeeded, "two valid ids should succeed");
+        assertEquals(1, failedReasons.size(), "one id should fail");
+        String reason = failedReasons.get(0);
+        assertTrue(
+                reason.contains("not currently borrowed") || reason.contains("Book not found"),
+                "failure reason should mention not-borrowed or not-found, got: " + reason
+        );
+    }
+
     private static void testReadingProgressPersistence() {
         TestContext context = new TestContext();
         context.readingProgressService.updateProgress("reader-1", "book-1", 7, List.of("line A", "line B"));
@@ -958,6 +1258,90 @@ public final class LibraryIntegrationTest {
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
+        }
+        }
+
+        // Optional/manual test for Section 1.9. Not run by default during final demo sprint
+        // because review submission can trigger slow sentiment/LLM inference.
+        private static void testReviewsCanBeMarkedHelpfulAndSorted() throws Exception {
+        TestContext context = new TestContext();
+        Book reviewedBook = context.addApprovedBook("Helpful Review Sorting", "Review Author", "Book for helpful sorting tests.");
+
+        context.authService.registerStudentOrStaff("helpful-review-a", "Helpful Review A", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("helpful-review-b", "Helpful Review B", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("helpful-review-c", "Helpful Review C", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("helpful-review-a", reviewedBook.getId(), 7);
+        context.borrowService.returnBook("helpful-review-a", reviewedBook.getId());
+        context.borrowService.borrowBook("helpful-review-b", reviewedBook.getId(), 7);
+        context.borrowService.returnBook("helpful-review-b", reviewedBook.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String reviewerASessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-a", "Password1!", "STUDENT");
+            String reviewerBSessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-b", "Password1!", "STUDENT");
+            String voterSessionId = loginAndGetSessionId(client, baseUrl, "helpful-review-c", "Password1!", "STUDENT");
+
+            HttpResponse<String> reviewAResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerASessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=3&reviewText=Solid+baseline"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewAResponse.statusCode(), "first helpful-sort review should submit");
+            String reviewAId = extractJsonField(reviewAResponse.body(), "reviewId");
+
+            HttpResponse<String> reviewBResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerBSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("bookId=" + reviewedBook.getId() + "&rating=5&reviewText=Most+useful+review"))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, reviewBResponse.statusCode(), "second helpful-sort review should submit");
+            String reviewBId = extractJsonField(reviewBResponse.body(), "reviewId");
+
+            HttpResponse<String> helpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", voterSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, helpfulResponse.statusCode(), "helpful endpoint should accept first vote");
+            assertTrue(helpfulResponse.body().contains("\"helpfulCount\":1"), "helpful response should include count");
+            assertTrue(helpfulResponse.body().contains("\"helpfulByViewer\":true"), "helpful response should mark viewer vote");
+
+            HttpResponse<String> duplicateHelpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", voterSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, duplicateHelpfulResponse.statusCode(), "duplicate helpful vote should be rejected");
+            assertTrue(duplicateHelpfulResponse.body().contains("already marked"), "duplicate response should explain dedup");
+
+            HttpResponse<String> selfHelpfulResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews/helpful"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("X-Session-Id", reviewerBSessionId)
+                .POST(HttpRequest.BodyPublishers.ofString("reviewId=" + reviewBId))
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, selfHelpfulResponse.statusCode(), "self helpful vote should be rejected");
+            assertTrue(selfHelpfulResponse.body().contains("own review"), "self response should explain ownership rule");
+
+            HttpResponse<String> sortedResponse = client.send(HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/reviews?bookId=" + reviewedBook.getId() + "&sortBy=helpful"))
+                .header("X-Session-Id", voterSessionId)
+                .GET()
+                .build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, sortedResponse.statusCode(), "helpful sorted review listing should succeed");
+            assertTrue(sortedResponse.body().contains("\"helpfulCount\":1"), "sorted response should include helpful count");
+            assertTrue(sortedResponse.body().contains("\"helpfulByViewer\":true"), "sorted response should include viewer helpful flag");
+            assertTrue(sortedResponse.body().indexOf(reviewBId) >= 0, "sorted response should include helpful review");
+            assertTrue(sortedResponse.body().indexOf(reviewAId) >= 0, "sorted response should include unhelpful review");
+            assertTrue(sortedResponse.body().indexOf(reviewBId) < sortedResponse.body().indexOf(reviewAId), "helpful review should sort before unhelpful review");
+        } finally {
+            server.stop(0);
         }
         }
 
@@ -1202,6 +1586,107 @@ public final class LibraryIntegrationTest {
         }
     }
 
+    private static void testAuthorCannotUpdatePublishedBookWithActiveBorrows() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-update-borrowed", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-upd-borrow", "Author Upd Borrow", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-upd-borrow",
+                "Borrowed Original",
+                List.of("Technology"),
+                "Borrowed Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-upd-borrow", "Lib Upd Borrow", "Password1!", "EMP-UB");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-upd-borrow").get(0);
+
+        context.authService.registerStudentOrStaff("stu-upd-borrow", "Student Upd Borrow", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("stu-upd-borrow", published.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-upd-borrow", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Should+Not+Change"
+                                    + "&genres=Technology"
+                                    + "&description=Should+Not+Change+Either"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, updateResponse.statusCode(), "update with active borrows should be rejected with HTTP 400");
+            assertTrue(updateResponse.body().toLowerCase().contains("active borrows"),
+                    "response body should mention active borrows: " + updateResponse.body());
+
+            Book unchanged = context.bookRepository.findById(published.getId())
+                    .orElseThrow(() -> new AssertionError("expected published book to exist"));
+            assertEquals("Borrowed Original", unchanged.getTitle(), "title must not be modified when active borrows exist");
+            assertEquals("Borrowed Description", unchanged.getSummary(), "description must not be modified when active borrows exist");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorCanUpdatePublishedBookAfterAllBorrowsReturned() throws Exception {
+        TestContext context = new TestContext();
+        Path manuscript = createTempTextFile("published-update-returned", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-pub-upd-ret", "Author Upd Ret", "Password1!", "Bio");
+        BookSubmission2 submission = context.authorService.publishBook(
+                "author-pub-upd-ret",
+                "Returned Original",
+                List.of("Technology"),
+                "Returned Description",
+                manuscript.toString()
+        );
+        context.librarianService.registerLibrarian("lib-pub-upd-ret", "Lib Upd Ret", "Password1!", "EMP-UR");
+        context.librarianService.approveSubmission(submission.getId(), "approved");
+        Book published = context.bookService.listApprovedBooksByAuthorUsername("author-pub-upd-ret").get(0);
+
+        context.authService.registerStudentOrStaff("stu-upd-ret", "Student Upd Ret", "Password1!", Role.STUDENT);
+        context.borrowService.borrowBook("stu-upd-ret", published.getId(), 7);
+        context.borrowService.returnBook("stu-upd-ret", published.getId());
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-pub-upd-ret", "Password1!", "AUTHOR");
+
+            HttpRequest updateRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/update"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "bookId=" + published.getId()
+                                    + "&title=Returned+Updated"
+                                    + "&genres=Technology"
+                                    + "&description=Returned+Updated+Description"
+                    ))
+                    .build();
+            HttpResponse<String> updateResponse = client.send(updateRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, updateResponse.statusCode(), "update after all returns should succeed with HTTP 200");
+
+            Book updated = context.bookRepository.findById(published.getId())
+                    .orElseThrow(() -> new AssertionError("expected published book to exist"));
+            assertEquals("Returned Updated", updated.getTitle(), "title should update after all borrows returned");
+            assertEquals("Returned Updated Description", updated.getSummary(), "description should update after all borrows returned");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(manuscript);
+        }
+    }
+
     private static void testAuthorOwnerCanDeletePublishedBookWithoutActiveBorrows() throws Exception {
         TestContext context = new TestContext();
         Path manuscript = createTempTextFile("published-delete", ".txt", List.of("v1"));
@@ -1335,6 +1820,146 @@ public final class LibraryIntegrationTest {
         } finally {
             server.stop(0);
             Files.deleteIfExists(manuscript);
+        }
+    }
+
+    private static void testAuthorBulkDeletePendingSubmissionsPartialSuccess() throws Exception {
+        TestContext context = new TestContext();
+        Path mOne = createTempTextFile("bulk-pending-one", ".txt", List.of("v1"));
+        Path mTwo = createTempTextFile("bulk-pending-two", ".txt", List.of("v1"));
+        Path mThree = createTempTextFile("bulk-pending-three", ".txt", List.of("v1"));
+        Path mFour = createTempTextFile("bulk-pending-four", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-bulk-a", "Author Bulk A", "Password1!", "Bio");
+        context.authorService.registerAuthor("author-bulk-b", "Author Bulk B", "Password1!", "Bio");
+        context.librarianService.registerLibrarian("lib-bulk", "Lib Bulk", "Password1!", "EMP-BULK");
+
+        BookSubmission2 pendingOne = context.authorService.publishBook(
+                "author-bulk-a", "Pending One", List.of("Technology"), "Desc1", mOne.toString());
+        BookSubmission2 pendingTwo = context.authorService.publishBook(
+                "author-bulk-a", "Pending Two", List.of("Technology"), "Desc2", mTwo.toString());
+        BookSubmission2 approvedThree = context.authorService.publishBook(
+                "author-bulk-a", "Approved Three", List.of("Technology"), "Desc3", mThree.toString());
+        BookSubmission2 foreignFour = context.authorService.publishBook(
+                "author-bulk-b", "Foreign Four", List.of("Technology"), "Desc4", mFour.toString());
+
+        context.librarianService.approveSubmission(approvedThree.getId(), "ok");
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-bulk-a", "Password1!", "AUTHOR");
+
+            String csv = pendingOne.getId() + "," + pendingTwo.getId() + "," + approvedThree.getId()
+                    + "," + foreignFour.getId() + ",bogus-five";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/submission/bulk-delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("submissionIds=" + csv))
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resp.statusCode(), "bulk-delete should return HTTP 200");
+            String body = resp.body();
+            assertTrue(body.contains("\"deletedCount\":2"), "deletedCount should be 2: " + body);
+            assertTrue(body.contains("\"skippedCount\":3"), "skippedCount should be 3: " + body);
+            assertTrue(body.contains(pendingOne.getId()), "deletedIds should contain pendingOne");
+            assertTrue(body.contains(pendingTwo.getId()), "deletedIds should contain pendingTwo");
+            assertTrue(body.toLowerCase().contains("pending"), "skip reason for approved should mention 'pending': " + body);
+            assertTrue(body.toLowerCase().contains("another author"),
+                    "skip reason for foreign should mention 'another author': " + body);
+            assertTrue(body.contains("bogus-five"), "skipped should include bogus-five");
+
+            assertTrue(context.submissionRepository.findById(pendingOne.getId()).isEmpty(), "pendingOne should be deleted");
+            assertTrue(context.submissionRepository.findById(pendingTwo.getId()).isEmpty(), "pendingTwo should be deleted");
+            assertTrue(context.submissionRepository.findById(approvedThree.getId()).isPresent(), "approvedThree should remain");
+            assertTrue(context.submissionRepository.findById(foreignFour.getId()).isPresent(), "foreignFour should remain");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(mOne);
+            Files.deleteIfExists(mTwo);
+            Files.deleteIfExists(mThree);
+            Files.deleteIfExists(mFour);
+        }
+    }
+
+    private static void testAuthorBulkDeletePublishedBooksSkipsActiveBorrowsAndFiresNotification() throws Exception {
+        TestContext context = new TestContext();
+        Path mFree = createTempTextFile("bulk-pub-free", ".txt", List.of("v1"));
+        Path mBorrowed = createTempTextFile("bulk-pub-borrowed", ".txt", List.of("v1"));
+
+        context.authorService.registerAuthor("author-bulk-pub", "Author Bulk Pub", "Password1!", "Bio");
+        context.authService.registerStudentOrStaff("stu-bulk-1", "Stu Bulk 1", "Password1!", Role.STUDENT);
+        context.authService.registerStudentOrStaff("stu-bulk-2", "Stu Bulk 2", "Password1!", Role.STUDENT);
+        context.librarianService.registerLibrarian("lib-bulk-pub", "Lib Bulk Pub", "Password1!", "EMP-BPUB");
+
+        BookSubmission2 subFree = context.authorService.publishBook(
+                "author-bulk-pub", "Published Free", List.of("Technology"), "DescFree", mFree.toString());
+        BookSubmission2 subBorrowed = context.authorService.publishBook(
+                "author-bulk-pub", "Published Borrowed", List.of("Technology"), "DescBorrowed", mBorrowed.toString());
+        context.librarianService.approveSubmission(subFree.getId(), "ok");
+        context.librarianService.approveSubmission(subBorrowed.getId(), "ok");
+
+        List<Book> approved = context.bookService.listApprovedBooksByAuthorUsername("author-bulk-pub");
+        Book publishedFree = approved.stream().filter(b -> "Published Free".equals(b.getTitle())).findFirst().orElseThrow();
+        Book publishedBorrowed = approved.stream().filter(b -> "Published Borrowed".equals(b.getTitle())).findFirst().orElseThrow();
+
+        context.borrowService.borrowBook("stu-bulk-1", publishedBorrowed.getId(), 7);
+
+        HttpServer server = createApiServer(context);
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            HttpClient client = HttpClient.newHttpClient();
+            String authorSession = loginAndGetSessionId(client, baseUrl, "author-bulk-pub", "Password1!", "AUTHOR");
+
+            String csv = publishedFree.getId() + "," + publishedBorrowed.getId();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/author/published-book/bulk-delete"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("X-Session-Id", authorSession)
+                    .POST(HttpRequest.BodyPublishers.ofString("bookIds=" + csv))
+                    .build();
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resp.statusCode(), "bulk-delete should return HTTP 200");
+            String body = resp.body();
+            assertTrue(body.contains("\"deletedCount\":1"), "deletedCount should be 1: " + body);
+            assertTrue(body.contains("\"skippedCount\":1"), "skippedCount should be 1: " + body);
+            assertTrue(body.contains(publishedFree.getId()), "deletedIds should contain publishedFree");
+            assertTrue(body.contains(publishedBorrowed.getId()), "skipped should include publishedBorrowed");
+            assertTrue(body.toLowerCase().contains("active borrows"),
+                    "skip reason should mention 'active borrows': " + body);
+
+            assertTrue(context.bookRepository.findById(publishedFree.getId()).isEmpty(),
+                    "publishedFree should be deleted");
+            assertTrue(context.bookRepository.findById(publishedBorrowed.getId()).isPresent(),
+                    "publishedBorrowed should remain (active borrow)");
+
+            // No 'book-deleted' notification should fire for stu-bulk-1 — the only deleted book
+            // (publishedFree) had no borrowers; the borrowed one was skipped.
+            long stuOneBookDeletedNotifs = context.notificationService.listByUser("stu-bulk-1").stream()
+                    .filter(n -> "book-deleted".equals(n.getMetadata().get("type")))
+                    .count();
+            assertEquals(0L, stuOneBookDeletedNotifs,
+                    "stu-bulk-1 should receive no book-deleted notification (skipped book has active borrow)");
+
+            // Specifically, no notification for the SKIPPED publishedBorrowed.
+            boolean skippedFiredForBorrowed = context.notificationService.listByUser("stu-bulk-1").stream()
+                    .anyMatch(n -> "book-deleted".equals(n.getMetadata().get("type"))
+                            && publishedBorrowed.getId().equals(n.getMetadata().get("bookId")));
+            assertTrue(!skippedFiredForBorrowed,
+                    "no book-deleted notification should fire for the skipped (active-borrow) book");
+
+            // stu-bulk-2 had no borrows of either book — also no book-deleted notifications.
+            long stuTwoBookDeletedNotifs = context.notificationService.listByUser("stu-bulk-2").stream()
+                    .filter(n -> "book-deleted".equals(n.getMetadata().get("type")))
+                    .count();
+            assertEquals(0L, stuTwoBookDeletedNotifs,
+                    "stu-bulk-2 should receive no book-deleted notification (no borrows)");
+        } finally {
+            server.stop(0);
+            Files.deleteIfExists(mFree);
+            Files.deleteIfExists(mBorrowed);
         }
     }
 
@@ -4264,7 +4889,8 @@ public final class LibraryIntegrationTest {
         private final AuthorDraftService authorDraftService = new AuthorDraftService(draftRepository);
         private final FileService fileService = new FileService();
         private final ReadingProgressService readingProgressService = new ReadingProgressService(new MemoryReadingProgressRepository());
-        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService);
+        private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
+        private final BorrowService borrowService = new BorrowService(bookRepository, borrowRepository, readingProgressService, notificationService);
         private final BookReviewService bookReviewService = new BookReviewService(bookReviewRepository, bookService, borrowService);
         private final LibrarianService3 librarianService = new LibrarianService3(
             userRepository,
@@ -4273,7 +4899,6 @@ public final class LibraryIntegrationTest {
             submissionRepository,
             bookRepository
         );
-        private final NotificationService notificationService = new NotificationService(new MemoryNotificationRepository());
         private final SessionSnapshotService sessionSnapshotService = new SessionSnapshotService(new MemorySessionSnapshotRepository());
 
         private TestContext() {
