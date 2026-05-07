@@ -37,6 +37,15 @@
             Tip: select rows to bulk-delete. Books with active borrows cannot be deleted and will be skipped with a reason.
         </p>
         <button id="loadPublishedBtn" class="secondary" type="button">Refresh Published Books</button>
+        <div class="inline-row" style="margin-top:8px;">
+            <label for="authorPublishedSummaryStyle">Summary Style</label>
+            <select id="authorPublishedSummaryStyle">
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="detailed" selected>Detailed</option>
+            </select>
+        </div>
+        <p class="hint">Choose short, medium, or detailed summary display. Short and medium summaries are derived from the existing book description.</p>
         <div class="table-wrap">
             <table>
                 <thead>

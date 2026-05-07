@@ -251,6 +251,28 @@ public class NotificationService {
         return false;
     }
 
+    public boolean requestFulfillmentNotificationExists(String username,
+                                                        String requestId,
+                                                        String bookId,
+                                                        String title,
+                                                        String message) {
+        if (username == null || requestId == null || bookId == null) {
+            return false;
+        }
+        for (NotificationItem item : notificationRepository.findByUsername(username)) {
+            Map<String, String> metadata = item.getMetadata();
+            if ("request-fulfilled".equals(metadata.getOrDefault("type", ""))
+                    && requestId.equals(metadata.getOrDefault("requestId", ""))
+                    && bookId.equals(metadata.getOrDefault("bookId", ""))) {
+                return true;
+            }
+            if (safeTitle(title).equals(item.getTitle()) && safeMessage(message).equals(item.getMessage())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean matchesScope(NotificationItem item, NotificationScope scope) {
         return switch (scope) {
             case ACTIVE -> !item.isArchived();

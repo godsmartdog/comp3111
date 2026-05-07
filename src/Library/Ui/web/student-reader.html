@@ -30,6 +30,16 @@
         <h3>Reader</h3>
         <div id="readerBox" class="panel-subtle">
             <img id="readerCoverImage" alt="Book cover preview" style="display:none;max-width:180px;max-height:240px;border-radius:8px;border:1px solid #d9d9d9;margin-bottom:10px;">
+            <div class="inline-row" style="margin-top:6px;">
+                <label for="readerSummaryStyle">Summary Style</label>
+                <select id="readerSummaryStyle">
+                    <option value="short">Short</option>
+                    <option value="medium">Medium</option>
+                    <option value="detailed" selected>Detailed</option>
+                </select>
+            </div>
+            <p class="hint">Choose short, medium, or detailed summary display. Short and medium summaries are derived from the existing book description.</p>
+            <p id="readerBookSummary" class="hint">Select a borrowed book to view summary.</p>
             <div class="reader-scroll-block">
                 <p id="readerStatus">Select a borrowed book and click Read.</p>
                 <p class="hint" style="margin: 4px 0 8px 0; font-style: italic; opacity: 0.85;">

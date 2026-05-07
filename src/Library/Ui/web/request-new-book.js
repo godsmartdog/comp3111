@@ -51,6 +51,118 @@ function getSelectedRequestGenres() {
         .filter(Boolean);
 }
 
+function readAlternativeInputs() {
+    return {
+        title: document.getElementById("requestTitle")?.value.trim() || "",
+        author: document.getElementById("requestAuthorName")?.value.trim() || "",
+        genres: getSelectedRequestGenres()
+    };
+}
+
+function renderAlternativeSuggestions(items) {
+    const list = document.getElementById("alternativesList");
+    if (!list) {
+        return;
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+        list.innerHTML = `<p>No similar available books found. You can continue submitting your request.</p>`;
+        return;
+    }
+
+    list.innerHTML = `
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                    <th>Genres</th>
+                    <th>Availability</th>
+                    <th>Match</th>
+                    <th>Why</th>
+                </tr>
+                </thead>
+                <tbody>
+                    ${items.map(alternativeRowToHtml).join("")}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function alternativeRowToHtml(item) {
+    const genres = Array.isArray(item.genres) && item.genres.length > 0
+        ? item.genres.map((genre) => `<span class="genre-badge">${escapeHtml(genre)}</span>`).join("")
+        : '<span class="genre-badge genre-badge-empty">None</span>';
+    const reasons = Array.isArray(item.reasons) && item.reasons.length > 0
+        ? item.reasons.map(escapeHtml).join("; ")
+        : "Matched request details";
+
+    return `
+        <tr>
+            <td>${escapeHtml(item.title || "")}</td>
+            <td>${escapeHtml(item.author || "")}</td>
+            <td><div class="genre-badge-group">${genres}</div></td>
+            <td>${escapeHtml(item.availability || (item.available ? "Available" : "Not available"))}</td>
+            <td>${Number(item.score || 0)}</td>
+            <td>${reasons}</td>
+        </tr>
+    `;
+}
+
+async function findAlternativeBooks() {
+    const status = document.getElementById("alternativesStatus");
+    const list = document.getElementById("alternativesList");
+    const { title, author, genres } = readAlternativeInputs();
+
+    if (!title && !author && genres.length === 0) {
+        const message = "Enter a title, author, or genres to see suggestions.";
+        if (status) {
+            status.textContent = message;
+        }
+        if (list) {
+            list.innerHTML = "";
+        }
+        showToast(message, true);
+        return;
+    }
+
+    const params = new URLSearchParams();
+    if (title) {
+        params.set("title", title);
+    }
+    if (author) {
+        params.set("author", author);
+    }
+    if (genres.length > 0) {
+        params.set("genres", genres.join(","));
+    }
+    params.set("limit", "5");
+
+    if (status) {
+        status.textContent = "Finding similar available books...";
+    }
+
+    try {
+        const items = await api(`/api/book-requests/alternatives?${params.toString()}`);
+        renderAlternativeSuggestions(items);
+        if (status) {
+            status.textContent = Array.isArray(items) && items.length > 0
+                ? `${items.length} similar available book${items.length === 1 ? "" : "s"} found.`
+                : "No similar available books found. You can continue submitting your request.";
+        }
+    } catch (error) {
+        if (status) {
+            status.textContent = error.message;
+        }
+        if (list) {
+            list.innerHTML = "";
+        }
+        showToast(error.message, true);
+    }
+}
+
 async function loadRequests() {
     const body = document.getElementById("requestHistoryBody");
     if (!body) {
@@ -81,6 +193,8 @@ function resetRequestForm() {
         });
     }
     document.getElementById("requestReason").value = "";
+    document.getElementById("alternativesStatus").textContent = "Enter a title, author, or genres to see suggestions.";
+    document.getElementById("alternativesList").innerHTML = "";
 }
 
 async function submitRequest(event) {
@@ -114,14 +228,20 @@ async function submitRequest(event) {
         resetRequestForm();
         await loadRequests();
     } catch (error) {
+        const message = String(error.message || "").includes("already submitted a request")
+            ? "You already submitted a request for this book."
+            : error.message;
         if (status) {
-            status.textContent = error.message;
+            status.textContent = message;
         }
-        showToast(error.message, true);
+        showToast(message, true);
     }
 }
 
 document.getElementById("requestForm")?.addEventListener("submit", submitRequest);
+document.getElementById("findAlternativesBtn")?.addEventListener("click", () => {
+    findAlternativeBooks().catch((error) => showToast(error.message, true));
+});
 document.getElementById("resetRequestBtn")?.addEventListener("click", resetRequestForm);
 document.getElementById("refreshRequestsBtn")?.addEventListener("click", () => {
     loadRequests().catch((error) => showToast(error.message, true));

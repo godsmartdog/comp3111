@@ -25,6 +25,9 @@ bin/
 ### VS Code ###
 .vscode/
 
+### Local secrets ###
+src/Library/Run-Library.local.ps1
+
 ### Java ###
 *.class
 

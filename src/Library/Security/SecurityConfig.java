@@ -14,7 +14,7 @@ public final class SecurityConfig {
     // due-date / auto-return / reader-expiry features artifact-free.
     // Override via JVM property -Dlibrary.sessionIdleTimeoutMs.
     public static final long DEFAULT_SESSION_IDLE_TIMEOUT_MS = 15L * 24L * 60L * 60L * 1000L;
-    public static final long MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
+    public static final long MAX_FILE_SIZE_BYTES = 100L * 1024 * 1024;
     public static final long MAX_COVER_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
     public static final List<String> ALLOWED_EXTENSIONS = List.of(".pdf", ".txt", ".doc", ".docx", ".md", ".jpg", ".jpeg", ".png");
     public static final List<String> ALLOWED_COVER_IMAGE_EXTENSIONS = List.of(".jpg", ".jpeg", ".png");
