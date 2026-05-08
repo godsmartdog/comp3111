@@ -450,9 +450,17 @@ async function generateDescription(title, authorNames, genres) {
     const response = await api("/api/librarian/published-book/generate-description", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formBody({ title, authorNames, genres })
+        body: formBody({ title, authorNames, genres, note: "", content: "", summaryLevel: "medium" })
     });
-    return response.description || "";
+    return response.summary || response.description || "";
+}
+
+function setGenerateButtonState(button, isGenerating) {
+    if (!button) {
+        return;
+    }
+    button.disabled = isGenerating;
+    button.textContent = isGenerating ? "Generating..." : (button.dataset.defaultLabel || "Generate Summary");
 }
 
 async function saveEdit() {
@@ -658,6 +666,7 @@ document.getElementById("addCoverImageInput")?.addEventListener("change", (event
 });
 
 document.getElementById("generateEditDescriptionBtn")?.addEventListener("click", async () => {
+    const button = document.getElementById("generateEditDescriptionBtn");
     try {
         const title = document.getElementById("editTitle")?.value.trim() || "";
         const authorNames = document.getElementById("editAuthorNames")?.value.trim() || "";
@@ -665,15 +674,19 @@ document.getElementById("generateEditDescriptionBtn")?.addEventListener("click",
         if (!title || !genres) {
             throw new Error("Title and at least one genre are required to generate description.");
         }
+        setGenerateButtonState(button, true);
         const description = await generateDescription(title, authorNames, genres);
         document.getElementById("editDescription").value = description;
-        showToast("Description generated.", false);
+        showToast("Summary generated.", false);
     } catch (error) {
         showToast(error.message, true);
+    } finally {
+        setGenerateButtonState(button, false);
     }
 });
 
 document.getElementById("generateAddDescriptionBtn")?.addEventListener("click", async () => {
+    const button = document.getElementById("generateAddDescriptionBtn");
     try {
         const title = document.getElementById("addTitle")?.value.trim() || "";
         const authorNames = document.getElementById("addAuthorNames")?.value.trim() || "";
@@ -681,11 +694,14 @@ document.getElementById("generateAddDescriptionBtn")?.addEventListener("click", 
         if (!title || !genres) {
             throw new Error("Title and at least one genre are required to generate description.");
         }
+        setGenerateButtonState(button, true);
         const description = await generateDescription(title, authorNames, genres);
         document.getElementById("addDescription").value = description;
-        showToast("Description generated.", false);
+        showToast("Summary generated.", false);
     } catch (error) {
         showToast(error.message, true);
+    } finally {
+        setGenerateButtonState(button, false);
     }
 });
 

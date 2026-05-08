@@ -239,6 +239,7 @@ function buildRequestRows(items) {
         `;
 
         const actionCell = row.lastElementChild;
+        actionCell.classList.add("request-action-cell");
         const requestId = item.id || "";
 
         const selectBtn = document.createElement("button");
@@ -269,15 +270,12 @@ function buildRequestRows(items) {
         priorityBtn.textContent = item.priority ? "Unmark Priority" : "Mark Priority";
         priorityBtn.addEventListener("click", () => togglePriority(requestId, !item.priority));
 
-        actionCell.appendChild(selectBtn);
-        actionCell.appendChild(document.createTextNode(" "));
-        actionCell.appendChild(approveBtn);
-        actionCell.appendChild(document.createTextNode(" "));
-        actionCell.appendChild(uploadBtn);
-        actionCell.appendChild(document.createTextNode(" "));
-        actionCell.appendChild(rejectBtn);
-        actionCell.appendChild(document.createTextNode(" "));
-        actionCell.appendChild(priorityBtn);
+        const actionStack = document.createElement("div");
+        actionStack.className = "request-action-stack";
+        [selectBtn, approveBtn, uploadBtn, rejectBtn, priorityBtn].forEach((button) => {
+            actionStack.appendChild(button);
+        });
+        actionCell.appendChild(actionStack);
 
         const cb = row.querySelector(".bulk-request-checkbox");
         cb?.addEventListener("change", updateBulkRequestButtonsState);

@@ -364,8 +364,8 @@ button {
     border-radius: 8px;
     color: #fff;
     font-weight: 600;
-    font-size: 0.92rem;
-    padding: 7px 9px;
+    font-size: 0.86rem;
+    padding: 5px 8px;
     background: var(--primary-color);
     transition: transform 120ms ease, background 120ms ease, filter 120ms ease;
 }
@@ -403,7 +403,7 @@ button.danger:hover {
 }
 
 .toolbar > * {
-    flex: 1 1 112px;
+    flex: 1 1 96px;
 }
 
 .inline-row {
@@ -429,9 +429,9 @@ button.danger:hover {
 }
 
 .pager-btn {
-    width: 32px;
-    min-width: 32px;
-    padding: 6px;
+    width: 28px;
+    min-width: 28px;
+    padding: 5px;
 }
 
 table {
@@ -469,7 +469,7 @@ th {
 }
 
 .book-select-btn {
-    min-width: 88px;
+    min-width: 78px;
 }
 
 .book-select-btn.is-selected {
@@ -541,8 +541,8 @@ ul {
 
 .notification-actions button {
     width: auto;
-    min-width: 94px;
-    padding: 6px 8px;
+    min-width: 82px;
+    padding: 5px 7px;
 }
 
 #borrows li {
@@ -571,8 +571,8 @@ ul {
 
 .borrow-item-actions button {
     width: auto;
-    min-width: 72px;
-    padding: 6px 9px;
+    min-width: 64px;
+    padding: 5px 7px;
 }
 
 pre {
@@ -595,7 +595,7 @@ pre {
 
 .file-btn {
     width: auto;
-    min-width: 86px;
+    min-width: 76px;
 }
 
 .file-preview {
@@ -632,8 +632,8 @@ pre {
 }
 
 .big-btn {
-    padding: 9px 11px;
-    font-size: 0.94rem;
+    padding: 7px 9px;
+    font-size: 0.88rem;
 }
 
 .quick-links {
@@ -717,9 +717,9 @@ pre {
     background: #556980;
     text-decoration: none;
     border-radius: 8px;
-    padding: 7px 10px;
+    padding: 5px 8px;
     font-weight: 600;
-    font-size: 0.92rem;
+    font-size: 0.86rem;
 }
 
 .link-btn:hover {
@@ -849,6 +849,22 @@ pre {
     background-color: #fff4cc;
 }
 
+.request-action-cell {
+    min-width: 130px;
+}
+
+.request-action-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.request-action-stack button {
+    width: 100%;
+    padding: 8px 10px;
+    line-height: 1.2;
+}
+
 .record-overdue {
     background-color: #fde2e2;
 }
@@ -860,7 +876,7 @@ pre {
     margin-top: 8px;
 }
 .tab-btn {
-    padding: 4px 10px;
+    padding: 3px 8px;
     border: 1px solid #ccc;
     background: #f5f5f5;
     color: #333;
